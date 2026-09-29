@@ -3,6 +3,7 @@ import { store } from './models';
 import { errors, sendError, handleError } from './errors';
 import { signup, login, generateToken, generateId, isValidEmail, isValidPassword, isValidHandle, deriveHandle } from './auth';
 import { User, Fixture, ExportedState, PaymentRequest, MoneyRequestRequest, PayRequestRequest, SplitRequest, SettlementRequest, Payment, MoneyRequest } from './types';
+import { formatTimestamp } from './utils';
 
 const app = express();
 app.use(express.json({ limit: '10mb' }));
@@ -117,7 +118,7 @@ app.post('/payments', authMiddleware, (req: AuthRequest, res: Response) => {
       if (existingRecord.body !== requestBody) {
         return sendError(res, 409, 'idempotency_key_reuse', 'Idempotency key reuse with different body');
       }
-      return res.status(existingRecord.status).json(existingRecord.response);
+      return res.status(200).json(existingRecord.response);
     }
 
     // Validation
@@ -268,7 +269,7 @@ app.post('/requests', authMiddleware, (req: AuthRequest, res: Response) => {
       if (existingRecord.body !== requestBody) {
         return sendError(res, 409, 'idempotency_key_reuse', 'Idempotency key reuse with different body');
       }
-      return res.status(existingRecord.status).json(existingRecord.response);
+      return res.status(200).json(existingRecord.response);
     }
 
     // Validation
@@ -419,7 +420,7 @@ app.post('/requests/:id/pay', authMiddleware, (req: AuthRequest, res: Response) 
       if (existingRecord.body !== requestBody) {
         return sendError(res, 409, 'idempotency_key_reuse', 'Idempotency key reuse with different body');
       }
-      return res.status(existingRecord.status).json(existingRecord.response);
+      return res.status(200).json(existingRecord.response);
     }
 
     // Validation
@@ -597,7 +598,7 @@ app.post('/splits', authMiddleware, (req: AuthRequest, res: Response) => {
       if (existingRecord.body !== requestBody) {
         return sendError(res, 409, 'idempotency_key_reuse', 'Idempotency key reuse with different body');
       }
-      return res.status(existingRecord.status).json(existingRecord.response);
+      return res.status(200).json(existingRecord.response);
     }
 
     // Validation
@@ -689,7 +690,7 @@ app.post('/splits', authMiddleware, (req: AuthRequest, res: Response) => {
       note,
       shares,
       requests: requestObjs,
-      created_at: new Date().toISOString()
+      created_at: formatTimestamp()
     };
 
     store.createIdempotencyRecord(idempotencyKey, req.user.id, 'POST', '/splits', requestBody, response, 201);
@@ -723,7 +724,7 @@ app.post('/settlements', authMiddleware, (req: AuthRequest, res: Response) => {
       if (existingRecord.body !== requestBody) {
         return sendError(res, 409, 'idempotency_key_reuse', 'Idempotency key reuse with different body');
       }
-      return res.status(existingRecord.status).json(existingRecord.response);
+      return res.status(200).json(existingRecord.response);
     }
 
     // Validation
@@ -800,7 +801,7 @@ app.post('/settlements', authMiddleware, (req: AuthRequest, res: Response) => {
     const settlement_id = generateId('st');
     const payment_ids: string[] = [];
     const paymentObjs = [];
-    const committedAt = new Date().toISOString();
+    const committedAt = formatTimestamp();
 
     for (const transfer of transfersList) {
       const payment_id = generateId('p');

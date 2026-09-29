@@ -1,5 +1,6 @@
 import * as bcrypt from 'bcryptjs';
 import { ServiceState, User, Token, Payment, MoneyRequest, Split, Settlement, IdempotencyRecord, Fixture } from './types';
+import { formatTimestamp } from './utils';
 
 export class Store {
   private state: ServiceState;
@@ -29,7 +30,7 @@ export class Store {
       display_name,
       handle,
       balance,
-      created_at: new Date().toISOString()
+      created_at: formatTimestamp()
     };
     this.state.users.push(user);
     return user;
@@ -89,7 +90,7 @@ export class Store {
       visibility,
       request_id: request_id ?? null,
       settlement_id: settlement_id ?? null,
-      created_at: new Date().toISOString()
+      created_at: formatTimestamp()
     };
     this.state.payments.push(payment);
     return payment;
@@ -115,7 +116,7 @@ export class Store {
       note,
       status: 'pending',
       payment_id: null,
-      created_at: new Date().toISOString()
+      created_at: formatTimestamp()
     };
     this.state.requests.push(request);
     return request;
@@ -156,7 +157,7 @@ export class Store {
       note,
       shares,
       request_ids,
-      created_at: new Date().toISOString()
+      created_at: formatTimestamp()
     };
     this.state.splits.push(split);
     return split;
@@ -168,7 +169,7 @@ export class Store {
       id,
       operator_id,
       payment_ids,
-      committed_at: new Date().toISOString()
+      committed_at: formatTimestamp()
     };
     this.state.settlements.push(settlement);
     return settlement;
@@ -216,7 +217,7 @@ export class Store {
       }
     }
 
-    const now = new Date().toISOString();
+    const now = formatTimestamp();
     this.state = {
       currency: fixture.currency,
       minor_units: fixture.minor_units,
