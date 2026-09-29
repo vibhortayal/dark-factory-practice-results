@@ -52,3 +52,58 @@ function canonicalJson(value: any): string {
   
   return JSON.stringify(value);
 }
+
+/**
+ * Validate ServiceState structure per §10
+ * Ensures the imported state has required fields and valid types
+ */
+export function validateServiceState(state: any): boolean {
+  if (!state || typeof state !== 'object') {
+    return false;
+  }
+
+  // Required top-level fields
+  if (typeof state.currency !== 'string') return false;
+  if (typeof state.minor_units !== 'number') return false;
+  if (!Array.isArray(state.users)) return false;
+  if (!Array.isArray(state.tokens)) return false;
+  if (!Array.isArray(state.payments)) return false;
+  if (!Array.isArray(state.requests)) return false;
+  if (!Array.isArray(state.splits)) return false;
+  if (!Array.isArray(state.settlements)) return false;
+  if (!Array.isArray(state.settlement_operator_ids)) return false;
+  if (!Array.isArray(state.idempotency_records)) return false;
+
+  // Validate users have required fields
+  for (const user of state.users) {
+    if (!user || typeof user !== 'object') return false;
+    if (typeof user.id !== 'string') return false;
+    if (typeof user.email !== 'string') return false;
+    if (typeof user.password_hash !== 'string') return false;
+    if (typeof user.display_name !== 'string') return false;
+    if (typeof user.handle !== 'string') return false;
+    if (typeof user.balance !== 'number') return false;
+    if (typeof user.created_at !== 'string') return false;
+  }
+
+  // Validate tokens have required fields
+  for (const token of state.tokens) {
+    if (!token || typeof token !== 'object') return false;
+    if (typeof token.user_id !== 'string') return false;
+    if (typeof token.token !== 'string') return false;
+  }
+
+  // Validate payments have required fields
+  for (const payment of state.payments) {
+    if (!payment || typeof payment !== 'object') return false;
+    if (typeof payment.id !== 'string') return false;
+    if (typeof payment.from_user_id !== 'string') return false;
+    if (typeof payment.to_user_id !== 'string') return false;
+    if (typeof payment.amount !== 'number') return false;
+    if (typeof payment.note !== 'string') return false;
+    if (payment.visibility !== 'public' && payment.visibility !== 'private') return false;
+    if (typeof payment.created_at !== 'string') return false;
+  }
+
+  return true;
+}

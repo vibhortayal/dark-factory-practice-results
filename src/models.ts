@@ -180,8 +180,8 @@ export class Store {
   }
 
   // Idempotency
-  getIdempotencyRecord(user_id: string, key: string): IdempotencyRecord | undefined {
-    return this.state.idempotency_records.find(r => r.user_id === user_id && r.key === key);
+  getIdempotencyRecord(user_id: string, key: string, method: string, path: string): IdempotencyRecord | undefined {
+    return this.state.idempotency_records.find(r => r.user_id === user_id && r.key === key && r.method === method && r.path === path);
   }
 
   createIdempotencyRecord(key: string, user_id: string, method: string, path: string, body: string, response: unknown, status: number): IdempotencyRecord {

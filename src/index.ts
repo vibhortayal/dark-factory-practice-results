@@ -3,7 +3,7 @@ import { store } from './models';
 import { errors, sendError, handleError } from './errors';
 import { signup, login, generateToken, generateId, isValidEmail, isValidPassword, isValidHandle, deriveHandle } from './auth';
 import { User, Fixture, ExportedState, PaymentRequest, MoneyRequestRequest, PayRequestRequest, SplitRequest, SettlementRequest, Payment, MoneyRequest } from './types';
-import { formatTimestamp, normalizeJsonBody } from './utils';
+import { formatTimestamp, normalizeJsonBody, validateServiceState } from './utils';
 
 const app = express();
 app.use(express.json({ limit: '10mb' }));
@@ -113,7 +113,7 @@ app.post('/payments', authMiddleware, (req: AuthRequest, res: Response) => {
     }
 
     const requestBody = normalizeJsonBody(JSON.stringify(req.body));
-    const existingRecord = store.getIdempotencyRecord(req.user.id, idempotencyKey);
+    const existingRecord = store.getIdempotencyRecord(req.user.id, idempotencyKey, req.method, '/payments');
     if (existingRecord) {
       if (existingRecord.body !== requestBody) {
         return sendError(res, 409, 'idempotency_key_reuse', 'Idempotency key reuse with different body');
@@ -264,7 +264,7 @@ app.post('/requests', authMiddleware, (req: AuthRequest, res: Response) => {
     }
 
     const requestBody = normalizeJsonBody(JSON.stringify(req.body));
-    const existingRecord = store.getIdempotencyRecord(req.user.id, idempotencyKey);
+    const existingRecord = store.getIdempotencyRecord(req.user.id, idempotencyKey, req.method, '/requests');
     if (existingRecord) {
       if (existingRecord.body !== requestBody) {
         return sendError(res, 409, 'idempotency_key_reuse', 'Idempotency key reuse with different body');
@@ -415,7 +415,7 @@ app.post('/requests/:id/pay', authMiddleware, (req: AuthRequest, res: Response) 
     }
 
     const requestBody = normalizeJsonBody(JSON.stringify(req.body));
-    const existingRecord = store.getIdempotencyRecord(req.user.id, idempotencyKey);
+    const existingRecord = store.getIdempotencyRecord(req.user.id, idempotencyKey, req.method, `/requests/${id}/pay`);
     if (existingRecord) {
       if (existingRecord.body !== requestBody) {
         return sendError(res, 409, 'idempotency_key_reuse', 'Idempotency key reuse with different body');
@@ -592,8 +592,8 @@ app.post('/splits', authMiddleware, (req: AuthRequest, res: Response) => {
       return sendError(res, 400, 'missing_idempotency_key', 'Idempotency-Key header is required');
     }
 
-    const requestBody = normalizeJsonBody(JSON.stringify(req.body));
-    const existingRecord = store.getIdempotencyRecord(req.user.id, idempotencyKey);
+     const requestBody = normalizeJsonBody(JSON.stringify(req.body));
+    const existingRecord = store.getIdempotencyRecord(req.user.id, idempotencyKey, req.method, '/splits');
     if (existingRecord) {
       if (existingRecord.body !== requestBody) {
         return sendError(res, 409, 'idempotency_key_reuse', 'Idempotency key reuse with different body');
@@ -719,7 +719,7 @@ app.post('/settlements', authMiddleware, (req: AuthRequest, res: Response) => {
     }
 
     const requestBody = normalizeJsonBody(JSON.stringify(req.body));
-    const existingRecord = store.getIdempotencyRecord(req.user.id, idempotencyKey);
+    const existingRecord = store.getIdempotencyRecord(req.user.id, idempotencyKey, req.method, '/settlements');
     if (existingRecord) {
       if (existingRecord.body !== requestBody) {
         return sendError(res, 409, 'idempotency_key_reuse', 'Idempotency key reuse with different body');
@@ -905,7 +905,7 @@ app.post('/_test/import', (req: Request, res: Response) => {
       return sendError(res, 422, 'validation_failed', 'Invalid format_version');
     }
 
-    if (!state) {
+    if (!state || !validateServiceState(state)) {
       return sendError(res, 422, 'validation_failed', 'Invalid state');
     }
 
