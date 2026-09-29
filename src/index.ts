@@ -579,11 +579,16 @@ app.post('/requests/:id/cancel', authMiddleware, (req: AuthRequest, res: Respons
       return sendError(res, 403, 'forbidden', 'Only the requester can cancel this request');
     }
 
-    if (request.status !== 'pending') {
+    // Per spec §8: Cancelling an already-cancelled request is 200 (not an error)
+    // Only paid or declined requests are request_not_pending errors
+    if (request.status === 'paid' || request.status === 'declined') {
       return sendError(res, 409, 'request_not_pending', 'Request is not pending');
     }
 
-    store.updateRequestStatus(request.id, 'cancelled');
+    // If already cancelled, just return the current state (200 OK, idempotent)
+    if (request.status !== 'cancelled') {
+      store.updateRequestStatus(request.id, 'cancelled');
+    }
 
     const updatedRequest = store.getRequestById(request.id);
     const response = {
