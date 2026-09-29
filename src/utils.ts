@@ -54,6 +54,13 @@ function canonicalJson(value: any): string {
 }
 
 /**
+ * Check if a number is a safe integer (per spec: ±2^53)
+ */
+function isSafeAmount(n: any): boolean {
+  return Number.isInteger(n) && Math.abs(n) <= 9007199254740991;
+}
+
+/**
  * Validate ServiceState structure per §10
  * Comprehensive validation including monetary invariants and nested structures
  */
@@ -80,6 +87,7 @@ export function validateServiceState(state: any): boolean {
   }
 
   // Validate users have required fields and valid values
+  let balanceSum = 0;
   for (const user of state.users) {
     if (!user || typeof user !== 'object') return false;
     if (typeof user.id !== 'string') return false;
@@ -87,11 +95,16 @@ export function validateServiceState(state: any): boolean {
     if (typeof user.password_hash !== 'string') return false;
     if (typeof user.display_name !== 'string') return false;
     if (typeof user.handle !== 'string') return false;
-    if (typeof user.balance !== 'number') return false;
+    // §1: All amounts are exact integer counts of minor units
+    if (!isSafeAmount(user.balance)) return false;
     // §1: No wallet balance may be negative
     if (user.balance < 0) return false;
+    balanceSum += user.balance;
     if (typeof user.created_at !== 'string') return false;
   }
+
+  // §1: Balance sum must be within safe integer range
+  if (!isSafeAmount(balanceSum)) return false;
 
   // Validate tokens have required fields
   for (const token of state.tokens) {
@@ -108,7 +121,8 @@ export function validateServiceState(state: any): boolean {
     if (typeof payment.from_handle !== 'string') return false;
     if (typeof payment.to_user_id !== 'string') return false;
     if (typeof payment.to_handle !== 'string') return false;
-    if (typeof payment.amount !== 'number' || payment.amount < 0) return false;
+    // §8: amount below 1 is invalid
+    if (!isSafeAmount(payment.amount) || payment.amount < 1) return false;
     if (typeof payment.note !== 'string') return false;
     if (payment.visibility !== 'public' && payment.visibility !== 'private') return false;
     if (payment.request_id !== null && typeof payment.request_id !== 'string') return false;
@@ -124,7 +138,8 @@ export function validateServiceState(state: any): boolean {
     if (typeof request.requester_handle !== 'string') return false;
     if (typeof request.payer_id !== 'string') return false;
     if (typeof request.payer_handle !== 'string') return false;
-    if (typeof request.amount !== 'number' || request.amount < 0) return false;
+    // §8: amount below 1 is invalid
+    if (!isSafeAmount(request.amount) || request.amount < 1) return false;
     if (typeof request.note !== 'string') return false;
     if (request.status !== 'pending' && request.status !== 'paid' && request.status !== 'declined' && request.status !== 'cancelled') return false;
     if (request.payment_id !== null && typeof request.payment_id !== 'string') return false;
@@ -136,15 +151,21 @@ export function validateServiceState(state: any): boolean {
     if (!split || typeof split !== 'object') return false;
     if (typeof split.id !== 'string') return false;
     if (typeof split.requester_id !== 'string') return false;
-    if (typeof split.amount !== 'number' || split.amount < 0) return false;
+    // §9: Split amount must be valid integer >= 1
+    if (!isSafeAmount(split.amount) || split.amount < 1) return false;
     if (typeof split.currency !== 'string') return false;
     if (typeof split.note !== 'string') return false;
     if (!Array.isArray(split.shares)) return false;
+    let shareSum = 0;
     for (const share of split.shares) {
       if (!share || typeof share !== 'object') return false;
       if (typeof share.handle !== 'string') return false;
-      if (typeof share.amount !== 'number' || share.amount < 0) return false;
+      // §1: All amounts are exact integer counts of minor units, >= 0
+      if (!isSafeAmount(share.amount) || share.amount < 0) return false;
+      shareSum += share.amount;
     }
+    // Shares must sum to split amount
+    if (shareSum !== split.amount) return false;
     if (!Array.isArray(split.request_ids)) return false;
     for (const reqId of split.request_ids) {
       if (typeof reqId !== 'string') return false;
