@@ -123,6 +123,29 @@ function getCurrentTimestamp() {
   return iso.replace('Z', '+00:00');
 }
 
+// Helper: Canonicalize JSON for idempotency (sort keys recursively)
+function canonicalizeJSON(obj) {
+  if (obj === null || typeof obj !== 'object') {
+    return obj;
+  }
+  if (Array.isArray(obj)) {
+    return obj.map(item => canonicalizeJSON(item));
+  }
+  const sorted = {};
+  const keys = Object.keys(obj).sort();
+  for (const key of keys) {
+    sorted[key] = canonicalizeJSON(obj[key]);
+  }
+  return sorted;
+}
+
+// Helper: Compute a hash of canonical JSON for comparison
+function getCanonicalHash(obj) {
+  const canonical = canonicalizeJSON(obj);
+  const str = JSON.stringify(canonical);
+  return crypto.createHash('sha256').update(str).digest('hex');
+}
+
 // Ensure first initialization
 resetState();
 
@@ -190,6 +213,12 @@ const server = http.createServer(async (req, res) => {
   if (method === 'POST' && pathname === '/_test/reset') {
     try {
       const body = await parseBody(req);
+      // Validate minor_units if provided
+      if (body && body.minor_units !== undefined) {
+        if (![0, 2, 3].includes(body.minor_units)) {
+          return sendError(res, 422, "validation_failed", "minor_units must be one of 0, 2, 3");
+        }
+      }
       resetState(body || {});
       res.writeHead(204);
       return res.end();
@@ -359,7 +388,7 @@ const server = http.createServer(async (req, res) => {
 
   let idempotencyKey = null;
   let bodyObj = null;
-  let bodyString = '';
+  let bodyHash = '';
 
   if (method === 'POST' && isIdempotentPath) {
     idempotencyKey = req.headers['idempotency-key'];
@@ -373,7 +402,7 @@ const server = http.createServer(async (req, res) => {
     // Read body and hash it to identify replays
     try {
       bodyObj = await parseBody(req);
-      bodyString = bodyObj ? JSON.stringify(bodyObj) : '';
+      bodyHash = bodyObj ? getCanonicalHash(bodyObj) : '';
     } catch (err) {
       return sendError(res, 400, "malformed_request", "Unparseable body");
     }
@@ -381,7 +410,7 @@ const server = http.createServer(async (req, res) => {
     const keyLookup = `${user.id}:${idempotencyKey}`;
     const previous = state.idempotency_keys[keyLookup];
     if (previous) {
-      if (previous.bodyString === bodyString) {
+      if (previous.bodyHash === bodyHash) {
         res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
         return res.end(JSON.stringify(previous.responseBody));
       } else {
@@ -395,7 +424,7 @@ const server = http.createServer(async (req, res) => {
     if (idempotencyKey && status >= 200 && status < 300) {
       const keyLookup = `${user.id}:${idempotencyKey}`;
       state.idempotency_keys[keyLookup] = {
-        bodyString,
+        bodyHash,
         responseBody: body
       };
     }
