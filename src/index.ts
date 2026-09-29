@@ -3,7 +3,7 @@ import { store } from './models';
 import { errors, sendError, handleError } from './errors';
 import { signup, login, generateToken, generateId, isValidEmail, isValidPassword, isValidHandle, deriveHandle } from './auth';
 import { User, Fixture, ExportedState, PaymentRequest, MoneyRequestRequest, PayRequestRequest, SplitRequest, SettlementRequest, Payment, MoneyRequest } from './types';
-import { formatTimestamp } from './utils';
+import { formatTimestamp, normalizeJsonBody } from './utils';
 
 const app = express();
 app.use(express.json({ limit: '10mb' }));
@@ -112,7 +112,7 @@ app.post('/payments', authMiddleware, (req: AuthRequest, res: Response) => {
       return sendError(res, 400, 'missing_idempotency_key', 'Idempotency-Key header is required');
     }
 
-    const requestBody = JSON.stringify(req.body);
+    const requestBody = normalizeJsonBody(JSON.stringify(req.body));
     const existingRecord = store.getIdempotencyRecord(req.user.id, idempotencyKey);
     if (existingRecord) {
       if (existingRecord.body !== requestBody) {
@@ -263,7 +263,7 @@ app.post('/requests', authMiddleware, (req: AuthRequest, res: Response) => {
       return sendError(res, 400, 'missing_idempotency_key', 'Idempotency-Key header is required');
     }
 
-    const requestBody = JSON.stringify(req.body);
+    const requestBody = normalizeJsonBody(JSON.stringify(req.body));
     const existingRecord = store.getIdempotencyRecord(req.user.id, idempotencyKey);
     if (existingRecord) {
       if (existingRecord.body !== requestBody) {
@@ -414,7 +414,7 @@ app.post('/requests/:id/pay', authMiddleware, (req: AuthRequest, res: Response) 
       return sendError(res, 400, 'missing_idempotency_key', 'Idempotency-Key header is required');
     }
 
-    const requestBody = JSON.stringify(req.body);
+    const requestBody = normalizeJsonBody(JSON.stringify(req.body));
     const existingRecord = store.getIdempotencyRecord(req.user.id, idempotencyKey);
     if (existingRecord) {
       if (existingRecord.body !== requestBody) {
@@ -592,7 +592,7 @@ app.post('/splits', authMiddleware, (req: AuthRequest, res: Response) => {
       return sendError(res, 400, 'missing_idempotency_key', 'Idempotency-Key header is required');
     }
 
-    const requestBody = JSON.stringify(req.body);
+    const requestBody = normalizeJsonBody(JSON.stringify(req.body));
     const existingRecord = store.getIdempotencyRecord(req.user.id, idempotencyKey);
     if (existingRecord) {
       if (existingRecord.body !== requestBody) {
@@ -718,7 +718,7 @@ app.post('/settlements', authMiddleware, (req: AuthRequest, res: Response) => {
       return sendError(res, 403, 'forbidden', 'Only settlement operators can create settlements');
     }
 
-    const requestBody = JSON.stringify(req.body);
+    const requestBody = normalizeJsonBody(JSON.stringify(req.body));
     const existingRecord = store.getIdempotencyRecord(req.user.id, idempotencyKey);
     if (existingRecord) {
       if (existingRecord.body !== requestBody) {

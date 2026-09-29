@@ -13,3 +13,42 @@ export function formatTimestamp(date: Date = new Date()): string {
   // For now, always use +00:00 (UTC)
   return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}+00:00`;
 }
+
+/**
+ * Normalize JSON string for comparison
+ * Per §7: "Same body" means the same JSON value after parsing — key order and whitespace do not matter.
+ * This function produces a canonical form with sorted keys for reliable comparison.
+ */
+export function normalizeJsonBody(jsonString: string): string {
+  try {
+    const parsed = JSON.parse(jsonString);
+    return canonicalJson(parsed);
+  } catch {
+    // If parse fails, return original (error will be caught elsewhere)
+    return jsonString;
+  }
+}
+
+/**
+ * Convert a value to canonical JSON form (sorted keys, no extra whitespace)
+ */
+function canonicalJson(value: any): string {
+  if (value === null) return 'null';
+  if (typeof value === 'boolean') return value ? 'true' : 'false';
+  if (typeof value === 'number') return JSON.stringify(value);
+  if (typeof value === 'string') return JSON.stringify(value);
+  
+  if (Array.isArray(value)) {
+    const elements = value.map(v => canonicalJson(v));
+    return '[' + elements.join(',') + ']';
+  }
+  
+  if (typeof value === 'object') {
+    // Sort keys alphabetically for canonical form
+    const keys = Object.keys(value).sort();
+    const pairs = keys.map(k => JSON.stringify(k) + ':' + canonicalJson(value[k]));
+    return '{' + pairs.join(',') + '}';
+  }
+  
+  return JSON.stringify(value);
+}
