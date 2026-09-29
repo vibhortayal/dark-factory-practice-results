@@ -55,7 +55,7 @@ function canonicalJson(value: any): string {
 
 /**
  * Validate ServiceState structure per §10
- * Ensures the imported state has required fields and valid types
+ * Comprehensive validation including monetary invariants and nested structures
  */
 export function validateServiceState(state: any): boolean {
   if (!state || typeof state !== 'object') {
@@ -74,7 +74,12 @@ export function validateServiceState(state: any): boolean {
   if (!Array.isArray(state.settlement_operator_ids)) return false;
   if (!Array.isArray(state.idempotency_records)) return false;
 
-  // Validate users have required fields
+  // Validate settlement_operator_ids are all strings
+  for (const opId of state.settlement_operator_ids) {
+    if (typeof opId !== 'string') return false;
+  }
+
+  // Validate users have required fields and valid values
   for (const user of state.users) {
     if (!user || typeof user !== 'object') return false;
     if (typeof user.id !== 'string') return false;
@@ -83,6 +88,8 @@ export function validateServiceState(state: any): boolean {
     if (typeof user.display_name !== 'string') return false;
     if (typeof user.handle !== 'string') return false;
     if (typeof user.balance !== 'number') return false;
+    // §1: No wallet balance may be negative
+    if (user.balance < 0) return false;
     if (typeof user.created_at !== 'string') return false;
   }
 
@@ -93,16 +100,80 @@ export function validateServiceState(state: any): boolean {
     if (typeof token.token !== 'string') return false;
   }
 
-  // Validate payments have required fields
+  // Validate payments have required fields and valid values
   for (const payment of state.payments) {
     if (!payment || typeof payment !== 'object') return false;
     if (typeof payment.id !== 'string') return false;
     if (typeof payment.from_user_id !== 'string') return false;
+    if (typeof payment.from_handle !== 'string') return false;
     if (typeof payment.to_user_id !== 'string') return false;
-    if (typeof payment.amount !== 'number') return false;
+    if (typeof payment.to_handle !== 'string') return false;
+    if (typeof payment.amount !== 'number' || payment.amount < 0) return false;
     if (typeof payment.note !== 'string') return false;
     if (payment.visibility !== 'public' && payment.visibility !== 'private') return false;
+    if (payment.request_id !== null && typeof payment.request_id !== 'string') return false;
+    if (payment.settlement_id !== null && typeof payment.settlement_id !== 'string') return false;
     if (typeof payment.created_at !== 'string') return false;
+  }
+
+  // Validate requests have required fields and valid values
+  for (const request of state.requests) {
+    if (!request || typeof request !== 'object') return false;
+    if (typeof request.id !== 'string') return false;
+    if (typeof request.requester_id !== 'string') return false;
+    if (typeof request.requester_handle !== 'string') return false;
+    if (typeof request.payer_id !== 'string') return false;
+    if (typeof request.payer_handle !== 'string') return false;
+    if (typeof request.amount !== 'number' || request.amount < 0) return false;
+    if (typeof request.note !== 'string') return false;
+    if (request.status !== 'pending' && request.status !== 'paid' && request.status !== 'declined' && request.status !== 'cancelled') return false;
+    if (request.payment_id !== null && typeof request.payment_id !== 'string') return false;
+    if (typeof request.created_at !== 'string') return false;
+  }
+
+  // Validate splits have required fields and valid values
+  for (const split of state.splits) {
+    if (!split || typeof split !== 'object') return false;
+    if (typeof split.id !== 'string') return false;
+    if (typeof split.requester_id !== 'string') return false;
+    if (typeof split.amount !== 'number' || split.amount < 0) return false;
+    if (typeof split.currency !== 'string') return false;
+    if (typeof split.note !== 'string') return false;
+    if (!Array.isArray(split.shares)) return false;
+    for (const share of split.shares) {
+      if (!share || typeof share !== 'object') return false;
+      if (typeof share.handle !== 'string') return false;
+      if (typeof share.amount !== 'number' || share.amount < 0) return false;
+    }
+    if (!Array.isArray(split.request_ids)) return false;
+    for (const reqId of split.request_ids) {
+      if (typeof reqId !== 'string') return false;
+    }
+    if (typeof split.created_at !== 'string') return false;
+  }
+
+  // Validate settlements have required fields and valid values
+  for (const settlement of state.settlements) {
+    if (!settlement || typeof settlement !== 'object') return false;
+    if (typeof settlement.id !== 'string') return false;
+    if (typeof settlement.operator_id !== 'string') return false;
+    if (!Array.isArray(settlement.payment_ids)) return false;
+    for (const payId of settlement.payment_ids) {
+      if (typeof payId !== 'string') return false;
+    }
+    if (typeof settlement.committed_at !== 'string') return false;
+  }
+
+  // Validate idempotency records have required fields
+  for (const record of state.idempotency_records) {
+    if (!record || typeof record !== 'object') return false;
+    if (typeof record.key !== 'string') return false;
+    if (typeof record.user_id !== 'string') return false;
+    if (typeof record.method !== 'string') return false;
+    if (typeof record.path !== 'string') return false;
+    if (typeof record.body !== 'string') return false;
+    if (typeof record.status !== 'number') return false;
+    // response is response: unknown, so we don't validate it deeply
   }
 
   return true;
