@@ -3,12 +3,20 @@ import { store } from './models';
 import { errors, sendError, handleError } from './errors';
 import { signup, login, generateToken, generateId, isValidEmail, isValidPassword, isValidHandle, deriveHandle } from './auth';
 import { User, Fixture, ExportedState, PaymentRequest, MoneyRequestRequest, PayRequestRequest, SplitRequest, SettlementRequest, Payment, MoneyRequest } from './types';
-import { formatTimestamp, normalizeJsonBody, validateServiceState } from './utils';
+import { formatTimestamp, normalizeJsonBody, validateServiceState, countUnicodeCharacters } from './utils';
 
 const app = express();
 app.use(express.json({ limit: '10mb' }));
 
 const PORT = parseInt(process.env.PORT || '8080', 10);
+
+// Error handler for malformed JSON
+app.use((err: any, req: Request, res: Response, next: NextFunction) => {
+  if (err instanceof SyntaxError && 'body' in err) {
+    return sendError(res, 400, 'malformed_request', 'Malformed JSON in request body');
+  }
+  next(err);
+});
 
 // Middleware
 interface AuthRequest extends Request {
@@ -112,6 +120,11 @@ app.post('/payments', authMiddleware, (req: AuthRequest, res: Response) => {
       return sendError(res, 400, 'missing_idempotency_key', 'Idempotency-Key header is required');
     }
 
+    // Validate idempotency key length (§5: 1 to 255 characters)
+    if (typeof idempotencyKey !== 'string' || idempotencyKey.length < 1 || idempotencyKey.length > 255) {
+      return sendError(res, 422, 'validation_failed', 'Idempotency-Key must be 1-255 characters');
+    }
+
     const requestBody = normalizeJsonBody(JSON.stringify(req.body));
     const existingRecord = store.getIdempotencyRecord(req.user.id, idempotencyKey, req.method, '/payments');
     if (existingRecord) {
@@ -130,7 +143,7 @@ app.post('/payments', authMiddleware, (req: AuthRequest, res: Response) => {
       return sendError(res, 422, 'validation_failed', 'Invalid amount');
     }
 
-    if (typeof note !== 'string' || note.length > 200) {
+    if (typeof note !== 'string' || countUnicodeCharacters(note) > 200) {
       return sendError(res, 422, 'validation_failed', 'Invalid note');
     }
 
@@ -178,6 +191,7 @@ app.post('/payments', authMiddleware, (req: AuthRequest, res: Response) => {
       note: payment.note,
       visibility: payment.visibility,
       request_id: payment.request_id,
+      settlement_id: payment.settlement_id,
       created_at: payment.created_at
     };
 
@@ -263,6 +277,10 @@ app.post('/requests', authMiddleware, (req: AuthRequest, res: Response) => {
       return sendError(res, 400, 'missing_idempotency_key', 'Idempotency-Key header is required');
     }
 
+    if (typeof idempotencyKey !== 'string' || idempotencyKey.length < 1 || idempotencyKey.length > 255) {
+      return sendError(res, 422, 'validation_failed', 'Idempotency-Key must be 1-255 characters');
+    }
+
     const requestBody = normalizeJsonBody(JSON.stringify(req.body));
     const existingRecord = store.getIdempotencyRecord(req.user.id, idempotencyKey, req.method, '/requests');
     if (existingRecord) {
@@ -281,7 +299,7 @@ app.post('/requests', authMiddleware, (req: AuthRequest, res: Response) => {
       return sendError(res, 422, 'validation_failed', 'Invalid amount');
     }
 
-    if (typeof note !== 'string' || note.length > 200) {
+    if (typeof note !== 'string' || countUnicodeCharacters(note) > 200) {
       return sendError(res, 422, 'validation_failed', 'Invalid note');
     }
 
@@ -408,14 +426,18 @@ app.post('/requests/:id/pay', authMiddleware, (req: AuthRequest, res: Response) 
 
     const { id } = req.params;
     const { visibility = 'public' } = req.body;
-    const idempotencyKey = req.idempotencyKey;
+     const idempotencyKey = req.idempotencyKey;
 
-    if (!idempotencyKey) {
-      return sendError(res, 400, 'missing_idempotency_key', 'Idempotency-Key header is required');
-    }
+     if (!idempotencyKey) {
+       return sendError(res, 400, 'missing_idempotency_key', 'Idempotency-Key header is required');
+     }
 
-    const requestBody = normalizeJsonBody(JSON.stringify(req.body));
-    const existingRecord = store.getIdempotencyRecord(req.user.id, idempotencyKey, req.method, `/requests/${id}/pay`);
+     if (typeof idempotencyKey !== 'string' || idempotencyKey.length < 1 || idempotencyKey.length > 255) {
+       return sendError(res, 422, 'validation_failed', 'Idempotency-Key must be 1-255 characters');
+     }
+
+     const requestBody = normalizeJsonBody(JSON.stringify(req.body));
+     const existingRecord = store.getIdempotencyRecord(req.user.id, idempotencyKey, req.method, `/requests/${id}/pay`);
     if (existingRecord) {
       if (existingRecord.body !== requestBody) {
         return sendError(res, 409, 'idempotency_key_reuse', 'Idempotency key reuse with different body');
@@ -480,6 +502,7 @@ app.post('/requests/:id/pay', authMiddleware, (req: AuthRequest, res: Response) 
       note: payment.note,
       visibility: payment.visibility,
       request_id: payment.request_id,
+      settlement_id: payment.settlement_id,
       created_at: payment.created_at
     };
 
@@ -507,11 +530,16 @@ app.post('/requests/:id/decline', authMiddleware, (req: AuthRequest, res: Respon
       return sendError(res, 403, 'forbidden', 'Only the payer can decline this request');
     }
 
-    if (request.status !== 'pending') {
+    // Per spec §8: Declining an already-declined request is 200 (not an error)
+    // Only paid or cancelled requests are request_not_pending errors
+    if (request.status === 'paid' || request.status === 'cancelled') {
       return sendError(res, 409, 'request_not_pending', 'Request is not pending');
     }
 
-    store.updateRequestStatus(request.id, 'declined');
+    // If already declined, just return the current state (200 OK, idempotent)
+    if (request.status !== 'declined') {
+      store.updateRequestStatus(request.id, 'declined');
+    }
 
     const updatedRequest = store.getRequestById(request.id);
     const response = {
@@ -592,6 +620,10 @@ app.post('/splits', authMiddleware, (req: AuthRequest, res: Response) => {
       return sendError(res, 400, 'missing_idempotency_key', 'Idempotency-Key header is required');
     }
 
+    if (typeof idempotencyKey !== 'string' || idempotencyKey.length < 1 || idempotencyKey.length > 255) {
+      return sendError(res, 422, 'validation_failed', 'Idempotency-Key must be 1-255 characters');
+    }
+
      const requestBody = normalizeJsonBody(JSON.stringify(req.body));
     const existingRecord = store.getIdempotencyRecord(req.user.id, idempotencyKey, req.method, '/splits');
     if (existingRecord) {
@@ -615,7 +647,7 @@ app.post('/splits', authMiddleware, (req: AuthRequest, res: Response) => {
       return sendError(res, 422, 'validation_failed', 'Duplicate handles in participant_handles');
     }
 
-    if (typeof note !== 'string' || note.length > 200) {
+    if (typeof note !== 'string' || countUnicodeCharacters(note) > 200) {
       return sendError(res, 422, 'validation_failed', 'Invalid note');
     }
 
@@ -714,6 +746,10 @@ app.post('/settlements', authMiddleware, (req: AuthRequest, res: Response) => {
       return sendError(res, 400, 'missing_idempotency_key', 'Idempotency-Key header is required');
     }
 
+    if (typeof idempotencyKey !== 'string' || idempotencyKey.length < 1 || idempotencyKey.length > 255) {
+      return sendError(res, 422, 'validation_failed', 'Idempotency-Key must be 1-255 characters');
+    }
+
     if (!store.isOperator(req.user.id)) {
       return sendError(res, 403, 'forbidden', 'Only settlement operators can create settlements');
     }
@@ -749,7 +785,7 @@ app.post('/settlements', authMiddleware, (req: AuthRequest, res: Response) => {
       }
 
       const note = transfer.note || '';
-      if (typeof note !== 'string' || note.length > 200) {
+      if (typeof note !== 'string' || countUnicodeCharacters(note) > 200) {
         return sendError(res, 422, 'validation_failed', 'Invalid note');
       }
 

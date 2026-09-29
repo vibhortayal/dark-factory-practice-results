@@ -1,4 +1,12 @@
 /**
+ * Count Unicode characters (not UTF-16 code units)
+ * Important for emoji and other multi-byte characters per spec §4
+ */
+export function countUnicodeCharacters(str: string): number {
+  return [...str].length;
+}
+
+/**
  * Format ISO timestamp with explicit offset (RFC 3339)
  * Examples: 2026-09-24T19:00:00+00:00, 2026-09-24T21:00:00+02:00
  */
