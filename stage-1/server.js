@@ -146,6 +146,12 @@ function getCanonicalHash(obj) {
   return crypto.createHash('sha256').update(str).digest('hex');
 }
 
+// Helper: Count actual Unicode characters (not UTF-16 code units)
+function countUnicodeChars(str) {
+  if (typeof str !== 'string') return 0;
+  return [...str].length;
+}
+
 // Ensure first initialization
 resetState();
 
@@ -177,6 +183,11 @@ function parseBody(req) {
       }
     });
   });
+}
+
+// Validate handle format
+function isValidHandle(handle) {
+  return /^[a-z0-9_]{1,20}$/.test(handle);
 }
 
 // Derive Handle
@@ -386,49 +397,49 @@ const server = http.createServer(async (req, res) => {
   ];
   const isIdempotentPath = idempotentPaths.includes(pathname) || (pathname.startsWith('/requests/') && pathname.endsWith('/pay'));
 
-  let idempotencyKey = null;
-  let bodyObj = null;
-  let bodyHash = '';
+   let idempotencyKey = null;
+   let bodyObj = null;
+   let bodyHash = '';
 
-  if (method === 'POST' && isIdempotentPath) {
-    idempotencyKey = req.headers['idempotency-key'];
-    if (idempotencyKey === undefined) {
-      return sendError(res, 400, "missing_idempotency_key", "Idempotency-Key header is absent");
-    }
-    if (idempotencyKey === "" || idempotencyKey.length < 1 || idempotencyKey.length > 255) {
-      return sendError(res, 422, "validation_failed", "Invalid Idempotency-Key length");
-    }
+   if (method === 'POST' && isIdempotentPath) {
+     idempotencyKey = req.headers['idempotency-key'];
+     if (idempotencyKey === undefined) {
+       return sendError(res, 400, "missing_idempotency_key", "Idempotency-Key header is absent");
+     }
+     if (idempotencyKey === "" || idempotencyKey.length < 1 || idempotencyKey.length > 255) {
+       return sendError(res, 422, "validation_failed", "Invalid Idempotency-Key length");
+     }
 
-    // Read body and hash it to identify replays
-    try {
-      bodyObj = await parseBody(req);
-      bodyHash = bodyObj ? getCanonicalHash(bodyObj) : '';
-    } catch (err) {
-      return sendError(res, 400, "malformed_request", "Unparseable body");
-    }
+     // Read body and hash it to identify replays
+     try {
+       bodyObj = await parseBody(req);
+       bodyHash = bodyObj ? getCanonicalHash(bodyObj) : '';
+     } catch (err) {
+       return sendError(res, 400, "malformed_request", "Unparseable body");
+     }
 
-    const keyLookup = `${user.id}:${idempotencyKey}`;
-    const previous = state.idempotency_keys[keyLookup];
-    if (previous) {
-      if (previous.bodyHash === bodyHash) {
-        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-        return res.end(JSON.stringify(previous.responseBody));
-      } else {
-        return sendError(res, 409, "idempotency_key_reuse", "Idempotency key reused with different request body");
-      }
-    }
-  }
+     const keyLookup = `${user.id}:${method}:${pathname}:${idempotencyKey}`;
+     const previous = state.idempotency_keys[keyLookup];
+     if (previous) {
+       if (previous.bodyHash === bodyHash) {
+         res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+         return res.end(JSON.stringify(previous.responseBody));
+       } else {
+         return sendError(res, 409, "idempotency_key_reuse", "Idempotency key reused with different request body");
+       }
+     }
+   }
 
-  // Register idempotency helper
-  function saveIdempotency(status, body) {
-    if (idempotencyKey && status >= 200 && status < 300) {
-      const keyLookup = `${user.id}:${idempotencyKey}`;
-      state.idempotency_keys[keyLookup] = {
-        bodyHash,
-        responseBody: body
-      };
-    }
-  }
+   // Register idempotency helper
+   function saveIdempotency(status, body) {
+     if (idempotencyKey && status >= 200 && status < 300) {
+       const keyLookup = `${user.id}:${method}:${pathname}:${idempotencyKey}`;
+       state.idempotency_keys[keyLookup] = {
+         bodyHash,
+         responseBody: body
+       };
+     }
+   }
 
   // GET /me
   if (method === 'GET' && pathname === '/me') {
@@ -442,24 +453,26 @@ const server = http.createServer(async (req, res) => {
     });
   }
 
-  // POST /payments
-  if (method === 'POST' && pathname === '/payments') {
-    if (!bodyObj || typeof bodyObj.to_handle !== 'string' || bodyObj.amount === undefined) {
-      return sendError(res, 422, "validation_failed", "Missing required fields");
-    }
-    const amount = bodyObj.amount;
-    if (typeof amount !== 'number' || amount < 1 || amount > 1000000000 || !Number.isInteger(amount)) {
-      return sendError(res, 422, "validation_failed", "Invalid amount");
-    }
-    const toHandleLower = bodyObj.to_handle.toLowerCase();
-    if (toHandleLower === user.handle.toLowerCase()) {
-      return sendError(res, 422, "self_payment", "Cannot pay yourself");
-    }
-    const toUserId = state.handles[toHandleLower];
-    if (!toUserId) {
-      return sendError(res, 404, "not_found", "Recipient handle not found");
-    }
-    if (bodyObj.note !== undefined && (typeof bodyObj.note !== 'string' || bodyObj.note.length > 200)) {
+   // POST /payments
+   if (method === 'POST' && pathname === '/payments') {
+     if (!bodyObj || typeof bodyObj.to_handle !== 'string' || bodyObj.amount === undefined) {
+       return sendError(res, 422, "validation_failed", "Missing required fields");
+     }
+     const amount = bodyObj.amount;
+     if (typeof amount !== 'number' || amount < 1 || amount > 1000000000 || !Number.isInteger(amount)) {
+       return sendError(res, 422, "validation_failed", "Invalid amount");
+     }
+     if (!isValidHandle(bodyObj.to_handle)) {
+       return sendError(res, 422, "validation_failed", "Invalid handle format");
+     }
+     if (bodyObj.to_handle === user.handle) {
+       return sendError(res, 422, "self_payment", "Cannot pay yourself");
+     }
+     const toUserId = state.handles[bodyObj.to_handle];
+     if (!toUserId) {
+       return sendError(res, 404, "not_found", "Recipient handle not found");
+     }
+    if (bodyObj.note !== undefined && (typeof bodyObj.note !== 'string' || countUnicodeChars(bodyObj.note) > 200)) {
       return sendError(res, 422, "validation_failed", "Invalid note");
     }
     if (bodyObj.visibility !== undefined && bodyObj.visibility !== 'public' && bodyObj.visibility !== 'private') {
@@ -494,46 +507,48 @@ const server = http.createServer(async (req, res) => {
     return sendJSON(res, 201, payment);
   }
 
-  // POST /requests
-  if (method === 'POST' && pathname === '/requests') {
-    if (!bodyObj || typeof bodyObj.payer_handle !== 'string' || bodyObj.amount === undefined) {
-      return sendError(res, 422, "validation_failed", "Missing required fields");
-    }
-    const amount = bodyObj.amount;
-    if (typeof amount !== 'number' || amount < 1 || amount > 1000000000 || !Number.isInteger(amount)) {
-      return sendError(res, 422, "validation_failed", "Invalid amount");
-    }
-    const payerHandleLower = bodyObj.payer_handle.toLowerCase();
-    if (payerHandleLower === user.handle.toLowerCase()) {
-      return sendError(res, 422, "self_request", "Cannot request from yourself");
-    }
-    const payerUserId = state.handles[payerHandleLower];
-    if (!payerUserId) {
-      return sendError(res, 404, "not_found", "Payer handle not found");
-    }
-    if (bodyObj.note !== undefined && (typeof bodyObj.note !== 'string' || bodyObj.note.length > 200)) {
-      return sendError(res, 422, "validation_failed", "Invalid note");
-    }
+   // POST /requests
+   if (method === 'POST' && pathname === '/requests') {
+     if (!bodyObj || typeof bodyObj.payer_handle !== 'string' || bodyObj.amount === undefined) {
+       return sendError(res, 422, "validation_failed", "Missing required fields");
+     }
+     const amount = bodyObj.amount;
+     if (typeof amount !== 'number' || amount < 1 || amount > 1000000000 || !Number.isInteger(amount)) {
+       return sendError(res, 422, "validation_failed", "Invalid amount");
+     }
+     if (!isValidHandle(bodyObj.payer_handle)) {
+       return sendError(res, 422, "validation_failed", "Invalid handle format");
+     }
+     if (bodyObj.payer_handle === user.handle) {
+       return sendError(res, 422, "self_request", "Cannot request from yourself");
+     }
+     const payerUserId = state.handles[bodyObj.payer_handle];
+     if (!payerUserId) {
+       return sendError(res, 404, "not_found", "Payer handle not found");
+     }
+     if (bodyObj.note !== undefined && (typeof bodyObj.note !== 'string' || countUnicodeChars(bodyObj.note) > 200)) {
+       return sendError(res, 422, "validation_failed", "Invalid note");
+     }
 
-    const request_id = `rq_${crypto.randomUUID()}`;
-    const request = {
-      request_id,
-      requester_id: user.id,
-      requester_handle: user.handle,
-      payer_id: payerUserId,
-      payer_handle: state.users[payerUserId].handle,
-      amount,
-      currency: state.currency,
-      note: bodyObj.note || "",
-      status: "pending",
-      payment_id: null,
-      created_at: getCurrentTimestamp()
-    };
+     const request_id = `rq_${crypto.randomUUID()}`;
+     const request = {
+       request_id,
+       requester_id: user.id,
+       requester_handle: user.handle,
+       payer_id: payerUserId,
+       payer_handle: state.users[payerUserId].handle,
+       amount,
+       currency: state.currency,
+       note: bodyObj.note || "",
+       status: "pending",
+       payment_id: null,
+       created_at: getCurrentTimestamp()
+     };
 
-    state.requests[request_id] = request;
-    saveIdempotency(201, request);
-    return sendJSON(res, 201, request);
-  }
+     state.requests[request_id] = request;
+     saveIdempotency(201, request);
+     return sendJSON(res, 201, request);
+   }
 
   // POST /requests/{id}/pay
   if (method === 'POST' && pathname.startsWith('/requests/') && pathname.endsWith('/pay')) {
@@ -684,27 +699,33 @@ const server = http.createServer(async (req, res) => {
     if (typeof amount !== 'number' || amount < 1 || amount > 1000000000 || !Number.isInteger(amount)) {
       return sendError(res, 422, "validation_failed", "Invalid amount");
     }
-    const handlesList = bodyObj.participant_handles;
-    if (handlesList.length === 0) {
-      return sendError(res, 422, "validation_failed", "Participant handles cannot be empty");
-    }
+     const handlesList = bodyObj.participant_handles;
+     if (handlesList.length === 0) {
+       return sendError(res, 422, "validation_failed", "Participant handles cannot be empty");
+     }
 
-    const uniqueHandles = new Set(handlesList.map(h => h.toLowerCase()));
-    if (uniqueHandles.size !== handlesList.length) {
-      return sendError(res, 422, "validation_failed", "Duplicate participant handles");
-    }
+     for (const h of handlesList) {
+       if (!isValidHandle(h)) {
+         return sendError(res, 422, "validation_failed", "Invalid handle format");
+       }
+     }
 
-    for (const h of handlesList) {
-      if (!state.handles[h.toLowerCase()]) {
-        return sendError(res, 404, "not_found", `Handle ${h} not found`);
-      }
-    }
+     const uniqueHandles = new Set(handlesList);
+     if (uniqueHandles.size !== handlesList.length) {
+       return sendError(res, 422, "validation_failed", "Duplicate participant handles");
+     }
 
-    if (bodyObj.note !== undefined && (typeof bodyObj.note !== 'string' || bodyObj.note.length > 200)) {
-      return sendError(res, 422, "validation_failed", "Invalid note");
-    }
+     for (const h of handlesList) {
+       if (!state.handles[h]) {
+         return sendError(res, 404, "not_found", `Handle ${h} not found`);
+       }
+     }
 
-    const n = handlesList.length;
+     if (bodyObj.note !== undefined && (typeof bodyObj.note !== 'string' || countUnicodeChars(bodyObj.note) > 200)) {
+       return sendError(res, 422, "validation_failed", "Invalid note");
+     }
+
+     const n = handlesList.length;
     const baseShare = Math.floor(amount / n);
     const remainder = amount % n;
 
@@ -718,11 +739,11 @@ const server = http.createServer(async (req, res) => {
     const splitRequests = [];
     const created_at = getCurrentTimestamp();
 
-    for (const share of shares) {
-      if (share.handle.toLowerCase() === user.handle.toLowerCase()) {
-        continue;
-      }
-      const payerUserId = state.handles[share.handle.toLowerCase()];
+     for (const share of shares) {
+       if (share.handle === user.handle) {
+         continue;
+       }
+       const payerUserId = state.handles[share.handle];
       const request_id = `rq_${crypto.randomUUID()}`;
       const request = {
         request_id,
@@ -803,34 +824,35 @@ const server = http.createServer(async (req, res) => {
       return sendError(res, 422, "validation_failed", "Batch must have 1..32 transfers");
     }
 
-    const validatedTransfers = [];
-    for (const t of transfers) {
-      if (!t || typeof t.from_handle !== 'string' || typeof t.to_handle !== 'string' || t.amount === undefined) {
-        return sendError(res, 422, "validation_failed", "Malformed transfer object");
-      }
-      const amount = t.amount;
-      if (typeof amount !== 'number' || amount < 1 || amount > 1000000000 || !Number.isInteger(amount)) {
-        return sendError(res, 422, "validation_failed", "Invalid amount in transfer");
-      }
-      const fromHandleLower = t.from_handle.toLowerCase();
-      const toHandleLower = t.to_handle.toLowerCase();
-      if (fromHandleLower === toHandleLower) {
-        return sendError(res, 422, "self_payment", "Cannot pay yourself");
-      }
-      const fromUserId = state.handles[fromHandleLower];
-      const toUserId = state.handles[toHandleLower];
-      if (!fromUserId || !toUserId) {
-        return sendError(res, 404, "not_found", "Handle not found");
-      }
-      validatedTransfers.push({
-        fromUserId,
-        fromHandle: state.users[fromUserId].handle,
-        toUserId,
-        toHandle: state.users[toUserId].handle,
-        amount,
-        note: t.note || "",
-        visibility: t.visibility || "public"
-      });
+     const validatedTransfers = [];
+     for (const t of transfers) {
+       if (!t || typeof t.from_handle !== 'string' || typeof t.to_handle !== 'string' || t.amount === undefined) {
+         return sendError(res, 422, "validation_failed", "Malformed transfer object");
+       }
+       if (!isValidHandle(t.from_handle) || !isValidHandle(t.to_handle)) {
+         return sendError(res, 422, "validation_failed", "Invalid handle format");
+       }
+       const amount = t.amount;
+       if (typeof amount !== 'number' || amount < 1 || amount > 1000000000 || !Number.isInteger(amount)) {
+         return sendError(res, 422, "validation_failed", "Invalid amount in transfer");
+       }
+       if (t.from_handle === t.to_handle) {
+         return sendError(res, 422, "self_payment", "Cannot pay yourself");
+       }
+       const fromUserId = state.handles[t.from_handle];
+       const toUserId = state.handles[t.to_handle];
+       if (!fromUserId || !toUserId) {
+         return sendError(res, 404, "not_found", "Handle not found");
+       }
+       validatedTransfers.push({
+         fromUserId,
+         fromHandle: t.from_handle,
+         toUserId,
+         toHandle: t.to_handle,
+         amount,
+         note: t.note || "",
+         visibility: t.visibility || "public"
+       });
     }
 
     const balanceChanges = {};

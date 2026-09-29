@@ -209,12 +209,179 @@ async function runTests() {
     failed++;
   }
 
-  console.log(`\n========================================`);
-  console.log(`Tests passed: ${passed}`);
-  console.log(`Tests failed: ${failed}`);
-  console.log(`========================================\n`);
+  // Test 5: Emoji character length validation (200 emoji should be accepted)
+  console.log('TEST 5: Emoji character length validation (200 emoji chars should be accepted)');
+  try {
+    // Reset with two users
+    await makeRequest('POST', '/_test/reset', {
+      users: [
+        { id: 'u1', email: 'alice@example.com', password: 'password123', display_name: 'Alice', handle: 'alice', balance: 1000 },
+        { id: 'u2', email: 'bob@example.com', password: 'password123', display_name: 'Bob', handle: 'bob', balance: 1000 }
+      ]
+    });
 
-  process.exit(failed > 0 ? 1 : 0);
+    // Create a note with 200 emoji characters (each emoji counts as 1 character, not multiple UTF-16 units)
+    const emoji = '😀'; // This emoji is a single Unicode character
+    const note = emoji.repeat(200); // 200 emoji characters
+    
+    // This should succeed because note has 200 characters
+    const res = await makeRequest('POST', '/payments', 
+      { to_handle: 'bob', amount: 100, note },
+      { 'Authorization': 'Bearer token_u1', 'Idempotency-Key': 'emoji-test-1' }
+    );
+
+    if (res.status !== 201) {
+      throw new Error(`Expected 201 for 200 emoji chars, got ${res.status}: ${JSON.stringify(res.body)}`);
+    }
+
+    // Try with 201 emoji characters (should fail with 422)
+    const noteTooLong = emoji.repeat(201);
+    const res2 = await makeRequest('POST', '/payments',
+      { to_handle: 'bob', amount: 100, note: noteTooLong },
+      { 'Authorization': 'Bearer token_u1', 'Idempotency-Key': 'emoji-test-2' }
+    );
+
+    if (res2.status !== 422) {
+      throw new Error(`Expected 422 for 201 emoji chars, got ${res2.status}`);
+    }
+
+    console.log('  ✓ Emoji character length validation works correctly (200 chars accepted, 201 rejected)\n');
+    passed++;
+  } catch (err) {
+    console.log(`  ✗ FAILED: ${err.message}\n`);
+    failed++;
+  }
+
+  // Test 6: Case-sensitive handle validation (uppercase should be rejected with 422)
+  console.log('TEST 6: Case-sensitive handle validation (uppercase handle should be 422)');
+  try {
+    // Reset with two lowercase-handle users
+    await makeRequest('POST', '/_test/reset', {
+      users: [
+        { id: 'u1', email: 'alice@example.com', password: 'password123', display_name: 'Alice', handle: 'alice', balance: 1000 },
+        { id: 'u2', email: 'bob@example.com', password: 'password123', display_name: 'Bob', handle: 'bob', balance: 1000 }
+      ]
+    });
+
+    // Try to send payment to uppercase handle "BOB" (should fail with 422 validation error)
+    const res = await makeRequest('POST', '/payments',
+      { to_handle: 'BOB', amount: 100 },
+      { 'Authorization': 'Bearer token_u1', 'Idempotency-Key': 'case-test-1' }
+    );
+
+    if (res.status !== 422) {
+      throw new Error(`Expected 422 for uppercase handle "BOB", got ${res.status}: ${JSON.stringify(res.body)}`);
+    }
+    if (res.body.error.code !== 'validation_failed') {
+      throw new Error(`Expected validation_failed error, got ${res.body.error.code}`);
+    }
+
+    // Try to send request to uppercase handle "ALICE" (should also fail with 422)
+    const res2 = await makeRequest('POST', '/requests',
+      { payer_handle: 'ALICE', amount: 100 },
+      { 'Authorization': 'Bearer token_u2', 'Idempotency-Key': 'case-test-2' }
+    );
+
+    if (res2.status !== 422) {
+      throw new Error(`Expected 422 for uppercase handle "ALICE", got ${res2.status}: ${JSON.stringify(res2.body)}`);
+    }
+
+    // Verify lowercase handles still work
+    const res3 = await makeRequest('POST', '/payments',
+      { to_handle: 'bob', amount: 50 },
+      { 'Authorization': 'Bearer token_u1', 'Idempotency-Key': 'case-test-3' }
+    );
+
+    if (res3.status !== 201) {
+      throw new Error(`Expected 201 for lowercase handle "bob", got ${res3.status}`);
+    }
+
+    console.log('  ✓ Case-sensitive handle validation works correctly (uppercase rejected, lowercase accepted)\n');
+    passed++;
+  } catch (err) {
+    console.log(`  ✗ FAILED: ${err.message}\n`);
+    failed++;
+  }
+
+  // Test 7: Idempotency key scoping (same key on /payments and /requests should be independent)
+  console.log('TEST 7: Idempotency key scoping (same key on /payments vs /requests should be independent)');
+  try {
+    // Reset with two users
+    await makeRequest('POST', '/_test/reset', {
+      users: [
+        { id: 'u1', email: 'alice@example.com', password: 'password123', display_name: 'Alice', handle: 'alice', balance: 1000 },
+        { id: 'u2', email: 'bob@example.com', password: 'password123', display_name: 'Bob', handle: 'bob', balance: 1000 }
+      ]
+    });
+
+    // Use the same idempotency key "shared-key" for both /payments and /requests
+    const sharedKey = 'shared-idempotency-key';
+
+    // First, create a payment with this key
+    const paymentRes = await makeRequest('POST', '/payments',
+      { to_handle: 'bob', amount: 100 },
+      { 'Authorization': 'Bearer token_u1', 'Idempotency-Key': sharedKey }
+    );
+
+    if (paymentRes.status !== 201) {
+      throw new Error(`Payment creation failed: ${paymentRes.status}`);
+    }
+    const paymentId = paymentRes.body.payment_id;
+
+    // Now, create a request with the same key (should succeed, not return 409 conflict)
+    const requestRes = await makeRequest('POST', '/requests',
+      { payer_handle: 'bob', amount: 50 },
+      { 'Authorization': 'Bearer token_u1', 'Idempotency-Key': sharedKey }
+    );
+
+    if (requestRes.status !== 201) {
+      throw new Error(`Request creation failed with status ${requestRes.status}: ${JSON.stringify(requestRes.body)}. Expected 201 because /payments and /requests should have independent idempotency scopes.`);
+    }
+    const requestId = requestRes.body.request_id;
+
+    if (paymentId === requestId) {
+      throw new Error(`Payment and request should have different IDs`);
+    }
+
+    // Verify that replaying the payment with same key returns the same payment
+    const paymentReplayRes = await makeRequest('POST', '/payments',
+      { to_handle: 'bob', amount: 100 },
+      { 'Authorization': 'Bearer token_u1', 'Idempotency-Key': sharedKey }
+    );
+
+    if (paymentReplayRes.status !== 200) {
+      throw new Error(`Payment replay should return 200, got ${paymentReplayRes.status}`);
+    }
+    if (paymentReplayRes.body.payment_id !== paymentId) {
+      throw new Error(`Payment replay should return same payment_id`);
+    }
+
+    // Verify that replaying the request with same key returns the same request
+    const requestReplayRes = await makeRequest('POST', '/requests',
+      { payer_handle: 'bob', amount: 50 },
+      { 'Authorization': 'Bearer token_u1', 'Idempotency-Key': sharedKey }
+    );
+
+    if (requestReplayRes.status !== 200) {
+      throw new Error(`Request replay should return 200, got ${requestReplayRes.status}`);
+    }
+    if (requestReplayRes.body.request_id !== requestId) {
+      throw new Error(`Request replay should return same request_id`);
+    }
+
+    console.log('  ✓ Idempotency key scoping works correctly (same key independent per endpoint)\n');
+    passed++;
+  } catch (err) {
+    console.log(`  ✗ FAILED: ${err.message}\n`);
+    failed++;
+  }
+
+   console.log(`\n========================================`);
+   console.log(`Tests passed: ${passed}`);
+   console.log(`Tests failed: ${failed}`);
+   console.log(`========================================\n`);
+
+   process.exit(failed > 0 ? 1 : 0);
 }
 
 runTests().catch(err => {
