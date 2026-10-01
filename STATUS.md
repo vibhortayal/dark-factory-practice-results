@@ -8,7 +8,7 @@ Check output: `/home/ubuntu/nightshift-claude-run-2/band-work/checks/`.
 | stage-1 | DONE | `3e764a06d469734a17ac70f0eb70c47341859a1b` | 02:08Z → 02:35Z verdict (≈27 min); recorded 03:15Z | Verifier PASS on head; isolated harness 147/147 (`checks/s1-ver-iso-02`), stage-2 probe fails, claimed stage 1. First revision `e088cca` BLOCKed (F1: reset rejected large balances), fixed in `3e764a0`. Open advisory F2 (amount literals non-integral beyond double precision) is carried into stage 2 as map row K6 |
 | stage-2 | DONE | `95f1446015263a7fb1bd5983adf3a627a97ab219` | 03:15Z → 04:23Z (≈68 min) | Verifier PASS on head (`checks/verdicts/stage-2-95f1446….md`); isolated harness stage 1 147/147, stage 2 35/35 (`checks/s2-ver-iso-02`), stage-3 probe fails, claimed stage 2. First revision `2ca222e` also PASSed but with three advisory observations (wallet vs stage-1 `/me`, retry identity on parsed body, list refresh discarding typed input); the Architect required fixes before acceptance (rows R13, N8, V10) |
 | stage-3 | DONE | `e1c0b553e15978b78259c734bf9c1dcf7fdad931` | 04:25Z → 05:29Z (≈64 min) | Verifier PASS on head (`checks/verdicts/stage-3-e1c0b55….md`); isolated harness stages 1–3 pass: 147/147, 35/35, 6/6 (`checks/s3-ver-iso-03`), stage-4 probe fails, claimed stage 3. Two BLOCKs first: `b97e12f` F1 (service clock ran ahead of real time under load; row AC12) and `1c4e50a` F2 (client-now instants with microseconds refused as future; row AC13) |
-| stage-4 | BUILDING | — | started 05:31Z | handed to Implementer (handoffs/stage-4) |
+| stage-4 | BUILDING | — | started 05:31Z | handed to Implementer (handoffs/stage-4, 15 parts). Revision `adf7305` BLOCKed 05:57Z (F1: stage-3 snapshot gains `refund_of` after import); routed back with row BA7 |
 
 ## Decisions
 
