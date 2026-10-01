@@ -150,6 +150,6 @@ Every row must be checked by the Implementer (self-check) and independently by t
 | K7 | Emails are compared exactly as given (no case folding); `local@domain` means exactly one `@` with non-empty sides; `email_taken` is checked before `handle_taken`; missing `display_name` → 422, non-string → 400 | spec states no normalisation |
 | K8 | Lengths (note 200, password 8, key 255, handle 20) count Unicode code points | supplied check: 200 emoji accepted |
 | K9 | Timestamps are UTC written with `+00:00`, sub-second precision kept so ordering is strict; ties broken by creation sequence, newest first | §3.4 example uses a numeric offset |
-| K10 | Seeded payments/requests without `created_at` get the reset time, ordered so later array entries are newer; a `created_at` supplied in a fixture is kept | deterministic and harmless |
+| K10 | Seeded payments/requests get the reset time as `created_at`, ordered so later array entries are newer. `created_at` is not a fixture field: if a fixture entry carries one it is an unknown field — a valid RFC 3339 string may be kept, anything else is ignored, and it is never a reset error (revised after verifier round 1) | §3.4 unknown body fields are never an error; §4 fixture format lists no `created_at` |
 | K11 | Every payment object carries `settlement_id` (null unless a settlement member) | §11 "nonmembers expose null" |
 | K12 | Import of parseable JSON that is not the export object (array, missing keys) → 422; reset likewise | §10 wording |
