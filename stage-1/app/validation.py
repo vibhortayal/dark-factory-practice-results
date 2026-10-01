@@ -2,6 +2,7 @@
 import json
 import math
 import re
+from functools import lru_cache
 
 HANDLE_RE = re.compile(r"^[a-z0-9_]{1,20}$")
 DIGITS_RE = re.compile(r"^[0-9]+$")
@@ -32,9 +33,10 @@ def _reject_constant(name):
 
 
 NUMBER_RE = re.compile(r"^(-?)([0-9]+)(?:\.([0-9]+))?(?:[eE]([+-]?[0-9]+))?$")
-EXPAND_LIMIT = 4000  # integral values up to this many digits compare as plain integers
+EXPAND_LIMIT = 4300  # integers up to this many digits are plain ints (CPython conversion limit)
 
 
+@lru_cache(maxsize=8192)
 def num_canon(text):
     """Exact canonical form of a JSON number literal, computed symbolically.
 
@@ -63,21 +65,13 @@ def num_canon(text):
 
 
 class BigNumber:
-    """An integer literal too long to convert to int; kept as its exact text."""
+    """A JSON number kept as its literal text: an integer with more than 4300 digits, or
+    a number with a fraction/exponent. Comparison and validation use num_canon(text),
+    never a double."""
     __slots__ = ("text",)
 
     def __init__(self, literal):
         self.text = literal
-
-
-class ExactNumber(float):
-    """A JSON number with a fraction or exponent: the double for convenience,
-    plus the literal text so comparisons and validation use the exact value."""
-
-    def __new__(cls, text):
-        obj = super().__new__(cls, text)
-        obj.text = text if isinstance(text, str) else repr(float(text))
-        return obj
 
 
 def to_int(value):
@@ -86,25 +80,41 @@ def to_int(value):
         return None
     if isinstance(value, int):
         return value
-    if isinstance(value, ExactNumber):
+    if isinstance(value, BigNumber):
         canon_text = num_canon(value.text)
         return int(canon_text[1:]) if canon_text.startswith("n") else None
-    if isinstance(value, float):
-        return int(value) if math.isfinite(value) and value == int(value) else None
     return None
 
 
 def _parse_int(text):
-    if len(text) > EXPAND_LIMIT:
+    if len(text.lstrip("-")) > EXPAND_LIMIT:
         return BigNumber(text)
     return int(text)
 
 
+def _number_default(obj):
+    """json.dumps hook: canonical stand-in for a literal-keeping number."""
+    if isinstance(obj, BigNumber):
+        c = num_canon(obj.text)
+        return int(c[1:]) if c.startswith("n") else {"\x00num": c}
+    raise TypeError("unserialisable")
+
+
 def parse_json(raw):
-    """Parse a request body; raises malformed() when it is not valid JSON."""
+    """Parse a request body; raises malformed() when it is not valid JSON.
+
+    Integers use the C parser (fast); only a literal beyond CPython's 4300-digit limit
+    triggers a second pass that keeps over-long integers as BigNumber.
+    """
     try:
-        return json.loads(raw.decode("utf-8"), parse_constant=_reject_constant,
-                          parse_int=_parse_int, parse_float=ExactNumber)
+        text = raw.decode("utf-8")
+        try:
+            return json.loads(text, parse_constant=_reject_constant, parse_float=BigNumber)
+        except json.JSONDecodeError:
+            raise
+        except ValueError:  # integer literal over the conversion limit
+            return json.loads(text, parse_constant=_reject_constant, parse_float=BigNumber,
+                              parse_int=_parse_int)
     except Exception:
         raise malformed("body is not valid JSON")
 
@@ -116,60 +126,63 @@ def parse_object(raw):
     return value
 
 
-def _scalar(v):
-    if v is None:
-        return "null"
-    if isinstance(v, bool):
-        return "true" if v else "false"
-    if isinstance(v, int):
-        return "n" + str(v)
-    if isinstance(v, ExactNumber):
-        return num_canon(v.text)
-    if isinstance(v, BigNumber):
-        return num_canon(v.text)
-    if isinstance(v, float):
-        return num_canon(repr(v))
-    return json.dumps(v, ensure_ascii=True)
+def _canon_deep(value):
+    """Iterative canonical text (explicit stack): used only for extreme nesting."""
+    out = []
+    app = out.append
+    stack = []
+    it, closer, first = iter((value,)), "", True
+    while True:
+        for item in it:
+            if not first:
+                app(",")
+            first = False
+            if type(item) is tuple:  # (key, value) pair of an object
+                app(json.dumps(item[0], ensure_ascii=True))
+                app(":")
+                item = item[1]
+            kind = type(item)
+            if kind is list:
+                stack.append((it, closer, first))
+                app("[")
+                it, closer, first = iter(item), "]", True
+                break
+            elif kind is dict:
+                stack.append((it, closer, first))
+                app("{")
+                it, closer, first = iter(sorted(item.items())), "}", True
+                break
+            elif isinstance(item, BigNumber):
+                app("n" + str(_number_default(item)))
+            else:
+                app(json.dumps(item, ensure_ascii=True))
+        else:
+            if not stack:
+                return "".join(out)
+            app(closer)
+            it, closer, first = stack.pop()
 
 
 def canon(value):
     """Canonical text of a parsed JSON value: equal JSON values give equal text.
 
-    Booleans stay distinct from numbers; integral numbers are the same whether
-    written 1000, 1000.0 or 1e3. Iterative, so nesting depth cannot overflow
-    the interpreter stack.
+    Booleans stay distinct from numbers; numbers are compared by exact value
+    (num_canon). Normally the C encoder does the work (sorted keys, no whitespace);
+    for nesting so deep that it overflows the interpreter stack the explicit-stack
+    version gives a (deterministic) canonical text instead.
     """
-    out, stack = [], [(False, value)]
-    while stack:
-        literal, v = stack.pop()
-        if literal:
-            out.append(v)
-        elif isinstance(v, list):
-            stack.append((True, "]"))
-            for i in range(len(v) - 1, -1, -1):
-                stack.append((False, v[i]))
-                if i:
-                    stack.append((True, ","))
-            out.append("[")
-        elif isinstance(v, dict):
-            stack.append((True, "}"))
-            keys = sorted(v)
-            for i in range(len(keys) - 1, -1, -1):
-                stack.append((False, v[keys[i]]))
-                stack.append((True, json.dumps(keys[i], ensure_ascii=True) + ":"))
-                if i:
-                    stack.append((True, ","))
-            out.append("{")
-        else:
-            out.append(_scalar(v))
-    return "".join(out)
+    try:
+        return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True,
+                          allow_nan=False, default=_number_default)
+    except RecursionError:
+        return _canon_deep(value)
 
 
 def amount_of(value, present=True):
     """Validate an amount (§4): integral JSON number in 1..1e9."""
     if not present:
         raise invalid("amount is required")
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
+    if isinstance(value, bool) or not isinstance(value, (int, BigNumber)):
         raise invalid("amount must be an integer")
     value = to_int(value)
     if value is None:

@@ -1130,35 +1130,74 @@ class TestRegressions(Base):
         self.err(self.req("POST", "/_test/reset", raw=json.dumps(fixture(users=[user("a", 1.5)])).encode()),
                  422, "validation_failed")
 
-    def test_huge_bodies_are_bounded_and_do_not_block_others(self):
-        base = b'{"to_handle":"bob","amount":1,"x":'
-        # over the API size cap -> 413 with the error body, service stays healthy
-        r = self.req("POST", "/payments", raw=base + b"9" * (3 * 1024 * 1024) + b"}", token=self.ada, key="big1")
-        self.err(r, 413, "payload_too_large")
-        self.assertEqual(self.req("GET", "/health").status, 200)
-        # accepted large bodies are processed quickly and never stall a concurrent reader
-        shapes = [base + b"9" * (1900 * 1024) + b"}", base + b"[" + b"1," * 900000 + b"1]}",
-                  base + b'"' + b"z" * (1900 * 1024) + b'"}', base + b"[" + b"1.5," * 400000 + b"1]}"]
-        for i, raw in enumerate(shapes):
-            slow = []
+    MiB = 1024 * 1024
 
-            def poll():
-                while not slow:
-                    t0 = time.time()
-                    self.assertEqual(self.req("GET", "/me", token=self.ada).status, 200)
-                    self.assertLess(time.time() - t0, 1.5)
-                    time.sleep(0.02)
-            with ThreadPoolExecutor(2) as ex:
-                f = ex.submit(poll)
+    def shapes(self):
+        base = b'{"to_handle":"bob","amount":1,"x":'
+        n = self.MiB - len(base) - 1 - 16
+        return {"one number of ~1M digits": base + b"9" * n + b"}",
+                "500k small numbers": base + b"[" + b"1," * (n // 2 - 2) + b"1]}",
+                "350k empty arrays": base + b"[" + b"[]," * (n // 3 - 2) + b"[]]}",
+                "nesting to depth 9000": base + b"[" * 9000 + b"]" * 9000 + b"}",
+                "1 MiB string": base + b'"' + b"z" * (n - 2) + b'"}'}
+
+    def test_one_mib_bodies_answer_fast_and_never_block_others(self):
+        shapes = self.shapes()
+        for name, raw in shapes.items():
+            self.assertLessEqual(len(raw), self.MiB, name)
+            t0 = time.time()
+            r = self.req("POST", "/payments", raw=raw, token=self.ada, key="alone-" + name)
+            self.assertEqual(r.status, 201, (name, r.raw[:80]))
+            self.assertLess(time.time() - t0, 1.0, name)
+            self.assertEqual(self.req("POST", "/payments", raw=raw, token=self.ada,
+                                      key="alone-" + name).status, 200)
+        stop, worst = [], [0.0]
+
+        def poll():
+            while not stop:
                 t0 = time.time()
-                r = self.req("POST", "/payments", raw=raw, token=self.ada, key="sh%d" % i)
-                took = time.time() - t0
-                slow.append(1)
-                f.result()
-            self.assertEqual(r.status, 201, i)
-            self.assertLess(took, 5)
-            self.assertEqual(self.req("POST", "/payments", raw=raw, token=self.ada, key="sh%d" % i).status, 200)
-        self.assertEqual(self.req("POST", "/_test/import", raw=self.req("GET", "/_test/export").raw).status, 204)
+                self.assertEqual(self.req("GET", "/me", token=self.ada).status, 200)
+                worst[0] = max(worst[0], time.time() - t0)
+                time.sleep(0.005)
+        with ThreadPoolExecutor(10) as ex:
+            watcher = ex.submit(poll)
+            jobs = [ex.submit(self.req, "POST", "/payments", raw=shapes[name], token=self.ada,
+                              key="conc-%d" % i)
+                    for i, name in enumerate(list(shapes) * 2)][:8]
+            results = [j.result() for j in jobs]
+            stop.append(1)
+            watcher.result()
+        self.assertTrue(all(r.status == 201 for r in results))
+        print("worst GET /me latency during 8 concurrent 1 MiB bodies: %.3fs" % worst[0])
+        self.assertLess(worst[0], 0.5)
+
+    def test_oversize_bodies_get_413(self):
+        base = b'{"to_handle":"bob","amount":1,"x":'
+        r = self.req("POST", "/payments", raw=base + b"9" * (self.MiB + 10) + b"}", token=self.ada, key="o1")
+        self.err(r, 413, "payload_too_large")
+        for cl in ("99999999", "9" * 2000, "9" * 5000):
+            conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+            conn.putrequest("POST", "/payments")
+            conn.putheader("Content-Length", cl)
+            conn.putheader("Authorization", "Bearer " + self.ada)
+            conn.putheader("Idempotency-Key", "cl")
+            conn.endheaders()
+            resp = conn.getresponse()
+            self.assertIn(resp.status, (400, 413), cl)
+            json.loads(resp.read())
+            conn.close()
+        self.assertEqual(self.req("GET", "/health").status, 200)
+
+    def test_reset_and_import_bounds(self):
+        # a document of tiny values beyond the value bound is refused without exhausting memory
+        raw = b'{"users":[],"zz":[' + b"1," * 3_100_000 + b"1]}"
+        self.err(self.req("POST", "/_test/reset", raw=raw), 422, "validation_failed")
+        self.err(self.req("POST", "/_test/import", raw=raw), 422, "validation_failed")
+        # a large but acceptable fixture still works, and unknown values are not stored
+        fx = fixture()
+        fx["junk"] = [1] * 1_000_000
+        self.assertEqual(self.req("POST", "/_test/reset", fx).status, 204)
+        self.assertNotIn(b"junk", self.req("GET", "/_test/export").raw)
 
     def test_import_rejects_numbers_that_cannot_round_trip(self):
         import copy as cp
@@ -1180,14 +1219,55 @@ class TestRegressions(Base):
                 r = self.req("POST", "/_test/import", raw=text.encode())
                 self.err(r, 422, "validation_failed")
         self.assertEqual(self.req("GET", "/_test/export").raw.decode(), exp)
-        # ordinary finite numbers in unvalidated fields are accepted and re-export as strict JSON
+        # closed schema: even an ordinary finite number in an unknown field is refused
         d = cp.deepcopy(doc)
-        d["state"]["extra"] = "@@"
-        r = self.req("POST", "/_test/import", raw=json.dumps(d).replace('"@@"', "1.5e3").encode())
-        self.assertEqual(r.status, 204)
-        json.loads(self.req("GET", "/_test/export").raw, parse_constant=lambda c: 1 / 0)
+        d["state"]["extra"] = 1.5
+        self.err(self.req("POST", "/_test/import", d), 422, "validation_failed")
+        self.assertEqual(self.req("GET", "/_test/export").raw.decode(), exp)
+        # the unchanged export imports and re-exports byte-identically; replay still works
+        self.assertEqual(self.req("POST", "/_test/import", raw=exp.encode()).status, 204)
+        self.assertEqual(self.req("GET", "/_test/export").raw.decode(), exp)
         self.assertEqual(self.req("POST", "/payments", {"to_handle": "bob", "amount": 5, "note": "n"},
-                                  token=self.login("ada"), key="k1").status, 200)
+                                  token=self.ada, key="k1").status, 200)
+
+    def test_import_closed_schema_unknown_keys_and_types_at_every_level(self):
+        import copy as cp
+        self.populate()
+        doc = self.req("GET", "/_test/export").json
+        exp = self.req("GET", "/_test/export").raw
+        s = doc["state"]
+        paths = [[], ["users", "u_ada"], ["users", "u_ada", "pw"], ["payments", 0], ["requests", 0],
+                 ["splits", 0], ["settlements", 0], ["idem", 0], ["idem", 0, "response"], ["counters"]]
+        for i, entry in enumerate(s["idem"]):
+            if entry["response"].get("requests"):
+                paths.append(["idem", i, "response", "requests", 0])
+            if entry["response"].get("payments"):
+                paths.append(["idem", i, "response", "payments", 0])
+        for path in paths:
+            d = cp.deepcopy(doc)
+            node = d["state"]
+            for step in path:
+                node = node[step]
+            node["unknown_key"] = 1
+            self.err(self.req("POST", "/_test/import", d), 422, "validation_failed")
+        wrong = [(["users", "u_ada", "balance"], "5"), (["users", "u_ada", "balance"], 5.5),
+                 (["payments", 0, "amount"], True), (["payments", 0, "ts"], "x"),
+                 (["seq"], None), (["idem", 0, "body"], 5), (["idem", 0, "response", "amount"], "1"),
+                 (["counters", "payment"], 1.5)]
+        for path, val in wrong:
+            d = cp.deepcopy(doc)
+            node = d["state"]
+            for step in path[:-1]:
+                node = node[step]
+            node[path[-1]] = val
+            self.err(self.req("POST", "/_test/import", d), 422, "validation_failed")
+        self.assertEqual(self.req("GET", "/_test/export").raw, exp)
+
+    def test_export_import_export_identical_after_all_five_paths(self):
+        self.populate()
+        exp = self.req("GET", "/_test/export").raw
+        self.assertEqual(self.req("POST", "/_test/import", raw=exp).status, 204)
+        self.assertEqual(self.req("GET", "/_test/export").raw, exp)
 
     def test_deep_nesting_unknown_field(self):
         for depth in (10, 950, 1000, 5000):
@@ -1295,6 +1375,9 @@ class TestRegressions(Base):
         t0 = time.time()
         self.assertEqual(self.req("POST", "/_test/import", raw=exp.raw).status, 204)
         self.assertLess(time.time() - t0, 3)
+
+
+TestRegressions.populate = TestExportImport.populate
 
 
 if __name__ == "__main__":

@@ -1,4 +1,5 @@
 """HTTP layer: routing, authentication, idempotency preconditions, JSON I/O."""
+import hashlib
 import json
 import os
 import re
@@ -11,16 +12,32 @@ from .service import Service
 from .validation import ApiError, canon, malformed, parse_json, parse_object, invalid
 
 MAX_BODY = 64 * 1024 * 1024  # /_test/* fixtures and exports
-MAX_API_BODY = 2 * 1024 * 1024  # every other endpoint
+MAX_API_BODY = 1024 * 1024  # every other endpoint
 REQUEST_ACTION = re.compile(r"^/requests/([^/]+)/(pay|decline|cancel)$")
 PATHS = {"/health": ("GET",), "/_test/reset": ("POST",), "/_test/export": ("GET",),
          "/_test/import": ("POST",), "/auth/signup": ("POST",), "/auth/login": ("POST",),
          "/me": ("GET",), "/payments": ("POST",), "/requests": ("GET", "POST"),
          "/splits": ("POST",), "/activity": ("GET",), "/settlements": ("POST",)}
 
+sys.setswitchinterval(0.0005)  # keep small requests responsive next to large parses
 sys.setrecursionlimit(12000)  # deep-but-valid JSON must parse, not 5xx
 threading.stack_size(64 * 1024 * 1024)
+LARGE_BODY = 64 * 1024  # bodies above this are parsed under a concurrency limit
+MAX_JSON_VALUES = 3_000_000  # cheap upper bound on values in a reset/import document
+large_api_bodies = threading.BoundedSemaphore(2)
+large_test_bodies = threading.BoundedSemaphore(1)
 svc = Service()
+
+
+def parse_limited(raw, semaphore, parse):
+    """Parse a body with at most N large bodies in flight, so memory stays bounded."""
+    if len(raw) <= LARGE_BODY:
+        return parse(raw)
+    if len(raw) > 1024 * 1024:  # C-speed pre-scan: bound the size of the parsed tree
+        if raw.count(b",") + raw.count(b"[") + raw.count(b"{") > MAX_JSON_VALUES:
+            raise invalid("document has too many values")
+    with semaphore:
+        return parse(raw)
 
 
 def dumps(obj):
@@ -137,12 +154,12 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/health":
             return 200, {"status": "ok"}, None
         if path == "/_test/reset":
-            svc.reset(parse_json(self.raw))
+            svc.reset(parse_limited(self.raw, large_test_bodies, parse_json))
             return 204, None, None
         if path == "/_test/export":
             return 200, None, svc.export()
         if path == "/_test/import":
-            svc.import_(parse_json(self.raw))
+            svc.import_(parse_limited(self.raw, large_test_bodies, parse_json))
             return 204, None, None
         if path == "/auth/signup":
             return 201, svc.signup(parse_object(self.raw)), None
@@ -195,8 +212,11 @@ class Handler(BaseHTTPRequestHandler):
         if len(key) > 255:
             raise invalid("Idempotency-Key longer than 255 characters")
         pay = m is not None
-        body = {} if (pay and not self.raw.strip()) else parse_object(self.raw)
-        sig = canon(body)
+        def parse_and_digest(raw):
+            body = {} if (pay and not raw.strip()) else parse_object(raw)
+            # only a digest of the canonical body is kept with the idempotency record
+            return body, hashlib.sha256(canon(body).encode("utf-8")).hexdigest()
+        body, sig = parse_limited(self.raw, large_api_bodies, parse_and_digest)
         if pay:
             rid = m.group(1)
             operation = lambda u: svc.pay_request(u, rid, body)

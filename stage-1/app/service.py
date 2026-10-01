@@ -5,7 +5,6 @@ single lock. Every write happens inside `with self.lock`, which is the one
 serialisation point: balances, request state, idempotency records and export
 snapshots are therefore trivially consistent.
 """
-import copy
 import hashlib
 import hmac
 import json
@@ -202,83 +201,175 @@ def new_state(currency, minor_units, total):
             "seq": 0}
 
 
-def reject_unsupported_numbers(root):
-    """Imported state may only hold ordinary numbers (no over-long or non-finite ones),
-    so that it always re-exports as strict JSON. Iterative: nesting cannot overflow."""
-    stack = [root]
-    while stack:
-        v = stack.pop()
-        if isinstance(v, BigNumber) or (isinstance(v, float) and not math.isfinite(v)):
-            raise invalid("state: number out of range")
-        if isinstance(v, dict):
-            stack.extend(v.values())
-        elif isinstance(v, list):
-            stack.extend(v)
-
-
 def _need(cond):
     if not cond:
         raise invalid("state: invalid")
 
 
+def _keys(d, names):
+    _need(type(d) is dict and set(d) == set(names))
+
+
+def _str(v):
+    _need(type(v) is str)
+    return v
+
+
+def _int(v):
+    _need(type(v) is int)
+    return v
+
+
+def _opt_str(v):
+    _need(v is None or type(v) is str)
+    return v
+
+
+def _num(v):
+    """A timestamp: a finite number, stored as a plain float."""
+    if type(v) is BigNumber:  # a fractional literal: the double is all a timestamp needs
+        v = float(v.text)
+    _need(type(v) in (int, float) and math.isfinite(v))
+    return float(v)
+
+
+def _status(v):
+    _need(v in STATUSES)
+    return v
+
+
+def _visibility(v):
+    _need(v in ("public", "private"))
+    return v
+
+
+# Key order matters: an imported state re-exports byte-for-byte, so objects are rebuilt
+# in the same order they are created.
+PAYMENT_VIEW = (("payment_id", _str), ("from_user_id", _str), ("from_handle", _str),
+                ("to_user_id", _str), ("to_handle", _str), ("amount", _int), ("currency", _str),
+                ("note", _str), ("visibility", _visibility), ("request_id", _opt_str),
+                ("settlement_id", _opt_str), ("created_at", _str))
+REQUEST_VIEW = (("request_id", _str), ("requester_id", _str), ("requester_handle", _str),
+                ("payer_id", _str), ("payer_handle", _str), ("amount", _int), ("currency", _str),
+                ("note", _str), ("status", _status), ("payment_id", _opt_str), ("created_at", _str))
+
+
+def _typed(v, schema):
+    _keys(v, [k for k, _ in schema])
+    return {k: check(v[k]) for k, check in schema}
+
+
+def _response(v):
+    """A stored idempotent response: a payment, request, split or settlement receipt."""
+    _need(type(v) is dict)
+    if "requester_id" in v:
+        return _typed(v, REQUEST_VIEW)
+    if "from_user_id" in v:
+        return _typed(v, PAYMENT_VIEW)
+    if "split_id" in v:
+        _keys(v, ("split_id", "amount", "currency", "note", "shares", "requests", "created_at"))
+        _need(type(v["shares"]) is list and type(v["requests"]) is list)
+        return {"split_id": _str(v["split_id"]), "amount": _int(v["amount"]),
+                "currency": _str(v["currency"]), "note": _str(v["note"]),
+                "shares": [_typed(sh, (("handle", _str), ("amount", _int))) for sh in v["shares"]],
+                "requests": [_typed(r, REQUEST_VIEW) for r in v["requests"]],
+                "created_at": _str(v["created_at"])}
+    _keys(v, ("settlement_id", "committed_at", "payments"))
+    _need(type(v["payments"]) is list)
+    return {"settlement_id": _str(v["settlement_id"]), "committed_at": _str(v["committed_at"]),
+            "payments": [_typed(p, PAYMENT_VIEW) for p in v["payments"]]}
+
+
 def validate_state(st):
-    """Structural and referential checks of an imported state; raises 422."""
-    _need(isinstance(st, dict))
-    _need(isinstance(st.get("currency"), str) and is_int(st.get("minor_units"))
-          and st["minor_units"] in (0, 2, 3) and is_int(st.get("seeded_total"))
-          and is_int(st.get("seq")))
-    for k, t in (("users", dict), ("tokens", dict), ("payments", list), ("requests", list),
-                 ("splits", list), ("settlements", list), ("operators", list),
-                 ("idem", list), ("counters", dict)):
-        _need(isinstance(st.get(k), t))
+    """Closed-schema validation of an imported state.
+
+    Every value is checked for exact type and every object for its exact key set
+    (unknown keys, over-long/non-finite numbers and wrong types are all 422). Returns a
+    freshly built state containing only plain Python values; the input is not reused.
+    """
+    _keys(st, ("currency", "minor_units", "seeded_total", "users", "tokens", "payments",
+               "requests", "splits", "settlements", "operators", "idem", "counters", "seq"))
+    out = new_state(_str(st["currency"]), _int(st["minor_units"]), _int(st["seeded_total"]))
+    _need(out["minor_units"] in (0, 2, 3))
+    out["seq"] = _int(st["seq"])
+    _need(type(st["users"]) is dict and type(st["tokens"]) is dict and type(st["counters"]) is dict
+          and all(type(st[k]) is list for k in ("payments", "requests", "splits", "settlements",
+                                                "operators", "idem")))
     handles, emails, total = set(), set(), 0
     for uid, u in st["users"].items():
-        _need(isinstance(u, dict) and u.get("id") == uid)
-        for f in ("email", "display_name", "handle"):
-            _need(isinstance(u.get(f), str))
-        _need(HANDLE_RE.fullmatch(u["handle"]) and is_int(u.get("balance")) and u["balance"] >= 0)
-        pw = u.get("pw")
-        _need(isinstance(pw, dict) and all(isinstance(pw.get(k), str) for k in ("salt", "hash"))
-              and all(is_int(pw.get(k)) for k in ("n", "r", "p")))
-        _need(u["handle"] not in handles and u["email"].lower() not in emails)
+        _keys(u, ("id", "email", "display_name", "handle", "balance", "pw"))
+        _need(_str(uid) == u["id"] and HANDLE_RE.fullmatch(_str(u["handle"])))
+        bal = _int(u["balance"])
+        _need(0 <= bal <= MAX_SAFE)
+        pw = u["pw"]
+        _keys(pw, ("alg", "n", "r", "p", "salt", "hash"))
+        _need(pw["alg"] == "scrypt")
+        email = _str(u["email"])
+        _need(u["handle"] not in handles and email.lower() not in emails)
         handles.add(u["handle"])
-        emails.add(u["email"].lower())
-        total += u["balance"]
-    _need(total == st["seeded_total"])
+        emails.add(email.lower())
+        total += bal
+        out["users"][uid] = {"id": uid, "email": email, "display_name": _str(u["display_name"]),
+                             "handle": u["handle"], "balance": bal,
+                             "pw": {"alg": "scrypt", "n": _int(pw["n"]), "r": _int(pw["r"]),
+                                    "p": _int(pw["p"]), "salt": _str(pw["salt"]),
+                                    "hash": _str(pw["hash"])}}
+        bytes.fromhex(pw["salt"])
+        bytes.fromhex(pw["hash"])
+    _need(total == out["seeded_total"])
     for tok, uid in st["tokens"].items():
-        _need(isinstance(tok, str) and uid in st["users"])
+        _need(_str(tok) and _str(uid) in out["users"])
+        out["tokens"][tok] = uid
     for o in st["operators"]:
-        _need(isinstance(o, str))
-    pids, rids = set(), set()
+        out["operators"].append(_str(o))
+    seen = set()
     for p in st["payments"]:
-        _need(isinstance(p, dict) and isinstance(p.get("id"), str) and p["id"] not in pids)
-        pids.add(p["id"])
-        _need(p.get("from") in st["users"] and p.get("to") in st["users"])
-        _need(is_int(p.get("amount")) and isinstance(p.get("note"), str)
-              and p.get("visibility") in ("public", "private")
-              and isinstance(p.get("created_at"), str) and isinstance(p.get("ts"), (int, float)) and math.isfinite(p["ts"])
-              and is_int(p.get("seq")))
-        for k in ("request_id", "settlement_id"):
-            _need(k in p and (p[k] is None or isinstance(p[k], str)))
+        _keys(p, ("id", "from", "to", "amount", "note", "visibility", "request_id",
+                  "settlement_id", "created_at", "ts", "seq"))
+        _need(_str(p["id"]) not in seen and p["from"] in out["users"] and p["to"] in out["users"]
+              and p["visibility"] in ("public", "private"))
+        seen.add(p["id"])
+        out["payments"].append({"id": p["id"], "from": p["from"], "to": p["to"],
+                                "amount": _int(p["amount"]), "note": _str(p["note"]),
+                                "visibility": p["visibility"], "request_id": _opt_str(p["request_id"]),
+                                "settlement_id": _opt_str(p["settlement_id"]),
+                                "created_at": _str(p["created_at"]), "ts": _num(p["ts"]),
+                                "seq": _int(p["seq"])})
+    seen = set()
     for r in st["requests"]:
-        _need(isinstance(r, dict) and isinstance(r.get("id"), str) and r["id"] not in rids)
-        rids.add(r["id"])
-        _need(r.get("requester_id") in st["users"] and r.get("payer_id") in st["users"])
-        _need(is_int(r.get("amount")) and isinstance(r.get("note"), str)
-              and r.get("status") in STATUSES
-              and isinstance(r.get("created_at"), str) and isinstance(r.get("ts"), (int, float)) and math.isfinite(r["ts"])
-              and is_int(r.get("seq")))
-        _need("payment_id" in r and (r["payment_id"] is None or isinstance(r["payment_id"], str)))
-    for s in st["splits"]:
-        _need(isinstance(s, dict) and isinstance(s.get("id"), str))
-    for s in st["settlements"]:
-        _need(isinstance(s, dict) and isinstance(s.get("id"), str))
+        _keys(r, ("id", "requester_id", "payer_id", "amount", "note", "status", "payment_id",
+                  "split_id", "created_at", "ts", "seq"))
+        _need(_str(r["id"]) not in seen and r["requester_id"] in out["users"]
+              and r["payer_id"] in out["users"] and r["status"] in STATUSES)
+        seen.add(r["id"])
+        out["requests"].append({"id": r["id"], "requester_id": r["requester_id"],
+                                "payer_id": r["payer_id"], "amount": _int(r["amount"]),
+                                "note": _str(r["note"]), "status": r["status"],
+                                "payment_id": _opt_str(r["payment_id"]),
+                                "split_id": _opt_str(r["split_id"]),
+                                "created_at": _str(r["created_at"]), "ts": _num(r["ts"]),
+                                "seq": _int(r["seq"])})
+    for sp in st["splits"]:
+        _keys(sp, ("id", "amount", "note", "request_ids", "created_at"))
+        _need(type(sp["request_ids"]) is list)
+        out["splits"].append({"id": _str(sp["id"]), "amount": _int(sp["amount"]),
+                              "note": _str(sp["note"]),
+                              "request_ids": [_str(x) for x in sp["request_ids"]],
+                              "created_at": _str(sp["created_at"])})
+    for se in st["settlements"]:
+        _keys(se, ("id", "committed_at", "payment_ids"))
+        _need(type(se["payment_ids"]) is list)
+        out["settlements"].append({"id": _str(se["id"]), "committed_at": _str(se["committed_at"]),
+                                   "payment_ids": [_str(x) for x in se["payment_ids"]]})
     for e in st["idem"]:
-        _need(isinstance(e, dict) and e.get("user") in st["users"]
-              and all(isinstance(e.get(k), str) for k in ("method", "path", "key", "body"))
-              and isinstance(e.get("response"), dict))
-    for k in ("payment", "request", "split", "settlement", "user"):
-        _need(is_int(st["counters"].get(k)))
+        _keys(e, ("user", "method", "path", "key", "body", "response"))
+        _need(e["user"] in out["users"])
+        out["idem"].append({"user": e["user"], "method": _str(e["method"]), "path": _str(e["path"]),
+                            "key": _str(e["key"]), "body": _str(e["body"]),
+                            "response": _response(e["response"])})
+    _keys(st["counters"], ("payment", "request", "split", "settlement", "user"))
+    out["counters"] = {k: _int(v) for k, v in st["counters"].items()}
+    return out
 
 
 class Service:
@@ -321,9 +412,10 @@ class Service:
                 or doc["format_version"] != FORMAT_VERSION or "state" not in doc:
             raise invalid("wrong or missing track/format_version/state")
         try:
-            reject_unsupported_numbers(doc["state"])
-            state = copy.deepcopy(doc["state"])
-            validate_state(state)
+            state = validate_state(doc["state"])
+            # trial run of the real export serialisation before anything is swapped in
+            json.loads(json.dumps({"track": TRACK, "format_version": FORMAT_VERSION, "state": state},
+                                  ensure_ascii=True, allow_nan=False))
         except ApiError:
             raise
         except (TypeError, ValueError, KeyError, AttributeError, OverflowError, RecursionError):
