@@ -1,0 +1,9 @@
+{
+  "name": "pocketful-stage-1",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Pocketful stage 1: payments and settlements HTTP API (no runtime dependencies)",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "engines": { "node": ">=18" }
+}
