@@ -48,10 +48,22 @@ def _bad_constant(name):
     raise ValueError("bad constant " + name)
 
 
+def _parse_float(s):
+    try:
+        return Decimal(s)
+    except ArithmeticError:
+        return Decimal("Infinity")
+
+
+def _parse_int(s):
+    return int(s) if len(s) <= 4000 else Decimal(s)
+
+
 def parse_json(raw):
     try:
         text = raw.decode("utf-8")
-        return json.loads(text, parse_float=Decimal, parse_constant=_bad_constant)
+        return json.loads(text, parse_float=_parse_float, parse_int=_parse_int,
+                          parse_constant=_bad_constant)
     except (ValueError, RecursionError, UnicodeDecodeError):
         raise malformed("body is not valid JSON")
 
@@ -64,6 +76,8 @@ def canon(v):
         return "true"
     if v is False:
         return "false"
+    if isinstance(v, Decimal) and not v.is_finite():
+        return "ninf"
     if isinstance(v, (int, Decimal)):
         sign, digits, exp = (Decimal(v) if isinstance(v, int) else v).as_tuple()
         digits = list(digits)
@@ -289,7 +303,7 @@ def check_id(v):
 def check_user_fields(u, st):
     check_id(u["id"])
     need(is_str(u["email"]) and is_str(u["display_name"]), "bad user")
-    need(is_str(u["handle"]) and HANDLE_RE.match(u["handle"]), "bad handle")
+    need(is_str(u["handle"]) and HANDLE_RE.fullmatch(u["handle"]), "bad handle")
     need(u["id"] not in st.users, "duplicate user id")
     need(u["email"] not in st.by_email, "duplicate email")
     need(u["handle"] not in st.by_handle, "duplicate handle")
@@ -397,7 +411,7 @@ def build_from_export(doc):
         need(isinstance(u, dict), "user")
         for f in ("id", "email", "handle", "display_name", "pw"):
             need(is_str(u.get(f)), "user." + f)
-        need(HASH_RE.match(u["pw"]) is not None, "user.pw")
+        need(HASH_RE.fullmatch(u["pw"]) is not None, "user.pw")
         bal = to_int(u.get("balance"), 0, MAX_BALANCE)
         need(bal is not None, "user.balance")
         rec = {k: u[k] for k in ("id", "email", "handle", "display_name", "pw")}
@@ -514,7 +528,7 @@ def paginate(ctx):
         if v is None:
             out.append(default)
             continue
-        if not DIGITS_RE.match(v) or len(v) > 1000:
+        if not DIGITS_RE.fullmatch(v) or len(v) > 1000:
             raise bad(name + " must be plain decimal digits")
         n = int(v)
         if n < lo or (hi is not None and n > hi):
@@ -582,7 +596,7 @@ def h_signup(ctx):
     body = ctx.body_object()
     split_checks(body, ("email", "password", "display_name"))
     email, pw, name = body["email"], body["password"], body["display_name"]
-    if not EMAIL_RE.match(email):
+    if not EMAIL_RE.fullmatch(email):
         raise bad("email must look like local@domain")
     if len(pw) < 8:
         raise bad("password must be at least 8 characters")
@@ -895,7 +909,7 @@ ROUTES = [(m, re.compile(p + "$"), h) for m, p, h in ROUTES]
 def route(method, path):
     allowed = []
     for m, rx, h in ROUTES:
-        mt = rx.match(path)
+        mt = rx.fullmatch(path)
         if mt:
             if m == method:
                 return h, mt.groups(), allowed
@@ -973,7 +987,7 @@ class Handler(BaseHTTPRequestHandler):
         cl = self.headers.get("Content-Length")
         if cl is None or cl.strip() == "":
             return b""
-        if not DIGITS_RE.match(cl.strip()):
+        if not DIGITS_RE.fullmatch(cl.strip()):
             self.close_connection = True
             raise malformed("bad Content-Length")
         n = int(cl)
@@ -998,7 +1012,7 @@ class Handler(BaseHTTPRequestHandler):
                 if allowed:
                     raise ApiError(405, "method_not_allowed", "method not allowed")
                 raise ApiError(404, "not_found", "no such route")
-            ctx = Ctx(method, path, query, self.headers, raw)
+            ctx = Ctx(method, unquote(path, errors="replace"), query, self.headers, raw)
             ctx.params = groups
             status, payload = h(ctx)
             self.send_json(status, payload)
