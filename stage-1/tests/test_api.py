@@ -13,6 +13,7 @@ import threading
 import time
 import unittest
 import uuid
+from urllib.parse import quote
 from concurrent.futures import ThreadPoolExecutor
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -57,8 +58,8 @@ def call(port, method, path, body=None, token=None, key=None, raw=None, headers=
     h = dict(headers or {})
     if token:
         h["Authorization"] = "Bearer " + token
-    if key is not None:
-        h["Idempotency-Key"] = key
+    if key is not None:  # http.client sends header text as latin-1: pass UTF-8 bytes through it
+        h["Idempotency-Key"] = key if key.isascii() else key.encode("utf-8").decode("latin-1")
     data = raw if raw is not None else (None if body is None else json.dumps(body).encode())
     if data is not None:
         h["Content-Type"] = "application/json"
@@ -1566,6 +1567,51 @@ class TestEnvelope(Base):
             self.assertEqual(status, 201)
         finally:
             svc_mod.STATE_BUDGET = old
+
+    def test_estimate_is_an_upper_bound_for_escaped_strings(self):
+        """Emoji take 12 bytes each in the export: keys, notes, ids, emails must be counted escaped."""
+        e = "\U0001F600"
+        uid_a, uid_b = e * 60 + "a", e * 60 + "b"
+        users = [dict(user("ann", 10 ** 9), id=uid_a), dict(user("ben", 10 ** 9), id=uid_b)]
+        self.reset({"currency": "EUR", "minor_units": 2, "users": users, "settlement_operator_ids": [uid_a],
+                    "requests": [{"id": e * 60 + "r%d" % i, "requester_id": uid_b, "payer_id": uid_a, "amount": 1,
+                                  "note": "", "status": "pending"} for i in range(40)]})
+        ann = self.login("ann")
+        refused = 0
+        for i in range(4000):
+            key = e * 249 + "%06d" % i
+            note = e * 100
+            kind = i % 5
+            if kind == 0:
+                r = self.post("/payments", {"to_handle": "ben", "amount": 1, "note": note}, ann, key=key)
+            elif kind == 1:
+                r = self.post("/requests", {"payer_handle": "ben", "amount": 1, "note": note}, ann, key=key)
+            elif kind == 2:
+                r = self.post("/splits", {"amount": 10, "participant_handles": ["ann", "ben"], "note": note}, ann, key=key)
+            elif kind == 3:
+                r = self.post("/settlements", {"transfers": [{"from_handle": "ann", "to_handle": "ben", "amount": 1,
+                                                              "note": note}] * 3}, ann, key=key)
+            elif i // 5 < 40:
+                r = self.post("/requests/%s/pay" % quote(e * 60 + "r%d" % (i // 5)), {}, ann, key=key)
+            else:
+                r = self.req("POST", "/auth/signup", {"email": e * 30 + "%d@example.com" % i, "password": "12345678",
+                                                      "display_name": e * 50})
+            if r.status == 429:
+                refused += 1
+                if refused > 3:
+                    break
+            else:
+                self.assertIn(r.status, (200, 201), r.raw[:200])
+        self.assertGreater(refused, 0, "budget never reached")
+        exp = self.req("GET", "/_test/export").raw
+        self.assertLessEqual(len(exp), self.BUDGET)  # the estimate is an upper bound of the real size
+        self.assertEqual(self.req("POST", "/_test/import", raw=exp).status, 204)
+        self.assertEqual(self.req("GET", "/_test/export").raw, exp)
+
+    def test_currency_is_bounded(self):
+        for cur in ("", "€€€", "X" * 17):
+            self.err(self.req("POST", "/_test/reset", dict(fixture(), currency=cur)), 422, "validation_failed")
+        self.assertEqual(self.req("POST", "/_test/reset", dict(fixture(), currency="X" * 16)).status, 204)
 
     def test_reset_and_import_over_budget_are_422(self):
         big = fixture(users=[user("u%d" % i, 1) for i in range(400)])

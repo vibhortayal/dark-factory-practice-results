@@ -154,7 +154,46 @@ def retention():
               sorted(map(str, codes)), after100, mid, wave1, rss_mib(), peak_mib()), flush=True)
 
 
+def emoji_fill():
+    """Worst-case escaped strings: 255-character emoji idempotency keys (12 bytes each in the export)."""
+    print("== E2: budget fill with 255-character emoji idempotency keys")
+    print("reset", reset([user(0, balance=10 ** 12), user(1, balance=0)]))
+    tok = login(0)
+    e = "\U0001F600"
+    count = [0]
+    stop = []
+    lock = threading.Lock()
+
+    def worker(w):
+        i = 0
+        while not stop:
+            i += 1
+            key = (e * 247 + "%02d-%05d" % (w, i)).encode("utf-8").decode("latin-1")
+            s, _, _ = call("POST", "/payments", {"to_handle": "h1", "amount": 1}, token=tok, key=key)
+            if s == 429:
+                stop.append(1)
+                return
+            if s != 201:
+                print("unexpected", s)
+                stop.append(1)
+                return
+            with lock:
+                count[0] += 1
+    ts = [threading.Thread(target=worker, args=(w,)) for w in range(16)]
+    [x.start() for x in ts]
+    [x.join() for x in ts]
+    s, took, exp = call("GET", "/_test/export")
+    s2, took2, _ = call("POST", "/_test/import", raw=exp)
+    s3, _, exp2 = call("GET", "/_test/export")
+    print("%d payments accepted before the first 429; export %.1f MiB (limit 48); import %s in %.2fs; re-export identical %s"
+          % (count[0], len(exp) / 2 ** 20, s2, took2, exp2 == exp), flush=True)
+    assert len(exp) <= 48 * 2 ** 20 and s2 == 204
+
+
 def main():
+    if len(sys.argv) > 3 and sys.argv[3] == "emoji":
+        emoji_fill()
+        return
     retention()
     print("== E1: 50 concurrent worst-shape API bodies at the cap")
     print("reset", reset([user(0), user(1, balance=0)]))
@@ -232,6 +271,7 @@ def main():
     rs = burst(4, lambda i: call("POST", "/_test/import", raw=exp))
     report("4 concurrent imports of the full export", rs)
 
+    emoji_fill()
     print("== E6: reads at the full budget")
     tok = login(0)
     for path in ("/activity", "/activity?offset=0&limit=200", "/activity?offset=30000&limit=50",

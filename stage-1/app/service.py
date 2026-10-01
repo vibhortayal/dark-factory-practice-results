@@ -34,12 +34,16 @@ def json_len(text):
 
 
 def payment_cost(frm, to, note, key):
-    """Upper bound of what one payment adds: record + receipt view + idempotency entry."""
-    return 800 + 3 * (len(frm) + len(to)) + 2 * json_len(note) + len(key)
+    """Upper bound of what one payment adds: record + receipt view + idempotency entry.
+
+    Every client-controlled string is counted by its JSON-escaped length (an emoji is 12 bytes
+    in the ensure_ascii export), never by its character count.
+    """
+    return 800 + 3 * (json_len(frm) + json_len(to)) + 2 * json_len(note) + json_len(key)
 
 
 def request_cost(requester, payer, note, key):
-    return 800 + 3 * (len(requester) + len(payer)) + 2 * json_len(note) + len(key)
+    return 800 + 3 * (json_len(requester) + json_len(payer)) + 2 * json_len(note) + json_len(key)
 
 
 def iso(ts):
@@ -73,8 +77,8 @@ def build_state_from_fixture(fx):
         raise malformed("fixture must be a JSON object")
     currency = fx.get("currency", "EUR")
     minor_units = fx.get("minor_units", 2)
-    if not isinstance(currency, str) or not currency:
-        raise fixture_error("currency must be a string")
+    if not isinstance(currency, str) or not 1 <= len(currency) <= 16 or not currency.isascii():
+        raise fixture_error("currency must be 1-16 ASCII characters")
     if not is_int(minor_units) or minor_units not in (0, 2, 3):
         raise fixture_error("minor_units must be 0, 2 or 3")
     users_in = fx.get("users", [])
@@ -284,6 +288,7 @@ def validate_state(st):
     _keys(st, ("currency", "minor_units", "seeded_total", "users", "tokens", "payments",
                "requests", "splits", "settlements", "operators", "idem", "counters", "seq"))
     out = new_state(_str(st["currency"]), _int(st["minor_units"]), _int(st["seeded_total"]))
+    _need(1 <= len(out["currency"]) <= 16 and out["currency"].isascii())
     _need(out["minor_units"] in (0, 2, 3))
     out["seq"] = _int(st["seq"])
     _need(type(st["users"]) is dict and type(st["tokens"]) is dict and type(st["counters"]) is dict
@@ -463,7 +468,7 @@ class Service:
 
     def issue_token(self, uid, reserved=False):
         if not reserved:
-            self._reserve(120 + len(uid))
+            self._reserve(120 + json_len(uid))
         tok = secrets.token_urlsafe(24)
         self.state["tokens"][tok] = uid
         return tok
@@ -484,7 +489,7 @@ class Service:
                 raise ApiError(409, "email_taken", "email already registered")
             if handle in self.by_handle:
                 raise ApiError(409, "handle_taken", "derived handle already taken")
-            self._reserve(1300 + len(email) + json_len(display_name) + 40)
+            self._reserve(1300 + 2 * json_len(email) + json_len(display_name) + 40)
             uid = self.next_id("user", "u", self.state["users"])
             self.state["users"][uid] = {"id": uid, "email": email,
                                         "display_name": display_name, "handle": handle,
@@ -656,7 +661,8 @@ class Service:
                 raise ApiError(409, "request_not_pending", "request is not pending")
             if self.state["users"][uid]["balance"] < r["amount"]:
                 raise ApiError(409, "insufficient_funds", "balance too low")
-            self._reserve(payment_cost(uid, r["requester_id"], r["note"], self._cur_key))
+            self._reserve(payment_cost(uid, r["requester_id"], r["note"], self._cur_key)
+                          + 2 * json_len(rid))  # the request id appears in the payment and the key path
             p = self._move(uid, r["requester_id"], r["amount"], r["note"], vis,
                            request_id=rid)
             r["status"] = "paid"
@@ -739,7 +745,7 @@ class Service:
             ids = [self.by_handle.get(h) for h in handles]
             if any(i is None for i in ids):
                 raise ApiError(404, "not_found", "unknown participant handle")
-            self._reserve(900 + len(self._cur_key) + 2 * json_len(note) + sum(
+            self._reserve(900 + json_len(self._cur_key) + 2 * json_len(note) + sum(
                 80 + len(h) for h in handles) + sum(
                 request_cost(uid, pid, note, "") + 60 for pid in ids if pid != uid))
             sid = self.next_id("split", "sp", {s["id"] for s in self.state["splits"]})
@@ -780,7 +786,7 @@ class Service:
             users = self.state["users"]
             if any(users[w]["balance"] + d < 0 for w, d in net.items()):
                 raise ApiError(409, "insufficient_funds", "settlement is not affordable")
-            self._reserve(700 + len(self._cur_key) + sum(
+            self._reserve(700 + json_len(self._cur_key) + sum(
                 payment_cost(frm, to, note, "") + 60 for frm, to, _, note, _ in checked))
             ts = time.time()
             sid = self.next_id("settlement", "st", {s["id"] for s in self.state["settlements"]})
