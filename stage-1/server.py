@@ -1024,6 +1024,12 @@ class Handler(BaseHTTPRequestHandler):
         n = int(cl)
         if n > MAX_BODY:
             self.close_connection = True
+            left = min(n, 64 * 1024 * 1024)
+            while left > 0:  # discard (never buffer) so the client can read the 413
+                chunk = self.rfile.read(min(left, 65536))
+                if not chunk:
+                    break
+                left -= len(chunk)
             raise ApiError(413, "payload_too_large", "body too large")
         return self.rfile.read(n) if n else b""
 
