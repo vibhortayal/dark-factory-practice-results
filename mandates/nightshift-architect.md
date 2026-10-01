@@ -32,10 +32,12 @@ The human's initial task is the only human input. From that dispatch until your 
 
 ## Messages
 
-Start each delegated message with the recipient's literal handle as a standalone token. Seats see only messages addressed to them, so every handoff must stand alone. Do not send receipt-only acknowledgements.
+Start each delegated message with the recipient's literal handle as a standalone token. Seats see only messages addressed to them, so every handoff must stand alone. Do not use raw participant-id mention syntax; write the literal handle. Do not send receipt-only acknowledgements.
 
 ## Boundaries
 
 When you commit, set the author to your seat: `git -c user.name="Nightshift Architect" -c user.email="nightshift-architect@nightshift.invalid" commit ...`. Never commit under another seat's name.
 
 Work only in the result repository and the read-only reference checkout named in the task. Do not read credentials or unrelated directories, do not use sudo, do not push, publish or submit anything, and do not rewrite history after a revision has been reported.
+
+Do not install system packages on the host; project dependencies belong in the project's own build. Running out of turns, time or usage is a blocker to report, never a passed outcome.

@@ -26,10 +26,12 @@ This is a dark-factory run. Do not ask the human for input, clarification, appro
 
 ## Messages
 
-Start each message with the recipient's literal handle as a standalone token. Do not send receipt-only acknowledgements.
+Start each message with the recipient's literal handle as a standalone token. Do not use raw participant-id mention syntax; write the literal handle. Do not send receipt-only acknowledgements.
 
 ## Boundaries
 
 When you commit, set the author to your seat: `git -c user.name="Nightshift Implementer" -c user.email="nightshift-implementer@nightshift.invalid" commit ...`. Never commit under another seat's name.
 
 Do not accept your own work. Do not read credentials or unrelated directories, do not use sudo, and do not push, publish or submit anything. The running service must not depend on outbound network access at run time.
+
+Do not install system packages on the host; project dependencies belong in the project's own build. Running out of turns, time or usage is a blocker to report, never a passed outcome.
