@@ -716,5 +716,151 @@ class ExportImport(Base):
             "unauthenticated")
 
 
+class Hardening(Base):
+    """Verifier findings F1/F2: never 5xx, fixture amounts in integral forms."""
+
+    def test_huge_exponents(self):
+        for raw, path in ((b'{"to_handle":"bob","amount":1e1000000000000000000}', "/payments"),
+                          (b'{"to_handle":"bob","amount":5,"note":1e1000000000000000000}', "/payments")):
+            err(self, call("POST", path, raw=raw, token=self.ada, key=k()), 422, "validation_failed")
+        err(self, call("POST", "/auth/login", raw=b'{"email":"a@b.c","password":"x","z":1e999999999999999999999}'),
+            401, "unauthenticated")
+        s = call("POST", "/_test/reset", raw=b'{"x":1e-999999999999999999999}')[0]
+        self.assertLess(s, 500)
+        reset(fixture())
+        s = call("POST", "/_test/import", raw=b'{"x":1E+9223372036854775808}')[0]
+        self.assertEqual(s, 422)
+
+    def test_odd_methods_and_targets(self):
+        for m in ("TRACE", "PROPFIND", "get", "CONNECT"):
+            s, _, b, _ = call(m, "/health")
+            self.assertEqual(s // 100, 4, m)
+        import socket
+        from helpers import HOST, PORT
+        for line in (b"GET http://[bad/health HTTP/1.1", b"GET /health HTTP/3.0", b"GARBAGE",
+                     b"GET /health HTTP/1.1 extra junk", b"get /health HTTP/1.1"):
+            c = socket.create_connection((HOST, PORT), timeout=5)
+            c.sendall(line + b"\r\nHost: x\r\nConnection: close\r\n\r\n")
+            data = b""
+            while True:
+                chunk = c.recv(4096)
+                if not chunk:
+                    break
+                data += chunk
+            c.close()
+            status = int(data.split(b" ")[1])
+            self.assertIn(status // 100, (2, 4), (line, data[:80]))
+            if status >= 400:
+                self.assertIn(b'"error"', data, line)
+
+    def test_surrogate_password(self):
+        s = call("POST", "/auth/signup", raw=b'{"email":"sur@example.com","password":"\\ud800aaaaaaaa","display_name":"x"}')[0]
+        self.assertEqual(s, 201)
+        s = call("POST", "/_test/reset", raw=json.dumps(fixture(users=[user("ada", 1, pw="\ud800aaaaaaaa")])).encode())[0]
+        self.assertEqual(s, 204)
+
+    def test_invalid_import_states(self):
+        pay(self.ada, "bob", 5)
+        call("POST", "/splits", {"amount": 9, "participant_handles": ["bob"]}, self.ada, k())
+        rq = call("POST", "/requests", {"payer_handle": "ada", "amount": 2}, self.bob, k())
+        good = call("GET", "/_test/export")[2]
+        def mut(f):
+            d = json.loads(json.dumps(good))
+            f(d["state"])
+            return d
+        bads = [mut(lambda st: st["payments"][0].update(created_at="2026-01-01T00:00:00")),
+                mut(lambda st: st["requests"][0].update(created_at="2026-01-01T00:00:00")),
+                mut(lambda st: st["splits"][0].update(response=-1.5)),
+                mut(lambda st: st["payments"][0].update(amount=1.5))]
+        for bad in bads:
+            err(self, call("POST", "/_test/import", bad), 422, "validation_failed")
+        self.assertEqual(call("GET", "/activity", token=self.ada)[0], 200)
+        self.assertEqual(call("GET", "/_test/export")[0], 200)
+
+    def test_mutated_exports_fuzz(self):
+        pay(self.ada, "bob", 5)
+        call("POST", "/splits", {"amount": 9, "participant_handles": ["bob"]}, self.ada, k())
+        call("POST", "/requests", {"payer_handle": "ada", "amount": 2}, self.bob, k())
+        call("POST", "/settlements", {"transfers": []}, self.ada, k())
+        good = call("GET", "/_test/export")[2]
+        bad_values = [None, -1, 1.5, "x", "", True, [], {}, "2026-01-01T00:00:00", 10 ** 40, "\ud800"]
+        paths = []
+        def walk(node, path):
+            if isinstance(node, dict):
+                for key, v in node.items():
+                    paths.append(path + [key])
+                    walk(v, path + [key])
+            elif isinstance(node, list) and node:
+                paths.append(path + [0])
+                walk(node[0], path + [0])
+        walk(good["state"], [])
+        for path in paths:
+            for bv in bad_values:
+                d = json.loads(json.dumps(good))
+                node = d["state"]
+                for p in path[:-1]:
+                    node = node[p]
+                node[path[-1]] = bv
+                before = call("GET", "/_test/export")[3]
+                s = call("POST", "/_test/import", d)[0]
+                self.assertIn(s, (204, 422), (path, bv, s))
+                if s == 422:
+                    self.assertEqual(call("GET", "/_test/export")[3], before, (path, bv))
+                else:
+                    reset(fixture())
+                    call("POST", "/_test/import", good)
+                    continue
+                for ep in ("/activity", "/requests"):
+                    self.assertLess(call("GET", ep, token=self.ada)[0], 500, (path, bv))
+
+    def test_body_fuzz_never_5xx(self):
+        rq = call("POST", "/requests", {"payer_handle": "ada", "amount": 2}, self.bob, k())[2]["request_id"]
+        vals = [None, True, -1, 0, 1.5, 10 ** 40, "", "\ud800", "a\u0000b", "\u202e", "x" * 5000, [], {}, [[]],
+                [{"from_handle": "ada"}], {"a": {"b": [1, {}]}}, "ada", "bob", 5, 1e308]
+        eps = [("/payments", self.ada, ["to_handle", "amount", "note", "visibility"]),
+               ("/requests", self.bob, ["payer_handle", "amount", "note"]),
+               ("/splits", self.ada, ["amount", "participant_handles", "note"]),
+               ("/settlements", self.ada, ["transfers"]),
+               (f"/requests/{rq}/pay", self.ada, ["visibility"]),
+               ("/auth/signup", None, ["email", "password", "display_name"]),
+               ("/auth/login", None, ["email", "password"])]
+        base = {"to_handle": "bob", "amount": 5, "note": "n", "visibility": "public", "payer_handle": "ada",
+                "participant_handles": ["bob"], "transfers": [{"from_handle": "ada", "to_handle": "bob", "amount": 1}],
+                "email": "fz@x.io", "password": "12345678", "display_name": "F"}
+        for path, tok, fields in eps:
+            for f in fields:
+                for v in vals:
+                    body = {x: base[x] for x in fields}
+                    body[f] = v
+                    for key in (k(), "\u00e9" * 200, "\ud800"):
+                        try:
+                            s = call("POST", path, body, tok, key)[0]
+                        except UnicodeError:
+                            continue
+                        self.assertLess(s, 500, (path, f, v))
+        for h in ({"Authorization": "Bearer \u00e9"}, {"Idempotency-Key": "\u00e9" * 300}):
+            try:
+                self.assertLess(call("POST", "/payments", {}, self.ada, None, headers=h)[0], 500)
+            except UnicodeError:
+                pass
+
+    def test_fixture_integral_forms(self):
+        fx = fixture()
+        raw = json.dumps(fx).replace('"balance": 10000', '"balance": 10000.0').replace('"balance": 2500', '"balance": 1e4')
+        s = call("POST", "/_test/reset", raw=raw.encode())[0]
+        self.assertEqual(s, 204)
+        self.assertEqual(me(login("ada"))["balance"], 10000)
+        self.assertEqual(me(login("bob"))["balance"], 10000)
+        raw = b'{"currency":"EUR","minor_units":2,"users":[{"id":"u_a","email":"a@x.io","password":"correct horse","display_name":"A","handle":"a","balance":1e2},{"id":"u_b","email":"b@x.io","password":"correct horse","display_name":"B","handle":"b","balance":0}],"payments":[{"id":"p_1","from_user_id":"u_a","to_user_id":"u_b","amount":500.0}]}'
+        self.assertEqual(call("POST", "/_test/reset", raw=raw)[0], 204)
+        err(self, call("POST", "/_test/reset", raw=raw.replace(b'"balance":0', b'"balance":-0.5')), 422, "validation_failed")
+
+    def test_many_users_reset_fast(self):
+        users = [user("u%d" % i, 1, pw="pw%06d" % i) for i in range(300)]
+        t = __import__("time").time()
+        reset(fixture(users=users))
+        self.assertLess(__import__("time").time() - t, 8)
+
+
 if __name__ == "__main__":
     unittest.main()

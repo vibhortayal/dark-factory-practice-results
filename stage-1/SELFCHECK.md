@@ -1,6 +1,6 @@
 # Stage 1 self-check (row by row)
 
-Evidence: `tests/test_api.py` + `tests/test_concurrency.py` (61 tests, all pass against the built
+Evidence: `tests/test_api.py` + `tests/test_concurrency.py` (69 tests, all pass against the built
 container: `BASE_URL=http://localhost:8080 python3 -m unittest discover -s tests`), the supplied
 harness (`claimed stage: 1`), and manual `docker` runs. "Own T" = named test class in `tests/`.
 
@@ -34,7 +34,18 @@ harness (`claimed stage: 1`), and manual `docker` runs. "Own T" = named test cla
 | X1-X11 | `ExportImport` (round trip incl. tokens, receipts, replays, settlements, operators; invalid imports leave destination unchanged; fresh second container import done by hand: replay -> 200 with original body) | OK |
 | N1-N13 | `Settlements`, `Concurrency.test_failed_settlements_leave_nothing`, mixed load | OK |
 
-Known incomplete: none. Interpretation choices are listed in `RUN.md`-adjacent handoff notes:
+Known incomplete: none. Interpretation choices (also in the handoff):
 Q1-Q6 followed as given. Further choices: pay with an empty body is treated as `{}`; the idempotency
 claim is scoped to (user, key, path); a settlement entry whose handle field has the wrong JSON
 type is 400, while a non-array/non-object `transfers` shape is 422; email lookup is case-insensitive.
+
+## Round 1 (Verifier BLOCK on 8409993) fixes
+
+| Finding | Fix | Test |
+|---|---|---|
+| F1a huge exponents | Floats that overflow Decimal become an opaque `Huge` value: invalid as an amount (422), ignored as an unknown field | `Hardening.test_huge_exponents` |
+| F1b/F1d unsupported method, bad version/request line/target | Every `do_*` method routes to the same handler (404 for unknown routes); parser errors always answered with a real status line and a 400 `malformed_request` body | `Hardening.test_odd_methods_and_targets` |
+| F1c lone surrogates | Passwords are encoded with `surrogatepass`; all JSON output is ASCII-escaped | `Hardening.test_surrogate_password`, `test_body_fuzz_never_5xx` |
+| F1e invalid import state | `State.load` rejects non-plain-JSON values anywhere, timestamps without offset, non-object split/settlement records; any exception while loading is 422 and destination unchanged | `Hardening.test_invalid_import_states`, `test_mutated_exports_fuzz` (every state field mutated one at a time) |
+| F2 / Q7 integral fixture numbers | `fx_int` accepts `10000`, `10000.0`, `1e4` for balance, minor_units, seeded payment and request amounts | `Hardening.test_fixture_integral_forms` |
+| Notes | Per-user salt now really used (hashing parallel over 4 threads; 300 distinct users reset in < 8 s asserted); idempotency key length counted in characters (UTF-8 decoded); SIGTERM exits at once | `test_many_users_reset_fast`; `docker stop` 0.2 s |

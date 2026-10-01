@@ -11,10 +11,12 @@ import json
 import os
 import re
 import secrets
+import signal
 import sys
 import threading
 from datetime import datetime, timezone
 from decimal import Decimal
+from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
@@ -49,12 +51,26 @@ def _bad_constant(s):
     raise ValueError("bad constant " + s)
 
 
+class Huge:
+    """A JSON number too large for Decimal: never a valid amount, kept as text."""
+
+    def __init__(self, text):
+        self.text = text
+
+
+def _parse_float(s):
+    try:
+        return Decimal(s)
+    except ArithmeticError:
+        return Huge(s)
+
+
 def parse_json(raw):
     try:
         text = raw.decode("utf-8")
-        return json.loads(text, parse_float=Decimal, parse_int=_parse_int,
+        return json.loads(text, parse_float=_parse_float, parse_int=_parse_int,
                           parse_constant=_bad_constant)
-    except (ValueError, RecursionError):
+    except (ValueError, RecursionError, ArithmeticError):
         raise err(400, "malformed_request", "body is not valid JSON")
 
 
@@ -73,6 +89,8 @@ def num_canon(x):
 def canon(v):
     """Canonical string for JSON-value equality (key order, whitespace, 1000 == 1e3)."""
     def conv(x):
+        if isinstance(x, Huge):
+            return ["h", x.text]
         if x is None:
             return ["z"]
         if isinstance(x, bool):
@@ -94,6 +112,16 @@ def canon(v):
 
 def dumps(obj):
     return json.dumps(obj, ensure_ascii=True, separators=(",", ":")).encode("ascii")
+
+
+def fx_int(v):
+    """Integral number (1000, 1000.0, 1e3) -> int, else None."""
+    if is_int(v):
+        return v
+    if isinstance(v, Decimal) and v.is_finite() and v.adjusted() <= 30 \
+            and v == v.to_integral_value():
+        return int(v)
+    return None
 
 
 def is_int(v):
@@ -124,7 +152,7 @@ def parse_ts(s):
 
 def hash_password(password, salt=None):
     salt = salt or secrets.token_bytes(16)
-    h = hashlib.scrypt(password.encode("utf-8"), salt=salt, n=SCRYPT_N, r=SCRYPT_R,
+    h = hashlib.scrypt(password.encode("utf-8", "surrogatepass"), salt=salt, n=SCRYPT_N, r=SCRYPT_R,
                        p=SCRYPT_P, maxmem=64 * 1024 * 1024, dklen=32)
     return "scrypt$%d$%d$%d$%s$%s" % (SCRYPT_N, SCRYPT_R, SCRYPT_P, salt.hex(), h.hex())
 
@@ -132,7 +160,7 @@ def hash_password(password, salt=None):
 def verify_password(password, stored):
     try:
         _, n, r, p, salt, h = stored.split("$")
-        calc = hashlib.scrypt(password.encode("utf-8"), salt=bytes.fromhex(salt), n=int(n),
+        calc = hashlib.scrypt(password.encode("utf-8", "surrogatepass"), salt=bytes.fromhex(salt), n=int(n),
                               r=int(r), p=int(p), maxmem=64 * 1024 * 1024, dklen=32)
         return hmac.compare_digest(calc.hex(), h)
     except Exception:
@@ -205,6 +233,14 @@ class State:
             return isinstance(x, str)
 
         need(isinstance(d, dict))
+
+        def plain(x):
+            if isinstance(x, dict):
+                return all(isinstance(k, str) and plain(v) for k, v in x.items())
+            if isinstance(x, list):
+                return all(plain(v) for v in x)
+            return x is None or isinstance(x, (str, bool, int)) and not isinstance(x, Huge)
+        need(plain(d))
         s = State()
         need(is_str(d["currency"]) and d["currency"])
         need(is_int(d["minor_units"]) and d["minor_units"] in (0, 2, 3))
@@ -239,7 +275,7 @@ class State:
             need(p["request_id"] is None or is_str(p["request_id"]))
             need(p["settlement_id"] is None or is_str(p["settlement_id"]))
             need(isinstance(p["seq"], int) and p["payment_id"] not in s.payments)
-            parse_ts(p["created_at"])
+            need(parse_ts(p["created_at"]).tzinfo is not None)
             s.payments[p["payment_id"]] = dict(p)
         for r in d["requests"]:
             need(isinstance(r, dict))
@@ -249,13 +285,13 @@ class State:
             need(is_int(r["amount"]) and r["amount"] >= 0 and r["status"] in STATUSES)
             need(r["payment_id"] is None or is_str(r["payment_id"]))
             need(isinstance(r["seq"], int) and r["request_id"] not in s.requests)
-            parse_ts(r["created_at"])
+            need(parse_ts(r["created_at"]).tzinfo is not None)
             s.requests[r["request_id"]] = dict(r)
         for key, table in (("splits", s.splits), ("settlements", s.settlements)):
             for x in d[key]:
                 need(isinstance(x, dict))
                 idk = "split_id" if key == "splits" else "settlement_id"
-                need(is_str(x[idk]))
+                need(is_str(x[idk]) and isinstance(x["response"], dict))
                 table[x[idk]] = copy.deepcopy(x)
         for e in d["idempotency"]:
             need(isinstance(e, dict) and is_str(e["user_id"]) and is_str(e["key"])
@@ -280,16 +316,16 @@ class State:
         s = State()
         cur = fx.get("currency")
         need(isinstance(cur, str) and cur, "currency required")
-        mu = fx.get("minor_units")
+        mu = fx_int(fx.get("minor_units"))
         need(is_int(mu) and mu in (0, 2, 3), "minor_units must be 0, 2 or 3")
         s.currency, s.minor_units = cur, mu
         users = fx.get("users", [])
         need(isinstance(users, list), "users must be a list")
-        pw_cache = {}
+        pending = []
         for u in users:
             need(isinstance(u, dict), "user must be an object")
             uid, email, pw = u.get("id"), u.get("email"), u.get("password")
-            name, handle, bal = u.get("display_name"), u.get("handle"), u.get("balance", 0)
+            name, handle, bal = u.get("display_name"), u.get("handle"), fx_int(u.get("balance", 0))
             need(isinstance(uid, str) and 0 < len(uid) <= 64, "user id")
             need(isinstance(email, str) and email, "user email")
             need(isinstance(pw, str), "user password")
@@ -298,13 +334,16 @@ class State:
             need(is_int(bal) and 0 <= bal <= MAX_BALANCE, "balance must be an integer >= 0")
             need(uid not in s.users and handle not in s.by_handle
                  and email.lower() not in s.by_email, "duplicate user")
-            if pw not in pw_cache:
-                pw_cache[pw] = hash_password(pw)
             rec = {"id": uid, "email": email, "display_name": name, "handle": handle,
-                   "balance": bal, "password_hash": pw_cache[pw]}
+                   "balance": bal, "password_hash": None}
+            pending.append((rec, pw))
             s.users[uid] = rec
             s.by_handle[handle] = rec
             s.by_email[email.lower()] = rec
+        if pending:
+            with ThreadPoolExecutor(max_workers=4) as ex:
+                for (rec, _), h in zip(pending, ex.map(lambda t: hash_password(t[1]), pending)):
+                    rec["password_hash"] = h
         ops = fx.get("settlement_operator_ids", [])
         need(isinstance(ops, list) and all(isinstance(o, str) for o in ops),
              "settlement_operator_ids must be a list of ids")
@@ -320,7 +359,7 @@ class State:
             need(isinstance(pid, str) and 0 < len(pid) <= 64 and pid not in s.payments)
             need(p.get("from_user_id") in s.users and p.get("to_user_id") in s.users,
                  "payment parties")
-            amt = p.get("amount")
+            amt = fx_int(p.get("amount"))
             need(is_int(amt) and amt >= 0, "payment amount")
             note = p.get("note", "")
             need(isinstance(note, str), "payment note")
@@ -341,7 +380,7 @@ class State:
             need(isinstance(rid, str) and 0 < len(rid) <= 64 and rid not in s.requests)
             need(r.get("requester_id") in s.users and r.get("payer_id") in s.users,
                  "request parties")
-            amt = r.get("amount")
+            amt = fx_int(r.get("amount"))
             need(is_int(amt) and amt >= 0, "request amount")
             note = r.get("note", "")
             need(isinstance(note, str), "request note")
@@ -488,6 +527,10 @@ def idem_key_of(headers):
     key = headers.get("Idempotency-Key")
     if key is None or key == "":
         raise err(400, "missing_idempotency_key", "Idempotency-Key header is required")
+    try:
+        key = key.encode("latin-1").decode("utf-8")
+    except (UnicodeError, ValueError):
+        pass
     if len(key) > 255:
         raise err(422, "validation_failed", "Idempotency-Key is at most 255 characters")
     return key
@@ -790,8 +833,18 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
     def send_error(self, code, message=None, explain=None):
-        self._send(code, {"error": {"code": "malformed_request" if code < 500 else "internal_error",
-                                    "message": message or "error"}}, close=True)
+        if code >= 500:
+            code = 400
+        self.request_version = "HTTP/1.1"  # always answer with a real status line
+        if not hasattr(self, "command") or self.command is None:
+            self.command = "GET"
+        self._send(code, {"error": {"code": "malformed_request", "message": message or "error"}},
+                   close=True)
+
+    def __getattr__(self, name):
+        if name.startswith("do_"):
+            return self._handle
+        raise AttributeError(name)
 
     def _send(self, status, obj=None, close=False):
         data = b"" if obj is None else dumps(obj)
@@ -853,7 +906,10 @@ class Handler(BaseHTTPRequestHandler):
     do_GET = do_POST = do_PUT = do_PATCH = do_DELETE = do_HEAD = do_OPTIONS = _handle
 
     def _route(self, raw):
-        parts = urlsplit(self.path)
+        try:
+            parts = urlsplit(self.path)
+        except ValueError:
+            raise err(400, "malformed_request", "bad request target")
         path = parts.path
         method = self.command
         query = parse_qs(parts.query, keep_blank_values=True)
@@ -936,7 +992,12 @@ class Handler(BaseHTTPRequestHandler):
     def _reset(self, raw):
         global STATE
         fx = parse_json(raw)
-        new = State.from_fixture(fx)
+        try:
+            new = State.from_fixture(fx)
+        except ApiError:
+            raise
+        except Exception:
+            raise err(422, "validation_failed", "invalid fixture")
         with LOCK:
             STATE = new
         return 204, None
@@ -951,7 +1012,7 @@ class Handler(BaseHTTPRequestHandler):
             raise err(422, "validation_failed", "bad track, format_version or state")
         try:
             new = State.load(doc["state"])
-        except (ValueError, KeyError, TypeError, AttributeError):
+        except Exception:
             raise err(422, "validation_failed", "invalid state")
         with LOCK:
             STATE = new
@@ -969,6 +1030,7 @@ def main():
     ThreadingHTTPServer.daemon_threads = True
     ThreadingHTTPServer.request_queue_size = 256
     srv = ThreadingHTTPServer(("0.0.0.0", port), Handler)
+    signal.signal(signal.SIGTERM, lambda *a: os._exit(0))
     srv.serve_forever()
 
 
