@@ -1290,6 +1290,99 @@ class TestRegressions(Base):
         self.assertEqual(self.req("POST", "/_test/import", raw=exp).status, 204)
         self.assertEqual(self.req("GET", "/_test/export").raw, exp)
 
+    def test_canonical_form_is_injective_over_forged_standins(self):
+        def body(x):
+            return b'{"to_handle":"bob","amount":1,"x":' + x + b"}"
+        pairs = [(b"0.5", b'{"\\u0000num":"b5e-1"}'), (b"0.5", b'"~b5e-1~"'), (b"0.5", b'{"~b5e-1~":1}'),
+                 (b"0.5", b'"\\u0000nb5e-1"'), (b"0.5", b'["~b5e-1~"]'), (b"[0.5]", b'[{"\\u0000num":"b5e-1"}]'),
+                 (b"1e400", b'{"\\u0000num":"n1' + b"0" * 400 + b'"}'), (b"1" + b"0" * 4400, b'"~b1e4400~"'),
+                 (b"[" * 50 + b"0.5" + b"]" * 50, b"[" * 50 + b'{"\\u0000num":"b5e-1"}' + b"]" * 50),
+                 (b'{"k":0.5}', b'{"k":{"\\u0000num":"b5e-1"}}'), (b"1", b"true"), (b"[]", b"{}"), (b"0", b"false"),
+                 (b'"1"', b"1"), (b"null", b'"null"'), (b"0.5", b"0.50000000000000001"), (b"0.5", b"5")]
+        for i, (a, b) in enumerate(pairs):
+            key = "inj%d" % i
+            self.assertEqual(self.req("POST", "/payments", raw=body(a), token=self.ada, key=key).status, 201, (i, a[:30]))
+            self.assertEqual(self.req("POST", "/payments", raw=body(a), token=self.ada, key=key).status, 200)
+            self.err(self.req("POST", "/payments", raw=body(b), token=self.ada, key=key), 409, "idempotency_key_reuse")
+        # strings and keys that genuinely start with U+0000 replay as themselves
+        for i, x in enumerate((b'"\\u0000num"', b'{"\\u0000num":"b5e-1"}', b'{"\\u0000s":1}', b'"\\u0000"')):
+            key = "nul%d" % i
+            self.assertEqual(self.req("POST", "/payments", raw=body(x), token=self.ada, key=key).status, 201)
+            self.assertEqual(self.req("POST", "/payments", raw=body(x), token=self.ada, key=key).status, 200)
+        # equal values written differently are the same body
+        for j, (a, b) in enumerate(((b"0.5", b"5e-1"), (b"0.5", b"0.50"), (b"[1.0]", b"[1]"), (b'{"a":1,"b":2.5}', b'{"b":25e-1,"a":1.0}'),
+                     (b'"\\u00e9"', b'"\xc3\xa9"'), (b'{"a":1,"a":2}', b'{"a":2}'))):
+            key = "same-%d" % j
+            self.assertEqual(self.req("POST", "/payments", raw=body(a), token=self.ada, key=key).status, 201)
+            self.assertEqual(self.req("POST", "/payments", raw=body(b), token=self.ada, key=key).status, 200, (a, b))
+
+    def test_canonical_text_of_fixed_samples_is_stable(self):
+        # replays after an export/import depend on this exact text: a change here is a breaking change
+        sys.path.insert(0, ROOT)
+        from app.validation import canon, parse_json
+        expected = {
+            b"{}": "{}",
+            b'{"to_handle":"bob","amount":1000}': '{"amount":1000,"to_handle":"bob"}',
+            b'{"to_handle":"bob","amount":1e3,"note":"caf\xc3\xa9 \\ud83d\\ude00"}':
+                '{"amount":1000,"note":"caf\\u00e9 \\ud83d\\ude00","to_handle":"bob"}',
+            b'{"amount":10.5,"x":[1,2.5,true,null,{"b":1,"a":[]}]}':
+                '{"amount":~b105e-1~,"x":[1,~b25e-1~,true,null,{"a":[],"b":1}]}',
+            b'{"x":"\\u0000num","y":{"\\u0000num":"b5e-1"}}': '{"x":"\\u0000num","y":{"\\u0000num":"b5e-1"}}',
+            b'{"a":1,"a":2}': '{"a":2}',
+            b'{"x":1e999999999}': '{"x":~b1e999999999~}',
+            b'{"x":0.1000000000000000055511151231257827}': '{"x":~b1000000000000000055511151231257827e-34~}',
+            b'{"x":-0}': '{"x":0}',
+            b"[[],{}]": "[[],{}]",
+        }
+        for raw, text in expected.items():
+            self.assertEqual(canon(parse_json(raw)), text, raw)
+
+    def test_number_bodies_replay_after_export_import(self):
+        base = b'{"to_handle":"bob","amount":1,"x":'
+        for i, x in enumerate((b"0.5", b"1e400", b"[0.25,{\"k\":2.5e-7}]", b"1" + b"0" * 4400)):
+            self.assertEqual(self.req("POST", "/payments", raw=base + x + b"}", token=self.ada, key="ri%d" % i).status, 201)
+        self.assertEqual(self.req("POST", "/_test/import", raw=self.req("GET", "/_test/export").raw).status, 204)
+        for i, x in enumerate((b"0.5", b"1e400", b"[0.25,{\"k\":2.5e-7}]", b"1" + b"0" * 4400)):
+            self.assertEqual(self.req("POST", "/payments", raw=base + x + b"}", token=self.ada, key="ri%d" % i).status, 200)
+            self.err(self.req("POST", "/payments", raw=base + b'{"\\u0000num":"b5e-1"}}', token=self.ada, key="ri%d" % i),
+                     409, "idempotency_key_reuse")
+
+    def test_memory_does_not_grow_with_requests_served(self):
+        def rss_mib(pid):
+            with open("/proc/%d/status" % pid) as f:
+                return int([ln for ln in f if ln.startswith("VmRSS")][0].split()[1]) // 1024
+        base = b'{"to_handle":"bob","amount":1,"x":'
+        n = 120 * 1024
+
+        def one(i):
+            kind = i % 6
+            lit = (b"%d" % (i + 1)) * 1  # distinct contents each time
+            if kind == 0:
+                raw = base + b"1." + (lit + b"7") * (n // (len(lit) + 1)) + b"}"      # long distinct number
+            elif kind == 1:
+                raw = base + b"[" + b",".join(b"%d.5" % (i * 10 + j) for j in range(8000)) + b"]}"  # distinct floats
+            elif kind == 2:
+                raw = base + b'"' + (lit + b"z") * (n // (len(lit) + 1)) + b'"}'      # distinct string
+            elif kind == 3:
+                raw = base + b'"' + b"q" * (200 * 1024) + b'"}'                       # 413
+            elif kind == 4:
+                return self.req("POST", "/payments", raw=base + lit + b"}", key="u%d" % i).status  # 401
+            else:
+                raw = base + b"[" + b"1," * 17000 + b"1]}"                            # 413 (values)
+            return self.req("POST", "/payments", raw=raw, token=self.ada, key="mem%d" % i).status
+        for i in range(100):
+            one(i)
+        before = rss_mib(self.proc.pid)
+        statuses = set()
+        for i in range(100, 1300):
+            statuses.add(one(i))
+        with ThreadPoolExecutor(50) as ex:
+            statuses |= set(ex.map(one, range(1300, 1700)))
+        after = rss_mib(self.proc.pid)
+        print("RSS after 100 requests %d MiB, after 1700 requests %d MiB, statuses %s" % (before, after, sorted(statuses)))
+        self.assertTrue({201, 401, 413} <= statuses)
+        self.assertLess(after - before, 60)
+
     def test_deep_nesting_unknown_field(self):
         for depth in (10, 950, 1000, 5000):
             raw = b'{"to_handle":"bob","amount":1,"x":' + b"[" * depth + b"]" * depth + b"}"

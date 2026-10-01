@@ -68,7 +68,17 @@ envelope is explicit and enforced by *fast* rejections with the usual error body
    runs under the state lock (except the final-pass fallback of a login that raced a reset/import) and
    at most 4 scrypt calls run at once (4 MiB each).
 5. **Idempotency records** keep a SHA-256 digest of the canonical request body plus the original
-   response, never the request body itself.
+   response, never the request body itself. The canonical text is compact JSON with sorted keys, in
+   which numbers are written by exact value (1, 1.0 and 1e0 agree; 0.1 and
+   0.1000000000000000055511151231257827 differ) and the only non-JSON syntax is an unquoted `~...~`
+   token for a number that is not a plain integer; every client string is quoted, so no body can forge
+   it. It is deterministic across processes, so replays keep working after export/import (a change of
+   this text would break them; `tests/test_api.py` pins it with literal samples). Nothing derived
+   from a request is retained after it (no caches): memory depends only on the stored state.
+6. **Reset/import value bound.** Documents over 1 MiB may contain at most 3,000,000 JSON separators
+   (`,` `[` `{`). This cannot refuse any document whose state fits the 40 MiB budget: a stored
+   payment or request costs at least 250 bytes of budget and appears with at most 12 separators in a
+   fixture or export, so a state at the budget has at most about 2,000,000 separators.
 
 Measured in a container with `--cpus 2 --memory 2g --memory-swap 2g` (see
 `tests/load/load_envelope.py`): 50 concurrent worst-shape 128 KiB bodies finish in <= 1.5 s with

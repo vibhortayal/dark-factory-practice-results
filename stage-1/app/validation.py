@@ -2,7 +2,6 @@
 import json
 import math
 import re
-from functools import lru_cache
 
 HANDLE_RE = re.compile(r"^[a-z0-9_]{1,20}$")
 DIGITS_RE = re.compile(r"^[0-9]+$")
@@ -36,7 +35,6 @@ NUMBER_RE = re.compile(r"^(-?)([0-9]+)(?:\.([0-9]+))?(?:[eE]([+-]?[0-9]+))?$")
 EXPAND_LIMIT = 4300  # integers up to this many digits are plain ints (CPython conversion limit)
 
 
-@lru_cache(maxsize=8192)
 def num_canon(text):
     """Exact canonical form of a JSON number literal, computed symbolically.
 
@@ -92,14 +90,6 @@ def _parse_int(text):
     return int(text)
 
 
-def _number_default(obj):
-    """json.dumps hook: canonical stand-in for a literal-keeping number."""
-    if isinstance(obj, BigNumber):
-        c = num_canon(obj.text)
-        return int(c[1:]) if c.startswith("n") else {"\x00num": c}
-    raise TypeError("unserialisable")
-
-
 def parse_json(raw):
     """Parse a request body; raises malformed() when it is not valid JSON.
 
@@ -138,10 +128,18 @@ def parse_object(raw):
     return value
 
 
-def _canon_deep(value):
-    """Iterative canonical text (explicit stack): used only for extreme nesting."""
+def _slow_canon(value):
+    """Canonical text with an explicit stack (no recursion limit, no stand-in objects).
+
+    Used when the body holds literal-keeping numbers (BigNumber) or is nested too deeply for
+    the C encoder. Output format is exactly the compact JSON the C encoder writes
+    (sorted keys, "," and ":" separators, ensure_ascii strings, plain integers), with one
+    addition: a literal-keeping number that is not a small integer is written as the
+    unquoted token ~<num_canon>~. See canon() for why this is injective.
+    """
     out = []
     app = out.append
+    dumps = json.dumps
     stack = []
     it, closer, first = iter((value,)), "", True
     while True:
@@ -150,7 +148,7 @@ def _canon_deep(value):
                 app(",")
             first = False
             if type(item) is tuple:  # (key, value) pair of an object
-                app(json.dumps(item[0], ensure_ascii=True))
+                app(dumps(item[0], ensure_ascii=True))
                 app(":")
                 item = item[1]
             kind = type(item)
@@ -164,10 +162,11 @@ def _canon_deep(value):
                 app("{")
                 it, closer, first = iter(sorted(item.items())), "}", True
                 break
-            elif isinstance(item, BigNumber):
-                app("n" + str(_number_default(item)))
-            else:
-                app(json.dumps(item, ensure_ascii=True))
+            elif kind is BigNumber:
+                c = num_canon(item.text)
+                app(c[1:] if c.startswith("n") else "~" + c + "~")
+            else:  # int, str, bool, None
+                app(dumps(item, ensure_ascii=True))
         else:
             if not stack:
                 return "".join(out)
@@ -176,18 +175,26 @@ def _canon_deep(value):
 
 
 def canon(value):
-    """Canonical text of a parsed JSON value: equal JSON values give equal text.
+    """Canonical text of a parsed JSON value: two JSON values have equal text iff they are equal.
 
-    Booleans stay distinct from numbers; numbers are compared by exact value
-    (num_canon). Normally the C encoder does the work (sorted keys, no whitespace);
-    for nesting so deep that it overflows the interpreter stack the explicit-stack
-    version gives a (deterministic) canonical text instead.
+    Why this is injective: the text is compact JSON (sorted keys, ensure_ascii strings, plain
+    integers) in which the only non-JSON syntax is the unquoted token ~...~ for a number that
+    is not a plain integer (fraction, exponent beyond the integer range, or more than 4300 digits).
+    Every client string is written quoted by json.dumps, so a client can never produce an
+    unquoted ~ token; a client cannot forge a number stand-in with an object or a string. The text
+    can therefore be parsed back uniquely to the value (with numbers identified by their exact
+    value via num_canon, which maps each real number to one form: integral values up to 4300 digits
+    are written as plain integers, so 1, 1.0 and 1e0 agree). Booleans are true/false (never 1/0),
+    {} and [] differ, key order is normalised, and a duplicate key keeps its last value exactly as the
+    parser does. The C encoder is used when no literal-keeping number is present (it raises
+    TypeError on the first BigNumber); both paths write identical text for the same value, and the
+    text is deterministic across processes (no secrets), so digests survive export/import.
     """
     try:
         return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True,
-                          allow_nan=False, default=_number_default)
-    except RecursionError:
-        return _canon_deep(value)
+                          allow_nan=False)
+    except (TypeError, RecursionError):  # BigNumber present, or nesting too deep for the C encoder
+        return _slow_canon(value)
 
 
 def amount_of(value, present=True):

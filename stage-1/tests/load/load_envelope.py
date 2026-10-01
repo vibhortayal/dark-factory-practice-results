@@ -98,13 +98,60 @@ def shapes():
             "16k small ints": base + b"[" + b"1," * 16000 + b"1]}",
             "16k floats": base + b"[" + b"1.5," * 16000 + b"1.5]}",
             "16k exponent floats": base + b"[" + b"1.25e3," * 16000 + b"1.25e3]}",
+            "16k distinct floats": base + b"[" + b",".join(b"%d.5" % i for i in range(16000)) + b"]}",
+            "16k distinct exponent floats": base + b"[" + b",".join(b"%d.25e3" % i for i in range(16000)) + b"]}",
             "8k empty arrays": base + b"[" + b"[]," * 8000 + b"[]]}",
             "8k small objects": base + b"[" + b'{"a":1},' * 8000 + b'{"a":1}]}',
             "nesting depth 9000": base + b"[" * 9000 + b"]" * 9000 + b"}",
             "128 KiB string": base + b'"' + b"z" * (n - 2) + b'"}'}
 
 
+def rss_mib():
+    if not CONTAINER:
+        return "n/a"
+    out = subprocess.check_output(["docker", "exec", CONTAINER, "grep", "VmRSS", "/proc/1/status"]).decode()
+    return int(out.split()[1]) // 1024
+
+
+def retention():
+    """Memory must not depend on the number of requests served: all-distinct contents."""
+    print("== V1: retention (3000 sequential + 800 concurrent requests, distinct contents)")
+    reset([user(0), user(1, balance=0)])
+    tok = login(0)
+    base = b'{"to_handle":"h1","amount":1,"x":'
+    n = 120 * 1024
+
+    def one(i):
+        kind = i % 6
+        lit = b"%d" % (i + 1)
+        if kind == 0:
+            raw = base + b"1." + (lit + b"7") * (n // (len(lit) + 1)) + b"}"
+        elif kind == 1:
+            raw = base + b"[" + b",".join(b"%d.5" % (i * 10 + j) for j in range(8000)) + b"]}"
+        elif kind == 2:
+            raw = base + b'"' + (lit + b"z") * (n // (len(lit) + 1)) + b'"}'
+        elif kind == 3:
+            raw = base + b'"' + b"q" * (200 * 1024) + b'"}'
+        elif kind == 4:
+            return call("POST", "/payments", raw=base + lit + b"}", key="u%d" % i)
+        else:
+            raw = base + b"[" + b"1," * 17000 + b"1]}"
+        return call("POST", "/payments", raw=raw, token=tok, key="mem%d" % i)
+    codes = set()
+    for i in range(100):
+        one(i)
+    after100 = rss_mib()
+    for i in range(100, 3000):
+        codes.add(one(i)[0])
+    mid = rss_mib()
+    with ThreadPoolExecutor(50) as ex:
+        codes |= {r[0] for r in ex.map(one, range(3000, 3800))}
+    print("statuses %s; RSS after 100 requests %s MiB, after 3000 sequential %s MiB, after 800 more concurrent %s MiB; "
+          "container peak %s MiB" % (sorted(map(str, codes)), after100, mid, rss_mib(), peak_mib()), flush=True)
+
+
 def main():
+    retention()
     print("== E1: 50 concurrent worst-shape API bodies at the cap")
     print("reset", reset([user(0), user(1, balance=0)]))
     tok = login(0)
