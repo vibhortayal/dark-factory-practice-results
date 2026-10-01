@@ -1,7 +1,7 @@
 // Wallet/payment/request logic. Every function here runs synchronously against
 // store.s, so each call is atomic and serialisable by construction.
 import { store, insertOrdered, newId, publicPayment, publicRequest, publicAuthorization, availableOf, heldOf, tickStamp, clockMs } from './state.js';
-import { stampAt } from './time.js';
+import { stampAt, stampAtUs } from './time.js';
 import { msToNs, parseInstantNs } from './instants.js';
 import { overdrawsHistory } from './history.js';
 import { equalShares } from '../public/assets/js/split.js';
@@ -339,10 +339,11 @@ export function correctPayment(user, id, body) {
   if (overdrawsHistory(s, sender, proposal) || overdrawsHistory(s, receiver, proposal)) {
     throw conflict('historical_overdraft', 'the correction would overdraw a wallet at an earlier time');
   }
-  const stamp = tickStamp(s); // strictly later than every earlier stamp, so recorded_at strictly increases
+  // recorded_at is the real clock, bumped past this payment's own previous recorded_at so that it strictly increases.
+  const stamp = stampAtUs(Math.max(tickStamp(s).ms * 1000, Number(last.rec / 1000n) + 1));
   const rev = {
     revision: last.revision + 1, amount: body.amount, effective_at: body.effective_at, eff: effNs,
-    recorded_at: stamp.text, rec: msToNs(stamp.ms), reason: body.reason, kseq: ++s.kseq,
+    recorded_at: stamp.text, rec: stamp.ns, reason: body.reason, kseq: ++s.kseq,
   };
   p.revisions.push(rev);
   sender.balance -= diff;

@@ -530,3 +530,57 @@ test('AJ1: mixed 50-way burst keeps every view conserved and every statement con
   assert.deepEqual(revs.map((r) => r.revision), revs.map((_, i) => i + 1));
   for (const tok of all()) { const m = await me(tok); const view = await me(tok, `?as_of=${enc(new Date(Date.now() + 1).toISOString())}`); assert.deepEqual([m.total, m.available, m.held], [view.total, view.available, view.held]); }
 });
+
+test('the service clock is the real clock: concurrent bursts do not push timestamps into the future', async () => {
+  await fresh({ users: [
+    { id: 'u_ada', email: 'ada@example.com', password: 'correct horse', display_name: 'Ada', handle: 'ada', balance: 10000000 },
+    { id: 'u_bob', email: 'bob@example.com', password: 'correct horse', display_name: 'Bob', handle: 'bob', balance: 0 },
+    { id: 'u_cy', email: 'cy@example.com', password: 'correct horse', display_name: 'Cy', handle: 'cy', balance: 0 },
+    { id: 'u_op', email: 'op@example.com', password: 'correct horse', display_name: 'Op', handle: 'op', balance: 0 },
+  ] });
+  for (let round = 0; round < 3; round++) {
+    const sent = round === 2 ? 600 : 50;
+    const rs = [];
+    for (let off = 0; off < sent; off += 50) rs.push(...(await Promise.all(Array.from({ length: 50 }, () => c.post('/payments', { token: t.ada, key: k(), body: { to_handle: 'bob', amount: 1 } })))));
+    assert.ok(rs.every((r) => r.status === 201));
+    const clientNow = Date.now();
+    const latest = Math.max(...rs.map((r) => Date.parse(r.json.created_at)));
+    assert.ok(latest <= clientNow + 1, `a created_at is ${latest - clientNow} ms ahead of the client clock`);
+    const cur = (await me(t.ada)).balance;
+    const nowIso = new Date(clientNow + 1).toISOString();
+    assert.equal((await me(t.ada, `?as_of=${enc(nowIso)}`)).balance, cur, 'as_of at the present instant equals the current balance');
+    assert.equal((await me(t.ada, `?known_at=${enc(nowIso)}`)).balance, cur);
+    assert.equal((await stmt(t.ada, `?to=${enc(nowIso)}&limit=1`)).closing_balance, cur);
+  }
+  // a hold created right after a burst is not treated as expired early, and its stamps are not in the future
+  const h = (await c.post('/authorizations', { token: t.ada, key: k(), body: { to_handle: 'bob', amount: 5 } })).json;
+  assert.ok(Date.parse(h.created_at) <= Date.now() + 1);
+  const rev = await correct(t.ada, (await stmt(t.ada, '?limit=1')).entries[0].payment.payment_id, goodBody({ expected_revision: 1, amount: 0, effective_at: at(-1), reason: 'burst' }));
+  assert.ok(Date.parse(rev.json.recorded_at) <= Date.now() + 1);
+});
+
+test('AC12: service stamps are real-clock microsecond stamps; only recorded_at is bumped, by one microsecond', async () => {
+  await fresh();
+  const p = await pay(t.ada, 'bob', 500);
+  assert.match(p.created_at, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}\+00:00$/);
+  assert.ok(Date.parse(p.created_at) <= Date.now());
+  // many corrections in a tight loop land inside one clock tick: recorded_at must still strictly increase
+  const recs = [p.created_at];
+  for (let i = 0; i < 60; i++) {
+    const r = await correct(t.ada, p.payment_id, goodBody({ expected_revision: i + 1, amount: 500 - (i % 2), effective_at: p.created_at, reason: `n${i}` }));
+    assert.equal(r.status, 201, r.text);
+    assert.match(r.json.recorded_at, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}\+00:00$/);
+    recs.push(r.json.recorded_at);
+  }
+  for (let i = 1; i < recs.length; i++) assert.ok(recs[i] > recs[i - 1], `${recs[i - 1]} !< ${recs[i]}`);
+  assert.ok(Date.parse(recs[recs.length - 1]) <= Date.now() + 1, 'a chain of corrections does not run ahead of the clock');
+  // a different payment's stamps are not affected by that payment's bumps
+  const q = await pay(t.ada, 'bob', 1);
+  assert.ok(Date.parse(q.created_at) <= Date.now());
+  // known_at at one revision's own recorded_at selects exactly that revision
+  const at30 = recs[30];
+  const s = await stmt(t.ada, `?known_at=${enc(at30)}`);
+  assert.equal(s.entries.find((e) => e.payment.payment_id === p.payment_id).revision, 31);
+  const before = await stmt(t.ada, `?known_at=${enc(recs[29])}`);
+  assert.equal(before.entries.find((e) => e.payment.payment_id === p.payment_id).revision, 30);
+});

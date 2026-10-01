@@ -84,15 +84,15 @@ bash test/docker-upgrade.sh      # stage-1 image -> stage-3 image, then stage-2 
 - Expiry is derived from the clock on every request (`sweep`), never from a timer.
 - A hold's remaining amount is `amount − captured_amount` while it is open; `held` is the sum of
   those for the payer's open holds. Every `insufficient_funds` test uses `available`.
-- Timestamps created by this service carry millisecond precision (`…:03.123+00:00`).
+- Timestamps created by this service are real-clock readings with six fractional digits (`…:03.123000+00:00`); records created in the same tick share an instant and are ordered by sequence (fixed-width payment ids, `kseq`). Only a correction's `recorded_at` is bumped (by one microsecond past that payment's previous one).
 - The pay forms' idempotency key follows the form content (`lib/retry.js`); a response that is a 4xx
   envelope is a refusal, anything else that is not a clean 2xx is "uncertain" and keeps the form retryable.
 - Every refresh carries a sequence number; a late response never overwrites a later one.
 - Two ledgers of truth, one writer: current balances are maintained incrementally (every earlier path is untouched);
   beside them an append-only history (payment revisions, authorization events) feeds the temporal views. With no
   parameters the view at "now" equals the maintained balance (a property test compares them against a brute-force replay).
-- "Known" is decided by a knowledge sequence number, never by comparing clock readings; stamps issued by the service strictly
-  increase, so no two records share an instant and `recorded_at` strictly increases per payment.
+- "Known" is decided by a knowledge sequence number, never by comparing clock readings; `recorded_at` strictly increases per
+  payment (bumped by 1 µs when needed), nothing else is ever bumped.
 - Client instants are parsed to exact BigInt nanoseconds; a raw `+` in an instant query parameter is a plus sign.
 - A statement snapshot is a token over (caller, window, `known_at`, knowledge position); the frozen result is recomputed from
   immutable history, so a token costs constant memory and survives export/import.

@@ -155,7 +155,8 @@ export async function buildState(raw) {
   v.users.forEach((u, i) => addUser(s, {
     id: u.id, email: u.email, display_name: u.display_name, handle: u.handle, balance: u.balance, opening: u.balance, password_hash: hashes[i],
   }));
-  s.lastMs = Math.max(reset.ms, Date.now());
+  s.lastMs = reset.ms;
+  s.floorMs = reset.ms + 1; // records created after the reset are strictly later than reset-time records
   for (const { p, stamp, ns, amount } of payRecs) {
     const from = s.users.get(p.from_user_id), to = s.users.get(p.to_user_id);
     const rec = {

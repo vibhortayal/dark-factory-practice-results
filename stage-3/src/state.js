@@ -27,7 +27,8 @@ export function emptyState() {
     idem: new Map(), // "user\0method\0path\0key" -> {user_id,method,path,key,body,status,response}
     seq: 0,
     kseq: 0, // knowledge position: bumped by every revision and authorization event
-    lastMs: 0, // latest stamp issued; stamps strictly increase so no two records share an instant
+    lastMs: 0, // latest stamp issued; the service clock never runs backwards
+    floorMs: 0, // stamps are at least this (the instant after reset), so reset-time records precede later ones
     snapshots: new Map(), // statement snapshot token -> { user_id, from, to, known_at, kseq, ... }
     counters: { u: 0, p: 0, rq: 0, sp: 0, st: 0, a: 0 },
   };
@@ -58,10 +59,11 @@ export function newId(s, kind, prefix, exists) {
   return id;
 }
 
-// The service clock never runs backwards and never issues the same millisecond twice.
+// The service clock is the real clock and never runs backwards. Records created in the same millisecond share an
+// instant; their order is the creation sequence (seq / kseq / fixed-width payment ids), not an invented time.
 export const clockMs = (s) => Math.max(Date.now(), s.lastMs);
 export function tickStamp(s) {
-  s.lastMs = Math.max(Date.now(), s.lastMs + 1);
+  s.lastMs = Math.max(Date.now(), s.floorMs, s.lastMs);
   return stampAt(s.lastMs);
 }
 

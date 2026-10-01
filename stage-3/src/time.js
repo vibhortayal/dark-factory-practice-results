@@ -18,12 +18,14 @@ export function parseStamp(s) {
 }
 
 
-// Millisecond-precision stamp, used for authorizations so a short ttl is judged
-// against the exact instant that is returned.
-export function stampAt(ms) {
-  const d = new Date(ms);
-  return { text: d.toISOString().slice(0, 23) + '+00:00', ms };
+// A service-assigned instant with microsecond resolution: `us` is microseconds since the epoch.
+// Text carries six fractional digits, e.g. 2026-09-24T13:10:00.123000+00:00.
+export function stampAtUs(us) {
+  const ms = Math.floor(us / 1000);
+  const sub = String(us - ms * 1000).padStart(3, '0');
+  return { text: new Date(ms).toISOString().slice(0, 23) + sub + '+00:00', ms, ns: BigInt(us) * 1000n };
 }
+export const stampAt = (ms) => stampAtUs(ms * 1000);
 
 // Exact instant (epoch ms, may carry sub-millisecond digits) of a valid RFC 3339 timestamp, else null.
 export function parseInstant(s) {

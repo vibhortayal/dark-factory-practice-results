@@ -19,7 +19,7 @@ async function fresh(extra = {}) {
 before(async () => { c = await startServer(); await fresh(); });
 after(() => c.stop());
 
-const RFC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}\+00:00$/;
+const RFC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}\+00:00$/;
 
 test('T3/T8/T14: /me fields with seeded holds; seeded values returned verbatim', async () => {
   await fresh({ authorizations: [
@@ -144,7 +144,7 @@ test('U4-U10: capture semantics', async () => {
   assert.deepEqual(Object.keys(p.json), ['payment_id', 'from_user_id', 'from_handle', 'to_user_id', 'to_handle', 'amount', 'currency', 'note', 'visibility', 'request_id', 'settlement_id', 'authorization_id', 'created_at']);
   assert.equal(p.json.amount, 1500); assert.equal(p.json.authorization_id, id); assert.equal(p.json.request_id, null); assert.equal(p.json.settlement_id, null);
   assert.equal(p.json.note, 'dep'); assert.equal(p.json.visibility, 'private'); assert.equal(p.json.from_handle, 'ada'); assert.equal(p.json.to_handle, 'bob');
-  assert.equal(p.json.created_at.length, 29);
+  assert.equal(p.json.created_at.length, 32);
   // remainder released in the same step; totals moved
   assert.deepEqual([(await me(t.ada)).total, (await me(t.ada)).available, (await me(t.ada)).held], [8500, 8500, 0]);
   assert.equal((await me(t.bob)).total, 4000);
@@ -230,7 +230,7 @@ test('U12: void', async () => {
   err(await c.post(`/authorizations/${b}/void`, { token: t.ada }), 409, 'authorization_not_open');
   // T14: void instant recorded internally, never in a response
   const ex = (await c.get('/_test/export')).json.state.authorizations.find((x) => x.authorization_id === a);
-  assert.match(ex.voided_at, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}\+00:00$/);
+  assert.match(ex.voided_at, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}\+00:00$/);
   await sleep(20);
   await c.post(`/authorizations/${a}/void`, { token: t.ada });
   assert.equal((await c.get('/_test/export')).json.state.authorizations.find((x) => x.authorization_id === a).voided_at, ex.voided_at, 'repeat void keeps the first instant');

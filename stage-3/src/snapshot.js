@@ -261,7 +261,7 @@ export function importState(doc) {
       s.counters[k] = c[k];
     }
   }
-  s.lastMs = latestMs;
+  s.lastMs = 0; // the service clock is the real clock; nothing imported moves it
   sweep(s);
   return s;
 }
