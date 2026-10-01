@@ -18,8 +18,9 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
 from .validation import (HANDLE_RE, EMAIL_RE, STATUSES, ApiError, amount_of,
-                         canon, handle_field, int_param, invalid, malformed,
+                         handle_field, int_param, invalid, malformed,
                          note_of, text_field, to_int, visibility_of)
+from .validation import BigNumber
 
 SCRYPT_N = 2 ** 11
 SCRYPT_R = 8
@@ -201,6 +202,20 @@ def new_state(currency, minor_units, total):
             "seq": 0}
 
 
+def reject_unsupported_numbers(root):
+    """Imported state may only hold ordinary numbers (no over-long or non-finite ones),
+    so that it always re-exports as strict JSON. Iterative: nesting cannot overflow."""
+    stack = [root]
+    while stack:
+        v = stack.pop()
+        if isinstance(v, BigNumber) or (isinstance(v, float) and not math.isfinite(v)):
+            raise invalid("state: number out of range")
+        if isinstance(v, dict):
+            stack.extend(v.values())
+        elif isinstance(v, list):
+            stack.extend(v)
+
+
 def _need(cond):
     if not cond:
         raise invalid("state: invalid")
@@ -305,8 +320,9 @@ class Service:
         if doc.get("track") != TRACK or not is_int(doc.get("format_version")) \
                 or doc["format_version"] != FORMAT_VERSION or "state" not in doc:
             raise invalid("wrong or missing track/format_version/state")
-        state = copy.deepcopy(doc["state"])
         try:
+            reject_unsupported_numbers(doc["state"])
+            state = copy.deepcopy(doc["state"])
             validate_state(state)
         except ApiError:
             raise
@@ -327,10 +343,6 @@ class Service:
         return self.state["seq"]
 
     # ---- auth ---------------------------------------------------------------
-
-    def user_for_token(self, token):
-        with self.lock:
-            return self.state["tokens"].get(token)
 
     def issue_token(self, uid):
         tok = secrets.token_urlsafe(24)
@@ -424,12 +436,19 @@ class Service:
 
     # ---- idempotency ------------------------------------------------------------
 
-    def idempotent(self, uid, method, path, key, body, operation):
+    def resolve(self, token):
+        """User id for a bearer token, or 401."""
+        with self.lock:
+            uid = self.state["tokens"].get(token) if token else None
+        if uid is None or uid not in self.state["users"]:
+            raise ApiError(401, "unauthenticated", "missing or invalid bearer token")
+        return uid
+
+    def idempotent(self, uid, method, path, key, sig, operation):
         """Run `operation()` once per (user, method, path, key).
 
         Returns (status, response). Only successful operations are recorded.
         """
-        sig = canon(body)
         with self.lock:
             self._user(uid)
             entry = self.idem.get((uid, method, path, key))

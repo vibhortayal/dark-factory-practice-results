@@ -1130,6 +1130,65 @@ class TestRegressions(Base):
         self.err(self.req("POST", "/_test/reset", raw=json.dumps(fixture(users=[user("a", 1.5)])).encode()),
                  422, "validation_failed")
 
+    def test_huge_bodies_are_bounded_and_do_not_block_others(self):
+        base = b'{"to_handle":"bob","amount":1,"x":'
+        # over the API size cap -> 413 with the error body, service stays healthy
+        r = self.req("POST", "/payments", raw=base + b"9" * (3 * 1024 * 1024) + b"}", token=self.ada, key="big1")
+        self.err(r, 413, "payload_too_large")
+        self.assertEqual(self.req("GET", "/health").status, 200)
+        # accepted large bodies are processed quickly and never stall a concurrent reader
+        shapes = [base + b"9" * (1900 * 1024) + b"}", base + b"[" + b"1," * 900000 + b"1]}",
+                  base + b'"' + b"z" * (1900 * 1024) + b'"}', base + b"[" + b"1.5," * 400000 + b"1]}"]
+        for i, raw in enumerate(shapes):
+            slow = []
+
+            def poll():
+                while not slow:
+                    t0 = time.time()
+                    self.assertEqual(self.req("GET", "/me", token=self.ada).status, 200)
+                    self.assertLess(time.time() - t0, 1.5)
+                    time.sleep(0.02)
+            with ThreadPoolExecutor(2) as ex:
+                f = ex.submit(poll)
+                t0 = time.time()
+                r = self.req("POST", "/payments", raw=raw, token=self.ada, key="sh%d" % i)
+                took = time.time() - t0
+                slow.append(1)
+                f.result()
+            self.assertEqual(r.status, 201, i)
+            self.assertLess(took, 5)
+            self.assertEqual(self.req("POST", "/payments", raw=raw, token=self.ada, key="sh%d" % i).status, 200)
+        self.assertEqual(self.req("POST", "/_test/import", raw=self.req("GET", "/_test/export").raw).status, 204)
+
+    def test_import_rejects_numbers_that_cannot_round_trip(self):
+        import copy as cp
+        self.post("/payments", {"to_handle": "bob", "amount": 5, "note": "n"}, self.ada, key="k1")
+        self.post("/splits", {"amount": 10, "participant_handles": ["ada", "bob"], "note": "s"}, self.ada, key="k2")
+        exp = self.req("GET", "/_test/export").raw.decode()
+        doc = json.loads(exp)
+        targets = [("splits", 0, "note"), ("payments", 0, "extra"), (None, None, "extra"),
+                   ("idem", 0, "response")]
+        for lit in ("1e400", "-1e999", "1" + "0" * 4300):
+            for where, idx, field in targets:
+                d = cp.deepcopy(doc)
+                holder = d["state"] if where is None else d["state"][where][idx]
+                if field == "response":
+                    holder = holder["response"]
+                    field = "note"
+                holder[field] = "@@"
+                text = json.dumps(d).replace('"@@"', lit)
+                r = self.req("POST", "/_test/import", raw=text.encode())
+                self.err(r, 422, "validation_failed")
+        self.assertEqual(self.req("GET", "/_test/export").raw.decode(), exp)
+        # ordinary finite numbers in unvalidated fields are accepted and re-export as strict JSON
+        d = cp.deepcopy(doc)
+        d["state"]["extra"] = "@@"
+        r = self.req("POST", "/_test/import", raw=json.dumps(d).replace('"@@"', "1.5e3").encode())
+        self.assertEqual(r.status, 204)
+        json.loads(self.req("GET", "/_test/export").raw, parse_constant=lambda c: 1 / 0)
+        self.assertEqual(self.req("POST", "/payments", {"to_handle": "bob", "amount": 5, "note": "n"},
+                                  token=self.login("ada"), key="k1").status, 200)
+
     def test_deep_nesting_unknown_field(self):
         for depth in (10, 950, 1000, 5000):
             raw = b'{"to_handle":"bob","amount":1,"x":' + b"[" * depth + b"]" * depth + b"}"

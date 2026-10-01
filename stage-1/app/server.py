@@ -8,9 +8,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qsl, unquote, urlsplit
 
 from .service import Service
-from .validation import ApiError, malformed, parse_json, parse_object, invalid
+from .validation import ApiError, canon, malformed, parse_json, parse_object, invalid
 
-MAX_BODY = 64 * 1024 * 1024
+MAX_BODY = 64 * 1024 * 1024  # /_test/* fixtures and exports
+MAX_API_BODY = 2 * 1024 * 1024  # every other endpoint
 REQUEST_ACTION = re.compile(r"^/requests/([^/]+)/(pay|decline|cancel)$")
 PATHS = {"/health": ("GET",), "/_test/reset": ("POST",), "/_test/export": ("GET",),
          "/_test/import": ("POST",), "/auth/signup": ("POST",), "/auth/login": ("POST",),
@@ -43,7 +44,12 @@ class Handler(BaseHTTPRequestHandler):
 
     # -- plumbing -----------------------------------------------------------
 
+    def too_large(self):
+        self.close_connection = True  # the unread body would corrupt the next request
+        return ApiError(413, "payload_too_large", "request body too large")
+
     def read_body(self):
+        limit = MAX_BODY if self.path.startswith("/_test/") else MAX_API_BODY
         if "chunked" in (self.headers.get("Transfer-Encoding") or "").lower():
             chunks, total = [], 0
             while True:
@@ -53,8 +59,8 @@ class Handler(BaseHTTPRequestHandler):
                         pass
                     break
                 total += size
-                if total > MAX_BODY:
-                    raise ApiError(413, "malformed_request", "body too large")
+                if total > limit:
+                    raise self.too_large()
                 chunks.append(self.rfile.read(size))
                 self.rfile.readline(8)
             return b"".join(chunks)
@@ -64,8 +70,16 @@ class Handler(BaseHTTPRequestHandler):
             raise malformed("bad Content-Length")
         if length < 0:
             raise malformed("bad Content-Length")
-        if length > MAX_BODY:
-            raise ApiError(413, "malformed_request", "body too large")
+        if length > limit:
+            if length > MAX_BODY:
+                raise self.too_large()
+            remaining = length  # drain so the client can read the 413 on a healthy connection
+            while remaining:
+                chunk = self.rfile.read(min(remaining, 1 << 20))
+                if not chunk:
+                    break
+                remaining -= len(chunk)
+            raise ApiError(413, "payload_too_large", "request body too large")
         return self.rfile.read(length) if length else b""
 
     def respond(self, status, body=None, raw=None):
@@ -135,44 +149,42 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/auth/login":
             return 200, svc.login(parse_object(self.raw)), None
 
+        token = self.bearer_token()
+        if path in ("/payments", "/splits", "/settlements") or m and m.group(2) == "pay" \
+                or (path == "/requests" and method == "POST"):
+            return self.idempotent_route(path, m, token)
         with svc.lock:  # authenticate and act in one state generation
-            return self.authed(path, method, m)
+            return self.read_or_close(path, method, m, svc.resolve(token))
 
-    def authed(self, path, method, m):
-        uid = self.authenticate()
+    def read_or_close(self, path, method, m, uid):
         if path == "/me":
             return 200, svc.me(uid), None
         if path == "/activity":
             return 200, svc.list_activity(uid, self.query), None
-        if path == "/requests" and method == "GET":
-            return 200, svc.list_requests(uid, self.query), None
-        if path == "/payments":
-            return self.idempotent(uid, path, svc.create_payment)
         if path == "/requests":
-            return self.idempotent(uid, path, svc.create_request)
-        if path == "/splits":
-            return self.idempotent(uid, path, svc.create_split)
-        if path == "/settlements":
-            if not svc.is_operator(uid):
-                raise ApiError(403, "forbidden", "settlement operators only")
-            return self.idempotent(uid, path, svc.create_settlement)
+            return 200, svc.list_requests(uid, self.query), None
         rid, action = m.group(1), m.group(2)
-        if action == "pay":
-            return self.idempotent(uid, path, lambda u, b: svc.pay_request(u, rid, b),
-                                   empty_ok=True)
         if action == "decline":
             return 200, svc.decline_request(uid, rid), None
         return 200, svc.cancel_request(uid, rid), None
 
-    def authenticate(self):
+    def bearer_token(self):
         header = self.headers.get("Authorization") or ""
         scheme, _, token = header.partition(" ")
-        uid = svc.user_for_token(token.strip()) if scheme.lower() == "bearer" and token.strip() else None
-        if uid is None:
-            raise ApiError(401, "unauthenticated", "missing or invalid bearer token")
-        return uid
+        return token.strip() if scheme.lower() == "bearer" else None
 
-    def idempotent(self, uid, path, operation, empty_ok=False):
+    def idempotent_route(self, path, m, token):
+        """The five idempotent write paths (§7).
+
+        Order: 401 -> operator 403 -> key present -> key length -> body is an object
+        -> claimed key (200/409) -> field validation. Body parsing and canonicalising
+        happen OUTSIDE the state lock; the token is resolved again inside the lock
+        that applies the operation, so a reset/import in between cannot be raced.
+        """
+        with svc.lock:
+            uid = svc.resolve(token)
+            if path == "/settlements" and not svc.is_operator(uid):
+                raise ApiError(403, "forbidden", "settlement operators only")
         key = self.headers.get("Idempotency-Key")
         if key is None or key.strip() == "":
             raise ApiError(400, "missing_idempotency_key", "Idempotency-Key header required")
@@ -182,9 +194,21 @@ class Handler(BaseHTTPRequestHandler):
             pass
         if len(key) > 255:
             raise invalid("Idempotency-Key longer than 255 characters")
-        body = {} if (empty_ok and not self.raw.strip()) else parse_object(self.raw)
-        status, response = svc.idempotent(uid, "POST", path, key, body,
-                                          lambda: operation(uid, body))
+        pay = m is not None
+        body = {} if (pay and not self.raw.strip()) else parse_object(self.raw)
+        sig = canon(body)
+        if pay:
+            rid = m.group(1)
+            operation = lambda u: svc.pay_request(u, rid, body)
+        else:
+            operation = lambda u: {"/payments": svc.create_payment, "/requests": svc.create_request,
+                                   "/splits": svc.create_split,
+                                   "/settlements": svc.create_settlement}[path](u, body)
+        with svc.lock:
+            uid = svc.resolve(token)
+            if path == "/settlements" and not svc.is_operator(uid):
+                raise ApiError(403, "forbidden", "settlement operators only")
+            status, response = svc.idempotent(uid, "POST", path, key, sig, lambda: operation(uid))
         return status, response, None
 
 
