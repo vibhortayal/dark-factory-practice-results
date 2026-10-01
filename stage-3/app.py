@@ -31,7 +31,8 @@ AUTH_STATUSES = ("open", "captured", "voided", "expired")
 SCRYPT_N, SCRYPT_R, SCRYPT_P = 2 ** 12, 8, 1
 FIXTURE_SCRYPT_N = 2 ** 9  # seeded users: keep a 5000-user reset well inside 10 s
 MAX_BODY = 8 * 1024 * 1024
-MAX_TEST_BODY = 400 * 1024 * 1024  # reset/import bodies carry whole states (an export grows with history)
+MAX_TEST_BODY = 512 * 1024 * 1024  # reset/import bodies carry whole states (an export grows with history)
+DISCARD_CAP = 1024 * 1024 * 1024   # an oversized body is read and thrown away up to here, then answered
 
 
 class ApiError(Exception):
@@ -322,7 +323,7 @@ class State:
     def new_id(self, kind, table):
         while True:
             self.counters[kind] += 1
-            i = "%s_%d" % (kind, self.counters[kind])
+            i = "%s_%010d" % (kind, self.counters[kind])  # fixed width: string order is creation order
             if i not in table:
                 return i
 
@@ -1700,7 +1701,7 @@ class Handler(BaseHTTPRequestHandler):
         if isinstance(obj, Raw):
             self.send_header("Cache-Control", obj.cache)
         self.send_header("Content-Length", str(len(data)))
-        if close:
+        if close or self.close_connection:
             self.send_header("Connection", "close")
             self.close_connection = True
         self.end_headers()
@@ -1710,11 +1711,24 @@ class Handler(BaseHTTPRequestHandler):
     def _body_limit(self):
         return MAX_TEST_BODY if self.path.startswith("/_test/") else MAX_BODY
 
+    def _discard(self, n):
+        """Read and drop up to n bytes so the client can still receive our answer."""
+        left = min(n, DISCARD_CAP)
+        while left > 0:
+            got = self.rfile.read(min(left, 1 << 20))
+            if not got:
+                break
+            left -= len(got)
+
+    def _too_large(self):
+        self.close_connection = True
+        return err(413, "payload_too_large", "the request body is too large")
+
     def _read_body(self):
+        limit = self._body_limit()
         te = self.headers.get("Transfer-Encoding", "")
         if "chunked" in te.lower():
-            chunks = []
-            total = 0
+            chunks, total, over = [], 0, False
             while True:
                 line = self.rfile.readline(1024)
                 size = int(line.split(b";")[0].strip() or b"0", 16)
@@ -1723,18 +1737,27 @@ class Handler(BaseHTTPRequestHandler):
                         pass
                     break
                 total += size
-                if total > self._body_limit():
-                    raise err(400, "malformed_request", "body too large")
-                chunks.append(self.rfile.read(size))
+                if total > DISCARD_CAP:
+                    raise self._too_large()
+                if over or total > limit:
+                    over = True
+                    self._discard(size)
+                else:
+                    chunks.append(self.rfile.read(size))
                 self.rfile.readline(8)
+            if over:
+                raise self._too_large()
             return b"".join(chunks)
         n = self.headers.get("Content-Length")
         if not n:
             return b""
         n = int(n)
-        if n < 0 or n > self._body_limit():
+        if n < 0:
             self.close_connection = True
             raise err(400, "malformed_request", "bad content length")
+        if n > limit:
+            self._discard(n)
+            raise self._too_large()
         return self.rfile.read(n)
 
     def _handle(self):

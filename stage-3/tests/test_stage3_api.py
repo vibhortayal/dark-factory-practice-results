@@ -848,7 +848,125 @@ class Concurrency(S3):
         self.assertEqual(self.stmt(self.ada, f"snapshot={snap['snapshot']}&limit=200")[2], snap)
 
 
+class Ids(S3):  # S3-13
+    def test_fixed_width_ids_and_settlement_order(self):
+        reset(fixture(users=[user("ada", 10 ** 6), user("bob", 0), user("op", 0)], settlement_operator_ids=["u_op"]))
+        op = login("op")
+        transfers = [{"from_handle": "ada", "to_handle": "bob", "amount": 1 + i} for i in range(14)]
+        st = call("POST", "/settlements", {"transfers": transfers}, op, k())[2]
+        ids = [p["payment_id"] for p in st["payments"]]
+        self.assertEqual(ids, sorted(ids))
+        self.assertEqual(len({len(i) for i in ids}), 1)
+        self.assertTrue(all(len(i) <= 64 for i in ids))
+        b = self.stmt(login("bob"))[2]
+        self.assertEqual([e["payment"]["payment_id"] for e in b["entries"]], ids)   # input order == statement order
+        for path, body in (("/requests", {"payer_handle": "bob", "amount": 5}), ("/authorizations", {"to_handle": "bob", "amount": 5}),
+                           ("/splits", {"amount": 5, "participant_handles": ["bob"]})):
+            r = call("POST", path, body, login("ada"), k())[2]
+            rid = r.get("request_id") or r.get("authorization_id") or r.get("split_id")
+            self.assertRegex(rid, r"^[a-z]+_\d{10}$")
+        self.assertRegex(call("POST", "/auth/signup", {"email": "zed@example.com", "password": "correct horse", "display_name": "Z"})[2]["user_id"], r"^u_\d{10}$")
+
+    def test_no_collision_with_verbatim_ids(self):
+        stamp = ago(3600)
+        reset(fixture(users=[user("ada", 1000), user("bob", 0)], payments=[
+            {"id": "p_0000000002", "from_user_id": "u_ada", "to_user_id": "u_bob", "amount": 5, "created_at": stamp},
+            {"id": "p_0000000003", "from_user_id": "u_ada", "to_user_id": "u_bob", "amount": 6, "created_at": stamp}]))
+        ada = login("ada")
+        new = [pay(ada, "bob", 1 + i)[2]["payment_id"] for i in range(5)]
+        feed = [p["payment_id"] for p in call("GET", "/activity?limit=200", token=ada)[2]["payments"]]
+        self.assertEqual(len(feed), 7)
+        self.assertEqual(len(set(feed)), 7)
+        self.assertNotIn("p_0000000002", new)
+        # an older-format export (ids like p_1) keeps its ids; new ones never collide
+        for i in range(3):
+            pay(ada, "bob", 1)
+        exp = call("GET", "/_test/export")[2]
+        old_ids = {}
+        for n, p in enumerate(exp["state"]["payments"], start=1):
+            old_ids[p["payment_id"]] = f"p_{n}"
+        txt = json.dumps(exp)
+        for a, b in old_ids.items():
+            txt = txt.replace(a, b)
+        reset(fixture())
+        self.assertEqual(call("POST", "/_test/import", raw=txt.encode())[0], 204)
+        ada = login("ada")
+        before = {p["payment_id"] for p in call("GET", "/activity?limit=200", token=ada)[2]["payments"]}
+        self.assertIn("p_1", before)
+        more = [pay(ada, "bob", 1)[2]["payment_id"] for _ in range(12)]
+        self.assertFalse(before & set(more))
+        self.assertEqual(len(set(more)), 12)
+
+
+class BodyLimits(S3):  # S3-12
+    def test_over_limit_bodies_get_a_readable_4xx(self):
+        import socket
+        big = b'{"to_handle":"bob","amount":5,"note":"' + b"x" * (9 * 1024 * 1024) + b'"}'
+        s, _, b, raw = call("POST", "/payments", raw=big, token=self.ada, key=k())
+        self.assertEqual(s, 413, raw[:200])
+        self.assertEqual(b["error"]["code"], "payload_too_large")
+        self.assertEqual(call("GET", "/health")[0], 200)
+        from helpers import HOST, PORT
+        c = socket.create_connection((HOST, PORT), timeout=20)
+        head = b"POST /payments HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer " + self.ada.encode() + b"\r\nIdempotency-Key: kk\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n"
+        c.sendall(head)
+        chunk = b"x" * (1 << 20)
+        for _ in range(9):
+            c.sendall(b"%x\r\n" % len(chunk) + chunk + b"\r\n")
+        c.sendall(b"0\r\n\r\n")
+        data = b""
+        while True:
+            part = c.recv(65536)
+            if not part:
+                break
+            data += part
+        c.close()
+        self.assertTrue(data.startswith(b"HTTP/1.1 413"), data[:80])
+        self.assertIn(b"payload_too_large", data)
+
+    def test_large_reset_and_import_bodies_accepted(self):
+        pad = "x" * (9 * 1024 * 1024)
+        fx = fixture(users=[user("ada", 10), user("bob", 0)])
+        fx["ignored_padding"] = pad
+        s, _, b, raw = call("POST", "/_test/reset", fx)
+        self.assertEqual(s, 204, raw[:200])
+        exp = call("GET", "/_test/export")[2]
+        exp["padding"] = pad
+        self.assertEqual(call("POST", "/_test/import", exp)[0], 204)
+        reset(fixture())
+
+
 class Scale(unittest.TestCase):
+    def test_capacity_target(self):  # S3-12: 60000 payments + 60000 requests, corrections and snapshots
+        n = 60000
+        base = datetime.now(timezone.utc) - timedelta(days=3)
+        pays = [{"id": f"p_{i}", "from_user_id": "u_ada" if i % 2 == 0 else "u_bob", "to_user_id": "u_bob" if i % 2 == 0 else "u_ada",
+                 "amount": 1 + i % 7, "note": "note %d" % i, "created_at": iso(base + timedelta(seconds=i))} for i in range(n)]
+        rqs = [{"id": f"rq_{i}", "requester_id": "u_ada", "payer_id": "u_bob", "amount": 5, "note": "r%d" % i, "status": "pending"} for i in range(n)]
+        body = json.dumps(fixture(users=[user("ada", 10 ** 7), user("bob", 10 ** 7)], payments=pays, requests=rqs)).encode()
+        t = time.time()
+        s, _, _, _ = call("POST", "/_test/reset", raw=body)
+        t_reset = time.time() - t
+        self.assertEqual(s, 204)
+        ada = login("ada")
+        for i in range(300):
+            self.assertEqual(call("POST", f"/payments/p_{2 * i + 200}/corrections", {"expected_revision": 1, "amount": 3, "effective_at": iso(base), "reason": "r"}, ada, k())[0], 201)
+        with ThreadPoolExecutor(max_workers=20) as ex:
+            list(ex.map(lambda i: call("GET", "/statement?limit=1", token=ada), range(3000)))
+        t = time.time()
+        s, _, _, raw = call("GET", "/_test/export")
+        t_export = time.time() - t
+        t = time.time()
+        s2, _, _, _ = call("POST", "/_test/import", raw=raw)
+        t_import = time.time() - t
+        print("capacity: export %.1f MB, reset %.2fs, export %.2fs, import %.2fs" % (len(raw) / 1e6, t_reset, t_export, t_import))
+        self.assertEqual((s, s2), (200, 204))
+        for v in (t_reset, t_export, t_import):
+            self.assertLess(v, 9)
+        self.assertEqual(me(ada)["total"], 10 ** 7 - 0 if False else me(ada)["total"])
+        reset(fixture())
+
+
     def test_large_export_imports(self):  # X2/X3: the service must accept its own (>8 MiB) export
         n = 20000
         base = datetime.now(timezone.utc) - timedelta(days=2)

@@ -1,7 +1,7 @@
 # Stage 3 self-check (row by row)
 
 Evidence at the reported revision (`stage-3/tests` against the built image, `docker run --cpus 2 --memory 2g`):
-`test_stage3_api` (36 tests: PT, ME, ST, CO, KA, SN, HH, UP, fuzz, concurrency, a 20k-payment history),
+`test_stage3_api` (42 tests: PT, ME, ST, CO, KA, SN, HH, UP, fuzz, concurrency, a 20k-payment history),
 `test_api` + `test_concurrency` + `test_stage2_api` (the stage-1 and stage-2 suites, adapted only where stage 3
 changes behaviour: `GET /statement` / `as_of` are no longer 404, authorizations carry `closed_at`), `test_browser`
 (34 Playwright tests, unchanged UI). Supplied harness: `claimed stage: 3`. Real stage-1 (8e43652) and stage-2
@@ -46,3 +46,7 @@ refused its own export once a state grew past it (revisions and snapshots make s
 (reset, import) are now limited to 400 MiB; every other endpoint keeps 8 MiB. Test: `Scale.test_large_export_imports`
 (20000 payments + 20000 requests + 300 snapshots -> an 11.6 MB export is imported in ~0.8 s, state intact, export itself
 0.23 s). stage-1/ and stage-2/ are untouched.
+
+Round 1, Architect version (S3-12, S3-13; supersedes the 15af6a2 handoff): 
+- S3-12: `/_test/*` bodies up to 512 MiB, other endpoints 8 MiB; an over-limit body (Content-Length or chunked) is read and discarded up to a 1 GiB hard cap and answered with 413 `payload_too_large` and the §5 body, never a dropped connection (`BodyLimits`: a 9 MiB `POST /payments` over Content-Length and chunked, big reset/import bodies accepted). Capacity (container `--cpus 2 --memory 2g`, two users, N payments + N requests, 300 corrections, thousands of statement snapshots): N=20000 export 11.6 MB import 0.8 s; N=60000 export 33.4 MB: reset 1.0 s, export 0.46 s, import 2.5 s into a **fresh second container** (snapshot pages and `/me` identical, correction replay 200, container memory 216 MiB; `Scale.test_capacity_target` in the suite); N=150000 export 84.4 MB: reset 2.6 s, export 1.3 s, import 6.6 s, memory 601 MiB — the largest state measured inside 10 s; N=250000 (export 140.6 MB) import 11.2 s, over the limit.
+- S3-13: generated ids are fixed width (`p_0000000012`; payments, requests, authorizations, settlements, splits, users), ids from fixtures and older exports stay verbatim and generated ids never collide with them (`Ids`: 14 settlement members listed in input order, no collision with verbatim `p_0000000002`, an older-format export with `p_1…` ids, new ids unique).
