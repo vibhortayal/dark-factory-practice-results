@@ -26,7 +26,7 @@ MAX_BALANCE = 2 ** 53
 MAX_BODY = 16 * 1024 * 1024
 EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
 STATUSES = ("pending", "paid", "declined", "cancelled")
-SCRYPT_N, SCRYPT_R, SCRYPT_P = 2 ** 13, 8, 1
+SCRYPT_N, SCRYPT_R, SCRYPT_P = 2 ** 12, 8, 1
 
 LOCK = threading.RLock()
 
@@ -55,12 +55,34 @@ def _parse_int(s):
     return int(s) if len(s) <= 40 else Decimal(s)
 
 
-def parse_json(raw):
+def _parse_float(s):
+    try:
+        return Decimal(s)
+    except ArithmeticError:  # exponent beyond Decimal's range
+        m = re.match(r"(-?)([0-9.]*)[eE]([+-]?)", s)
+        if not m or not m.group(2).strip("0."):
+            return Decimal(0)
+        return Decimal(m.group(1) + "1E" + (m.group(3) or "+") + "9999")
+
+
+class StrictFloat(Exception):
+    pass
+
+
+def _no_float(s):
+    raise StrictFloat()
+
+
+def parse_json(raw, strict=False):
     try:
         text = raw.decode("utf-8")
-        return json.loads(text, parse_float=Decimal, parse_int=_parse_int,
+        if strict:
+            return json.loads(text, parse_float=_no_float, parse_constant=_reject_constant)
+        return json.loads(text, parse_float=_parse_float, parse_int=_parse_int,
                           parse_constant=_reject_constant)
-    except (ValueError, RecursionError, UnicodeError):
+    except StrictFloat:
+        raise
+    except (ValueError, ArithmeticError, RecursionError, UnicodeError):
         raise malformed("unparseable body")
 
 
@@ -70,21 +92,30 @@ def is_integral(d):
     return d == d.to_integral_value()
 
 
-def _conv(o):
+def canon(o):
+    if o is None:
+        return ["n"]
+    if isinstance(o, bool):
+        return ["b", o]
+    if isinstance(o, str):
+        return ["s", o]
+    if isinstance(o, int):
+        return ["#", str(o)]
     if isinstance(o, Decimal):
         if is_integral(o) and o.adjusted() <= 100:
-            return int(o)
+            return ["#", str(int(o))]
         try:
-            return "D" + str(o.normalize())
+            return ["#", str(o.normalize())]
         except ArithmeticError:
-            return "D" + str(o)
-    raise TypeError
+            return ["#", str(o)]
+    if isinstance(o, list):
+        return ["l", [canon(x) for x in o]]
+    return ["d", sorted([k, canon(v)] for k, v in o.items())]
 
 
 def fingerprint(body):
     try:
-        s = json.dumps(body, sort_keys=True, ensure_ascii=True, default=_conv,
-                       separators=(",", ":"))
+        s = json.dumps(canon(body), ensure_ascii=True, separators=(",", ":"))
     except RecursionError:
         raise malformed("too deep")
     return hashlib.sha256(s.encode("ascii")).hexdigest()
@@ -165,6 +196,7 @@ class State:
         self.counters = {"p": 0, "rq": 0, "sp": 0, "st": 0, "u": 0, "seq": 0}
         self.last_us = 0
         self.pay_ids = set()
+        self.misc_ids = set()   # split and settlement ids
 
     def tick(self):
         self.last_us = max(time.time_ns() // 1000, self.last_us + 1)
@@ -214,7 +246,7 @@ def build_from_export(st):
     s.minor_units = st["minor_units"]
     if not isinstance(s.currency, str) or not s.currency:
         raise ValueError("currency")
-    if s.minor_units not in (0, 2, 3) or isinstance(s.minor_units, bool):
+    if type(s.minor_units) is not int or s.minor_units not in (0, 2, 3):
         raise ValueError("minor_units")
     for u in st["users"]:
         rec = {"id": u["id"], "email": u["email"], "display_name": u["display_name"],
@@ -247,8 +279,15 @@ def build_from_export(st):
             raise ValueError("payment num")
         if rec["visibility"] not in ("public", "private"):
             raise ValueError("visibility")
-        rec["request_id"], rec["settlement_id"]
+        for k in ("request_id", "settlement_id"):
+            if rec[k] is not None and not isinstance(rec[k], str):
+                raise ValueError(k)
+            if k == "settlement_id" and rec[k]:
+                s.misc_ids.add(rec[k])
         s.payments.append(rec)
+    s.pay_ids = {p["payment_id"] for p in s.payments}
+    if len(s.pay_ids) != len(s.payments):
+        raise ValueError("duplicate payment ids")
     for r in st["requests"]:
         rec = dict(r)
         for k in ("request_id", "requester_id", "payer_id", "requester_handle",
@@ -260,13 +299,19 @@ def build_from_export(st):
         if rec["status"] not in STATUSES or type(rec["amount"]) is not int \
                 or type(rec["_ts"]) is not int or type(rec["_seq"]) is not int:
             raise ValueError("request")
-        rec["payment_id"]
+        if rec["payment_id"] is not None and not isinstance(rec["payment_id"], str):
+            raise ValueError("payment_id")
+        if rec["request_id"] in s.requests:
+            raise ValueError("dup request")
         s.requests[rec["request_id"]] = rec
     for uid, key, path, fp, resp in st["idempotency"]:
         if not (isinstance(uid, str) and isinstance(key, str) and isinstance(path, str)
                 and isinstance(fp, str) and isinstance(resp, dict)):
             raise ValueError("idem")
         s.idem[(uid, key, path)] = {"fp": fp, "resp": resp}
+        for k in ("split_id", "settlement_id"):
+            if isinstance(resp.get(k), str):
+                s.misc_ids.add(resp[k])
     for o in st["operators"]:
         if o not in s.users:
             raise ValueError("operator")
@@ -333,8 +378,11 @@ def build_from_fixture(fx):
     def seeded_time(item):
         nonlocal n
         n += 1
-        if "created_at" in item:
-            return item["created_at"], parse_ts(item["created_at"])
+        if isinstance(item.get("created_at"), str):
+            try:
+                return item["created_at"], parse_ts(item["created_at"])
+            except (ValueError, OverflowError, ApiError):
+                pass
         return fmt_ts(base + n), base + n
 
     def common(item, what):
@@ -361,7 +409,8 @@ def build_from_fixture(fx):
         vis = p.get("visibility", "public")
         if vis not in ("public", "private") or not isinstance(vis, str):
             raise bad("visibility")
-        fu, tu = s.users.get(p.get("from_user_id")), s.users.get(p.get("to_user_id"))
+        fu = s.users.get(p.get("from_user_id")) if isinstance(p.get("from_user_id"), str) else None
+        tu = s.users.get(p.get("to_user_id")) if isinstance(p.get("to_user_id"), str) else None
         if not fu or not tu or p["id"] in s.pay_ids:
             raise bad("payment parties")
         s.pay_ids.add(p["id"])
@@ -379,7 +428,8 @@ def build_from_fixture(fx):
         status = r.get("status", "pending")
         if not isinstance(status, str) or status not in STATUSES:
             raise bad("status")
-        rq, py = s.users.get(r.get("requester_id")), s.users.get(r.get("payer_id"))
+        rq = s.users.get(r.get("requester_id")) if isinstance(r.get("requester_id"), str) else None
+        py = s.users.get(r.get("payer_id")) if isinstance(r.get("payer_id"), str) else None
         if not rq or not py or r["id"] in s.requests:
             raise bad("request parties")
         pid = r.get("payment_id")
@@ -540,7 +590,8 @@ def op_split(s, user, body):
     users = [get_user_by_handle(s, h) for h in ph]
     shares = split_shares(amount, len(ph))
     ts = s.tick()
-    sid = s.new_id("sp", ())
+    sid = s.new_id("sp", s.misc_ids)
+    s.misc_ids.add(sid)
     reqs = [strip(new_request(s, user, u, sh, note, ts))
             for u, sh in zip(users, shares) if u["id"] != user["id"]]
     return {"split_id": sid, "amount": amount, "currency": s.currency, "note": note,
@@ -575,7 +626,8 @@ def op_settlement(s, user, body):
         if s.users[uid]["balance"] + d < 0:
             raise ApiError(409, "insufficient_funds", "insufficient funds")
     ts = s.tick()
-    sid = s.new_id("st", ())
+    sid = s.new_id("st", s.misc_ids)
+    s.misc_ids.add(sid)
     pays = [strip(new_payment(s, fu, tu, a, n, v, None, sid, ts))
             for fu, tu, a, n, v in parsed]
     return {"settlement_id": sid, "committed_at": fmt_ts(ts), "payments": pays}
@@ -598,14 +650,14 @@ def paginate(items, q):
     limit, offset = 50, 0
     if "limit" in q:
         v = q["limit"]
-        if not DIGITS_RE.match(v) or len(v) > 12 or not 1 <= int(v) <= 200:
+        if not DIGITS_RE.match(v) or len(v.lstrip("0")) > 3 or not 1 <= int(v) <= 200:
             raise bad("invalid limit")
         limit = int(v)
     if "offset" in q:
         v = q["offset"]
-        if not DIGITS_RE.match(v) or len(v) > 12:
+        if not DIGITS_RE.match(v):
             raise bad("invalid offset")
-        offset = int(v)
+        offset = min(int(v.lstrip("0") or "0") if len(v.lstrip("0")) < 30 else 10 ** 30, 10 ** 30)
     items.sort(key=lambda r: (r["_ts"], r["_seq"]), reverse=True)
     page = items[offset:offset + limit]
     return [strip(r) for r in page], offset + limit < len(items)
@@ -716,7 +768,10 @@ def handle_export():
 
 
 def handle_import(raw):
-    obj = parse_json(raw)
+    try:
+        obj = parse_json(raw, strict=True)
+    except StrictFloat:
+        raise bad("non-integer number in state")
     if not isinstance(obj, dict) or obj.get("track") != "pocketful":
         raise bad("wrong track")
     fv = obj.get("format_version")
@@ -739,7 +794,10 @@ PAY_RE = re.compile(r"^/requests/([^/]+)/(pay|decline|cancel)\Z")
 
 
 def dispatch(method, rawpath, headers, raw):
-    parts = urlsplit(rawpath)
+    try:
+        parts = urlsplit(rawpath)
+    except ValueError:
+        raise malformed("bad request target")
     path = parts.path
     qd = parse_qs(parts.query, keep_blank_values=True, errors="replace")
     q = {k: v[-1] for k, v in qd.items()}
@@ -906,8 +964,16 @@ class Handler(BaseHTTPRequestHandler):
         if cl is None:
             return b""
         n = int(cl)
-        if n < 0 or n > MAX_BODY:
+        if n < 0:
             raise ValueError("bad length")
+        if n > MAX_BODY:
+            left = min(n, 8 * MAX_BODY)
+            while left > 0:
+                chunk = self.rfile.read(min(left, 1 << 20))
+                if not chunk:
+                    break
+                left -= len(chunk)
+            raise ValueError("too big")
         return self.rfile.read(n) if n else b""
 
     def _handle(self):

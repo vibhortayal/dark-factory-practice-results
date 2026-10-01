@@ -575,5 +575,114 @@ class Hostile(Base):
                               {"Idempotency-Key": "k" * 10000})[0], 422)
 
 
+class Regressions(Base):
+    def test_import_keeps_ids_unique(self):
+        exp = call("GET", "/_test/export")[1]
+        self.assertEqual(call("POST", "/_test/import", exp)[0], 204)
+        ids = {self.pay(self.ada, {"to_handle": "bob", "amount": 1})["payment_id"] for _ in range(3)}
+        self.assertEqual(len(ids), 3)
+        self.assertFalse(ids & {"p_1", "p_2"})
+
+    def test_huge_exponents(self):
+        for lit in ("1e9999999999999999999999", "1e-9999999999999999999999", "-1e99999999999999999999",
+                    "0e99999999999999999999", "1E+1000000000000000000"):
+            raw = ('{"to_handle":"bob","amount":%s}' % lit).encode()
+            self.err(call("POST", "/payments", raw=raw, token=self.ada, headers={"Idempotency-Key": key()}),
+                     422, "validation_failed")
+            raw = ('{"to_handle":"bob","amount":5,"zz":%s}' % lit).encode()
+            self.assertEqual(call("POST", "/payments", raw=raw, token=self.ada,
+                                  headers={"Idempotency-Key": key()})[0], 201)
+            fx = json.loads(json.dumps(FIX))
+            fx["users"][0]["balance"] = 0
+            raw = json.dumps(fx).replace('"balance": 0', '"balance": ' + lit, 1).encode()
+            self.assertIn(call("POST", "/_test/reset", raw=raw)[0], (204, 422))
+            reset()
+            self.ada = login("ada@example.com")
+
+    def test_bad_party_ids(self):
+        for k, v in (("from_user_id", []), ("to_user_id", {})):
+            fx = json.loads(json.dumps(FIX))
+            fx["payments"][0][k] = v
+            self.err(call("POST", "/_test/reset", fx), 422, "validation_failed")
+        for k, v in (("requester_id", []), ("payer_id", {"a": 1})):
+            fx = json.loads(json.dumps(FIX))
+            fx["requests"][0][k] = v
+            self.err(call("POST", "/_test/reset", fx), 422, "validation_failed")
+
+    def test_import_float_state(self):
+        exp = call("GET", "/_test/export")[1]
+        txt = json.dumps(exp).replace('"minor_units": 2', '"minor_units": 2.0', 1)
+        self.err(call("POST", "/_test/import", raw=txt.encode()), 422, "validation_failed")
+        self.assertEqual(call("GET", "/me", token=self.ada)[0], 200)
+
+    def test_offset_and_limit_digits(self):
+        for off in ("1000000000000", "9" * 100):
+            s, b, _ = call("GET", "/activity?offset=" + off, token=self.ada)
+            self.assertEqual((s, b["payments"]), (200, []))
+        self.assertEqual(call("GET", "/activity?limit=0000000000050", token=self.ada)[0], 200)
+
+    def test_replay_distinguishes_string_from_number(self):
+        k = key()
+        a = {"to_handle": "bob", "amount": 5, "x": "D1.5"}
+        self.assertEqual(call("POST", "/payments", a, self.ada, {"Idempotency-Key": k})[0], 201)
+        self.err(call("POST", "/payments", raw=b'{"to_handle":"bob","amount":5,"x":1.5}', token=self.ada,
+                      headers={"Idempotency-Key": k}), 409, "idempotency_key_reuse")
+        self.assertEqual(call("POST", "/payments", raw=b'{"x":"D1.5","amount":5.0,"to_handle":"bob"}', token=self.ada,
+                              headers={"Idempotency-Key": k})[0], 200)
+
+    def test_import_ids_unique_all_kinds(self):
+        h = lambda: {"Idempotency-Key": key()}
+        for _ in range(2):
+            call("POST", "/requests", {"payer_handle": "bob", "amount": 1}, self.ada, h())
+            call("POST", "/splits", {"amount": 3, "participant_handles": ["bob"]}, self.ada, h())
+            call("POST", "/settlements", {"transfers": [{"from_handle": "ada", "to_handle": "bob", "amount": 1}]}, self.cy, h())
+            call("POST", "/auth/signup", {"email": "n%d@x.org" % _, "password": "longenough", "display_name": "n"})
+        exp = call("GET", "/_test/export")[1]
+        seen = {"rq": set(), "sp": set(), "st": set(), "u": set(), "p": set()}
+        def collect(o):
+            if isinstance(o, dict):
+                for k, v in o.items():
+                    for pre, name in (("rq", "request_id"), ("sp", "split_id"), ("st", "settlement_id"), ("p", "payment_id"), ("u", "user_id")):
+                        if k == name and isinstance(v, str):
+                            seen[pre].add(v)
+                    collect(v)
+            elif isinstance(o, list):
+                for v in o:
+                    collect(v)
+        collect(exp["state"])
+        self.assertEqual(call("POST", "/_test/import", exp)[0], 204)
+        ada = login("ada@example.com")
+        new = {k: set() for k in seen}
+        b = call("POST", "/requests", {"payer_handle": "bob", "amount": 1}, ada, h())[1]
+        new["rq"].add(b["request_id"])
+        new["sp"].add(call("POST", "/splits", {"amount": 3, "participant_handles": ["bob"]}, ada, h())[1]["split_id"])
+        s = call("POST", "/settlements", {"transfers": [{"from_handle": "ada", "to_handle": "bob", "amount": 1}]}, login("cy@example.com"), h())[1]
+        new["st"].add(s["settlement_id"]); new["p"].add(s["payments"][0]["payment_id"])
+        new["u"].add(call("POST", "/auth/signup", {"email": "after@x.org", "password": "longenough", "display_name": "n"})[1]["user_id"])
+        for k in seen:
+            self.assertFalse(seen[k] & new[k], k)
+
+    def test_fixture_created_at_is_ignored_when_bad(self):
+        for v in (5, "yesterday", "2026-01-01T00:00:00", None, [], "2026-09-24T19:00:00+02:00"):
+            fx = json.loads(json.dumps(FIX))
+            fx["payments"][0]["created_at"] = v
+            fx["requests"][0]["created_at"] = v
+            reset(fx)
+            self.assertEqual(call("GET", "/activity", token=login("ada@example.com"))[0], 200)
+
+    def test_huge_body_gets_4xx(self):
+        s, b, _ = call("POST", "/payments", raw=b" " * (17 * 1024 * 1024), token=self.ada,
+                       headers={"Idempotency-Key": key()})
+        self.assertEqual((s, b["error"]["code"]), (400, "malformed_request"))
+
+    def test_bad_target(self):
+        import socket
+        host, port = BASE.split("//")[1].split(":")
+        c = socket.create_connection((host, int(port)), timeout=5)
+        c.sendall(b"GET http://[x/me HTTP/1.1\r\nHost: x\r\n\r\n")
+        self.assertRegex(c.recv(200), rb"^HTTP/1.1 4\d\d")
+        c.close()
+
+
 if __name__ == "__main__":
     unittest.main()
