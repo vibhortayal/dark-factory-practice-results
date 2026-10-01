@@ -39,8 +39,8 @@ def spawn_server(extra_env=None):
             try:
                 if call(port, "GET", "/health").status == 200:
                     return proc, port
-            except OSError:
-                time.sleep(0.1)
+            except (OSError, http.client.HTTPException, ValueError):
+                time.sleep(0.1)  # not up yet (or somebody else's listener grabbed the port)
         proc.kill()
         proc.wait()
     raise RuntimeError("server did not start")
