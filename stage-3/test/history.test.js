@@ -493,3 +493,40 @@ test('AC11: a correction is known to the very next read', async () => {
     assert.equal(s.entries[0].payment.amount, amount); assert.equal(s.entries[0].revision, rev);
   }
 });
+
+test('AJ1: mixed 50-way burst keeps every view conserved and every statement consistent', async () => {
+  await fresh({ authorization_ttl_seconds: 600 });
+  const seedPays = [];
+  for (let i = 0; i < 6; i++) seedPays.push((await pay(i % 2 ? t.bob : t.ada, i % 2 ? 'ada' : 'bob', 100 + i)).payment_id);
+  const holds = [];
+  for (let i = 0; i < 6; i++) holds.push((await c.post('/authorizations', { token: t.ada, key: k(), body: { to_handle: 'bob', amount: 300 } })).json.authorization_id);
+  const startedAt = Date.now() - 1000;
+  const jobs = [];
+  for (let i = 0; i < 50; i++) {
+    const m = i % 6;
+    if (m === 0) jobs.push(c.post('/payments', { token: t.ada, key: k(), body: { to_handle: 'cy', amount: 40 } }));
+    else if (m === 1) jobs.push(correct(t.ada, seedPays[0], goodBody({ expected_revision: 1 + Math.floor(i / 6), amount: 50 + i, effective_at: at(-1) })));
+    else if (m === 2) jobs.push(c.post(`/authorizations/${holds[i % 6]}/capture`, { token: t.bob, key: k(), body: { amount: 100, final: false } }));
+    else if (m === 3) jobs.push(c.post(`/authorizations/${holds[(i + 2) % 6]}/void`, { token: t.ada }));
+    else if (m === 4) jobs.push(c.post('/settlements', { token: t.op, key: k(), body: { transfers: [{ from_handle: 'bob', to_handle: 'cy', amount: 30 }, { from_handle: 'cy', to_handle: 'ada', amount: 10 }] } }));
+    else jobs.push(c.get('/statement?limit=200', { token: t.ada }), c.get(`/me?as_of=${enc(new Date(Date.now()).toISOString())}`, { token: t.bob }));
+  }
+  const res = await Promise.all(jobs);
+  assert.ok(res.every((r) => r.status < 500), res.filter((r) => r.status >= 500).map((r) => r.text).join('|'));
+  for (const r of res.filter((x) => x.json && x.json.entries)) assert.equal(r.json.opening_balance + r.json.entries.reduce((a, e) => a + e.delta, 0), r.json.closing_balance);
+  for (const as of [startedAt, Date.now() - 300, Date.now(), Date.now() + 5000]) {
+    let sum = 0;
+    for (const tok of all()) {
+      const m = await me(tok, `?as_of=${enc(new Date(as).toISOString())}`);
+      assert.ok(m.total >= 0 && m.available >= 0 && m.held >= 0);
+      assert.equal(m.available, m.total - m.held);
+      sum += m.total;
+    }
+    assert.equal(sum, 12500);
+  }
+  const revs = (await c.get(`/payments/${seedPays[0]}/revisions`, { token: t.ada })).json.revisions;
+  const rec = revs.map((r) => Date.parse(r.recorded_at));
+  assert.ok(rec.every((x, i) => i === 0 || x > rec[i - 1]));
+  assert.deepEqual(revs.map((r) => r.revision), revs.map((_, i) => i + 1));
+  for (const tok of all()) { const m = await me(tok); const view = await me(tok, `?as_of=${enc(new Date(Date.now() + 1).toISOString())}`); assert.deepEqual([m.total, m.available, m.held], [view.total, view.available, view.held]); }
+});

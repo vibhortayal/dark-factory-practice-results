@@ -2,8 +2,8 @@
 # Builds the image, runs two containers with NO network, and moves state from A to B
 # through export/import. Usage: bash test/docker-smoke.sh   (run from stage-2/)
 set -euo pipefail
-IMG=pocketful-stage-2:smoke
-A=pf2-smoke-a; B=pf2-smoke-b
+IMG=pocketful-stage-3:smoke
+A=pf3-smoke-a; B=pf3-smoke-b
 cleanup() { docker rm -f "$A" "$B" >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 cleanup
