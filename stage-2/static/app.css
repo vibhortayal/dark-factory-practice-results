@@ -119,7 +119,7 @@ button[disabled], button[aria-busy="true"] { opacity: .65; cursor: progress; }
 .item-main { display: grid; gap: .15rem; min-width: 0; flex: 1 1 12rem; }
 .parties { font-weight: 700; }
 .note { color: var(--ink); min-height: 1.3em; white-space: pre-wrap; }
-.item-side { display: grid; gap: .1rem; justify-items: end; text-align: right; }
+.item-side { min-width: 11rem; display: grid; gap: .1rem; justify-items: end; text-align: right; }
 .amount-line { display: flex; align-items: baseline; gap: .3rem; justify-content: flex-end; }
 .amount { font-weight: 800; font-size: 1.1rem; }
 .sign { font-weight: 800; }
@@ -146,7 +146,7 @@ button[disabled], button[aria-busy="true"] { opacity: .65; cursor: progress; }
 .preview .share { font-weight: 700; }
 .auth-card { max-width: 28rem; margin: 1rem auto; width: 100%; }
 @media (max-width: 480px) {
-  .item-side { justify-items: start; text-align: left; }
+  .item-side { justify-items: start; text-align: left; min-width: 0; }
   .amount-line { justify-content: flex-start; }
   .actions .field { max-width: none; }
 }

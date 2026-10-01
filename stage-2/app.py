@@ -744,6 +744,20 @@ def do_authorization(user, body):
     return authorization_view(a)
 
 
+def capture_amount(v):
+    """A capture is an integer >= 1; exceeding the remainder (any size) is a different error."""
+    n = None
+    if is_int(v):
+        n = v
+    elif isinstance(v, Decimal) and v.is_finite() and v == v.to_integral_value():
+        n = int(v) if v.adjusted() <= 30 else (10 ** 31 if v > 0 else None)
+    elif isinstance(v, Huge) and not v.text.lstrip().startswith("-"):
+        n = 10 ** 31 if "e-" not in v.text.lower() else None
+    if n is None or n < 1:
+        raise err(422, "validation_failed", "amount must be an integer of at least 1")
+    return n
+
+
 def make_capture(aid):
     def do_capture(user, body):
         a = STATE.authorizations.get(aid)
@@ -753,7 +767,7 @@ def make_capture(aid):
             raise err(403, "forbidden", "only the receiver may capture")
         if "final" in body and not isinstance(body["final"], bool):
             raise err(400, "malformed_request", "final must be a boolean")
-        amount = to_amount(body["amount"]) if "amount" in body else None
+        amount = capture_amount(body["amount"]) if "amount" in body else None
         if a["status"] == "expired":
             raise err(409, "authorization_expired", "authorization has expired")
         if a["status"] != "open":

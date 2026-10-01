@@ -172,6 +172,12 @@ class Capture(S2):
         err(self, self.cap(self.bob, aid, {"amount": 5, "final": "yes"}), 400, "malformed_request")
         err(self, self.cap(self.bob, aid, {"amount": 5, "final": None}), 400, "malformed_request")
         err(self, self.cap(self.bob, aid, {"amount": 1001}), 422, "capture_exceeds_authorization")
+        for big in (1000000000, 1000000001, 10 ** 12, 10 ** 40):
+            err(self, self.cap(self.bob, aid, {"amount": big}), 422, "capture_exceeds_authorization")
+        for raw in (b'{"amount":1e1000000000000000000}', b'{"amount":1e400}'):
+            err(self, call("POST", f"/authorizations/{aid}/capture", raw=raw, token=self.bob, key=k()), 422, "capture_exceeds_authorization")
+        for raw in (b'{"amount":-1e1000000000000000000}', b'{"amount":1e-400}', b'{"amount":0.0}'):
+            err(self, call("POST", f"/authorizations/{aid}/capture", raw=raw, token=self.bob, key=k()), 422, "validation_failed")
         err(self, call("POST", f"/authorizations/{aid}/capture", {}, self.bob), 400, "missing_idempotency_key")
         err(self, call("POST", f"/authorizations/{aid}/capture", raw=b"[]", token=self.bob, key=k()), 400, "malformed_request")
         self.assertEqual(self.cap(self.bob, aid, {"amount": 1000})[0], 201)

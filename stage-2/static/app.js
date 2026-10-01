@@ -527,14 +527,14 @@
     if (rq.status === 'pending') {
       actions = el('div', { class: 'actions' });
       if (incoming) {
-        visSelect = el('select', { id: 'rv-' + rq.request_id, 'aria-label': 'Visibility of the payment' },
+        visSelect = el('select', { id: 'rv-' + rq.request_id },
           el('option', { value: 'public', text: 'Public payment' }), el('option', { value: 'private', text: 'Private payment' }));
         var pay = el('button', { class: 'primary small', type: 'button', testid: 'request-pay-' + rq.request_id, text: 'Pay ' + fmt(rq.amount) });
         var dec = el('button', { class: 'secondary small', type: 'button', testid: 'request-decline-' + rq.request_id, text: 'Decline' });
         buttons.push(pay, dec);
         pay.addEventListener('click', function () { requestAction('pay', rq, buttons, visSelect); });
         dec.addEventListener('click', function () { requestAction('decline', rq, buttons, visSelect); });
-        actions.appendChild(el('div', { class: 'field' }, visSelect));
+        actions.appendChild(el('div', { class: 'field' }, el('label', { for: 'rv-' + rq.request_id, text: 'Payment visibility' }), visSelect));
         actions.appendChild(pay);
         actions.appendChild(dec);
       } else {
@@ -737,13 +737,13 @@
             el('span', { class: 'chip ' + a.status, text: label }),
             el('span', { class: 'chip ' + (incoming ? 'received' : 'sent'), text: incoming ? 'Incoming' : 'Outgoing' }),
             el('span', { class: 'chip ' + a.visibility, text: a.visibility === 'private' ? 'Private' : 'Public' })),
-          el('div', { class: 'parties', text: incoming ? a.from_handle + ' is holding money for you' : 'You are holding money for ' + a.to_handle }),
+          el('div', { class: 'parties', text: a.status === 'open' ? (incoming ? a.from_handle + ' is holding money for you' : 'You are holding money for ' + a.to_handle) : (incoming ? a.from_handle + ' held money for you' : 'You held money for ' + a.to_handle) }),
           el('div', { class: 'note', testid: 'authorization-note-' + id, text: a.note })),
         el('div', { class: 'item-side' },
           el('div', { class: 'amount-line' }, el('span', { class: 'amount', testid: 'authorization-amount-' + id, text: fmt(a.amount) })),
           extra,
-          el('div', { class: 'meta' }, 'Expires ', el('span', { testid: 'authorization-expires-' + id, text: a.expires_at }),
-            ' ', el('span', { text: '(' + relativeExpiry(a.expires_at) + ')' })))),
+          el('div', { class: 'meta' }, a.status === 'open' ? 'Expires ' : 'Expiry ', el('span', { testid: 'authorization-expires-' + id, text: a.expires_at }),
+            ' ', a.status === 'open' ? el('span', { text: '(' + relativeExpiry(a.expires_at) + ')' }) : null))),
       actions);
   }
 

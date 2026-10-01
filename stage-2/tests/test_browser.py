@@ -334,6 +334,8 @@ class Competing(B):
         self.page.goto("/requests")
         self.page.wait_for_selector(sel(f"request-pay-{rid}"))
         call("POST", f"/requests/{rid}/cancel", token=login("bob"))
+        self.assertEqual(self.page.eval_on_selector(f"#rv-{rid}", "e => e.labels.length"), 1)  # V5: visible label
+        self.assertTrue(self.page.is_visible(f"label[for='rv-{rid}']"))
         self.page.click(sel(f"request-pay-{rid}"))
         self.page.wait_for_selector(sel("request-error"))
         self.page.wait_for_selector(sel(f"request-pay-{rid}"), state="detached")

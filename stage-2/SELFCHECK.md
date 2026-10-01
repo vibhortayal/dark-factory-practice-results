@@ -40,3 +40,5 @@ precision. Retry identity (key + body) lives in page memory per form. Seeded fix
 n=2^9 (stored in the hash), signups with n=2^12.
 
 Round S2-8: the authorise form is on both `/` (under the request form, pay stays first) and `/authorizations`.
+
+Round 1 (Verifier BLOCK on 10c60b0): F1 capture amount above 1000000000 (or any size) is now `capture_exceeds_authorization`; only amounts below 1 / non-integral stay `validation_failed` (`Capture.test_errors_and_precedence`). F2 the per-request payment-visibility select has a visible `<label>` (`Competing.test_stale_request_pay_button` checks label count and visibility). Also: closed authorizations no longer say "is holding" / "(in N min)"; item side column has a fixed minimum width so amounts align.
