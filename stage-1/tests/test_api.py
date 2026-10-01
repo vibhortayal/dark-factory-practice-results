@@ -27,6 +27,25 @@ def free_port():
     return port
 
 
+def spawn_server(extra_env=None):
+    """Start the service on a free port; retry when another process grabs the port first."""
+    for _ in range(8):
+        port = free_port()
+        proc = subprocess.Popen([sys.executable, "-m", "app"], cwd=ROOT,
+                                env=dict(os.environ, PORT=str(port), **(extra_env or {})))
+        for _ in range(300):
+            if proc.poll() is not None:
+                break
+            try:
+                if call(port, "GET", "/health").status == 200:
+                    return proc, port
+            except OSError:
+                time.sleep(0.1)
+        proc.kill()
+        proc.wait()
+    raise RuntimeError("server did not start")
+
+
 class Resp:
     def __init__(self, status, headers, raw):
         self.status, self.headers, self.raw = status, headers, raw
@@ -68,21 +87,7 @@ class Base(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        for _ in range(5):  # another process may grab the port between probe and bind
-            cls.port = free_port()
-            cls.proc = subprocess.Popen([sys.executable, "-m", "app"], cwd=ROOT,
-                                        env=dict(os.environ, PORT=str(cls.port), **cls.extra_env))
-            for _ in range(300):
-                if cls.proc.poll() is not None:
-                    break
-                try:
-                    if call(cls.port, "GET", "/health").status == 200:
-                        return
-                except OSError:
-                    time.sleep(0.1)
-            cls.proc.kill()
-            cls.proc.wait()
-        raise RuntimeError("server did not start")
+        cls.proc, cls.port = spawn_server(cls.extra_env)
 
     @classmethod
     def tearDownClass(cls):
@@ -863,15 +868,8 @@ class TestExportImport(Base):
     def test_import_into_fresh_process(self):
         self.populate()
         exp = self.req("GET", "/_test/export")
-        port = free_port()
-        p = subprocess.Popen([sys.executable, "-m", "app"], cwd=ROOT, env=dict(os.environ, PORT=str(port)))
+        p, port = spawn_server()
         try:
-            for _ in range(300):
-                try:
-                    call(port, "GET", "/health")
-                    break
-                except OSError:
-                    time.sleep(0.1)
             self.assertEqual(call(port, "POST", "/_test/import", raw=exp.raw).status, 204)
             self.assertEqual(call(port, "GET", "/me", token=self.ada).json, self.snapshot["ada"][0])
             self.assertEqual(call(port, "POST", "/payments", {"to_handle": "bob", "amount": 10, "note": "é"},
