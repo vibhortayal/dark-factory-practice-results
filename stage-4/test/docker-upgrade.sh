@@ -32,11 +32,21 @@ one() {
   R1=$(call "$A" 9001 POST /payments '{"to_handle":"b","amount":250}' "$TOK" up-key-1); echo "stage-$stage payment: $R1"; echo "$R1" | grep -q '^201'
   PID=$(echo "$R1" | jf payment_id)
   if [ "$stage" = 2 ]; then call "$A" 9001 POST /authorizations '{"to_handle":"b","amount":100}' "$TOK" up-key-h | grep -q '^201'; fi
+  local SNAP="" OLDPAGE=""
+  if [ "$stage" = 3 ]; then
+    SNAP=$(call "$A" 9001 GET /statement '' "$TOK" | sed 's/^200 //' | jf snapshot)
+    OLDPAGE=$(call "$A" 9001 GET "/statement?snapshot=$SNAP&limit=1&offset=0" '' "$TOK")
+  fi
   EXPORT=$(call "$A" 9001 GET /_test/export | sed 's/^200 //')
   echo "$EXPORT" | grep -q "\"schema_version\":$stage"
   call "$B" 9002 POST /_test/import "$EXPORT" | grep -q '^204'
   R2=$(call "$B" 9002 POST /payments '{"to_handle":"b","amount":250}' "$TOK" up-key-1); echo "stage-3 replay: $R2"
   echo "$R2" | grep -q '^200'; [ "${R1#201 }" = "${R2#200 }" ]
+  if [ "$stage" = 3 ]; then
+    local NEWPAGE; NEWPAGE=$(call "$B" 9002 GET "/statement?snapshot=$SNAP&limit=1&offset=0" '' "$TOK")
+    [ "$OLDPAGE" = "$NEWPAGE" ] || { echo "snapshot page changed shape"; echo "$OLDPAGE"; echo "$NEWPAGE"; exit 1; }
+    echo "stage-3 snapshot page is byte-identical on stage 4"
+  fi
   local ME; ME=$(call "$B" 9002 GET /me '' "$TOK"); echo "stage-3 /me: $ME"; echo "$ME" | grep -q '"balance":9750'
   local OPENING; OPENING=$(call "$B" 9002 GET '/me?as_of=2000-01-01T00:00:00Z' '' "$TOK"); echo "stage-3 opening: $OPENING"; echo "$OPENING" | grep -q '"balance":10000'
   call "$B" 9002 GET /statement '' "$TOK" | grep -q '"closing_balance":9750'

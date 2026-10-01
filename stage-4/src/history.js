@@ -80,10 +80,18 @@ export function viewOf(s, user, A, K, kseqLimit = FOREVER, moveA = A) {
 
 // ---- statements ----
 
+// A statement saved by an earlier stage keeps returning its entries in the shape they had when it was saved.
+function paymentShape(payment, shape) {
+  if (shape >= 4) return payment;
+  const { refund_of: _omitted, ...rest } = payment;
+  return rest;
+}
+
 const idLess = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
 
 // Full-window statement for a user, before pagination.
-export function statementOf(s, user, fromNs, toNsExclusive, K, kseqLimit) {
+// `shape` is the payment shape the snapshot was saved under: 3 (before `refund_of`) or 4.
+export function statementOf(s, user, fromNs, toNsExclusive, K, kseqLimit, shape = 4) {
   const mine = [];
   let opening = user.opening;
   let closing = user.opening;
@@ -102,7 +110,7 @@ export function statementOf(s, user, fromNs, toNsExclusive, K, kseqLimit) {
     const delta = sg * r.amount;
     balance += delta;
     return {
-      payment: { ...publicPayment(p), amount: r.amount },
+      payment: paymentShape({ ...publicPayment(p), amount: r.amount }, shape),
       delta,
       balance_after: balance,
       revision: r.revision,

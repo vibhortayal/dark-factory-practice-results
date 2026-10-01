@@ -58,7 +58,7 @@ export function statement(user, search) {
     const token = raw.get('snapshot');
     const snap = s.snapshots.get(token);
     if (!snap || snap.user_id !== user.id) throw notFound('unknown statement snapshot');
-    return page(statementOf(s, user, snap.fromNs, snap.toNs, snap.K, snap.kseq), pg, token, snap.knownAtText);
+    return page(statementOf(s, user, snap.fromNs, snap.toNs, snap.K, snap.kseq, snap.shape), pg, token, snap.knownAtText);
   }
   const from = instantParam(raw, 'from');
   const to = instantParam(raw, 'to');
@@ -73,8 +73,9 @@ export function statement(user, search) {
     K: knownAt ? knownAt.ns : null,
     kseq: s.kseq, // knowledge position at this read
     knownAtText: knownAt ? knownAt.text : null,
+    shape: 4, // the payment shape this snapshot is saved under
   };
   const token = `sn_${randomBytes(24).toString('base64url')}`;
   s.snapshots.set(token, snap);
-  return page(statementOf(s, user, snap.fromNs, snap.toNs, snap.K, snap.kseq), pg, token, snap.knownAtText);
+  return page(statementOf(s, user, snap.fromNs, snap.toNs, snap.K, snap.kseq, snap.shape), pg, token, snap.knownAtText);
 }

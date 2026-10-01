@@ -184,8 +184,25 @@ test('BA5: import from a real stage-3 service keeps settlements, corrections, sn
     assert.equal(rep.status, 200); assert.equal(rep.text, cor.text, 'the stored original response is replayed exactly as stored');
     assert.equal(JSON.parse(rep.text).revision, 2);
     const page = (await c.get(`/statement?snapshot=${snap.snapshot}&limit=2`, { token: tok.ada })).json;
-    const noRefundOf = (es) => es.map((e) => { const { refund_of, ...payment } = e.payment; assert.equal(refund_of, null); return { ...e, payment }; });
-    assert.deepEqual(noRefundOf(page.entries), snap.entries, 'the old service\'s snapshot token pages the same frozen entries (payments now also carry refund_of)');
+    assert.deepEqual(page.entries, snap.entries, 'the old service\'s snapshot token pages exactly the entries it returned (same JSON value)');
+    assert.equal(JSON.stringify(page), JSON.stringify((await old.get(`/statement?snapshot=${snap.snapshot}&limit=2`, { token: tok.ada })).json), 'byte-identical to the old service\'s own page');
+    assert.ok(page.entries.every((e) => !('refund_of' in e.payment)));
+    // the whole response body, for several limits and offsets, equals what the old service itself returns for that page
+    const compareAll = async (label) => {
+      for (const [limit, offset] of [[1, 0], [1, 1], [2, 0], [2, 1], [50, 0], [5, 99]]) {
+        const q = `/statement?snapshot=${snap.snapshot}&limit=${limit}&offset=${offset}`;
+        assert.equal((await c.get(q, { token: tok.ada })).text, (await old.get(q, { token: tok.ada })).text, `${label}: ${q}`);
+      }
+    };
+    await compareAll('after import');
+    // a statement read now is a stage-4 statement: payments carry refund_of
+    const fresh4 = (await c.get('/statement?limit=2', { token: tok.ada })).json;
+    assert.ok(fresh4.entries.every((e) => e.payment.refund_of === null));
+    const exAfter = (await c.get('/_test/export')).json;
+    assert.equal(exAfter.state.statement_snapshots.find((x) => x.token === snap.snapshot).payment_shape, 3);
+    assert.equal(exAfter.state.statement_snapshots.find((x) => x.token === fresh4.snapshot).payment_shape, 4);
+    assert.equal((await c.post('/_test/import', { body: exAfter })).status, 204);
+    assert.deepEqual((await c.get(`/statement?snapshot=${snap.snapshot}&limit=2`, { token: tok.ada })).json.entries, snap.entries, 'the saved shape survives a stage-4 round trip');
     // revisions kept with their recorded times; batch ids are null
     const revs = (await c.get(`/payments/${p.payment_id}/revisions`, { token: tok.ada })).json.revisions;
     assert.deepEqual(revs.map((r) => [r.revision, r.amount, r.correction_batch_id]), [[1, 800, null], [2, 700, null]]);
@@ -195,6 +212,7 @@ test('BA5: import from a real stage-3 service keeps settlements, corrections, sn
     assert.equal((await c.post(`/payments/${p.payment_id}/refunds`, { token: tok.bob, key: k(), body: { amount: 701 } })).json.error.code, 'refund_exceeds_payment');
     assert.equal((await c.post(`/payments/${p.payment_id}/refunds`, { token: tok.bob, key: k(), body: { amount: 700 } })).status, 201);
     assert.equal((await c.post(`/payments/${cap.payment_id}/refunds`, { token: tok.bob, key: k(), body: { amount: 120 } })).status, 201);
+    await compareAll('after refunds');
     // a batch can correct the imported settlement, but only as a whole
     const ids = st.json.payments.map((x) => x.payment_id);
     const eff = at(-1);
@@ -202,6 +220,7 @@ test('BA5: import from a real stage-3 service keeps settlements, corrections, sn
     err(await c.post('/correction-batches', { token: tok.op, key: k(), body: { corrections: [it(ids[0], 50)] } }), 422, 'incomplete_settlement');
     const ok = await c.post('/correction-batches', { token: tok.op, key: k(), body: { corrections: [it(ids[0], 50), it(ids[1], 10)] } });
     assert.equal(ok.status, 201, ok.text);
+    await compareAll('after refunds and a batch');
     const opening = (await c.get('/me?as_of=2000-01-01T00:00:00Z', { token: tok.ada })).json.balance;
     assert.equal(opening, 10000 + 500 - 0 - 0 + 0 - 0 === 10500 ? opening : opening);
     let sum = 0;

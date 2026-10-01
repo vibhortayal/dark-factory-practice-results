@@ -11,6 +11,8 @@ after(() => c.stop());
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const iso = (ms) => new Date(ms).toISOString();
+// Microsecond-exact instant of a service stamp (Date.parse alone would truncate to milliseconds).
+const US = (s) => { const m = /\.(\d+)/.exec(s); return Date.parse(s) * 1000 + (m ? Number((m[1] + '000000').slice(3, 6)) : 0); };
 const NAMES = ['ada', 'bob', 'cy', 'op'];
 
 function rng(seed) {
@@ -111,7 +113,7 @@ async function scenario(seed) {
     const owner = await anyParty(id);
     const rev = (await c.get(`/payments/${id}/revisions`, { token: tok[owner] })).json.revisions;
     const st = (await c.get('/statement?limit=200', { token: tok[owner] })).json.entries.find((e) => e.payment.payment_id === id).payment;
-    model.pays.push({ id, from: st.from_user_id, to: st.to_user_id, created: Date.parse(st.created_at), revs: rev.map((r) => ({ amount: r.amount, eff: Date.parse(r.effective_at), rec: Date.parse(r.recorded_at) })) });
+    model.pays.push({ id, from: st.from_user_id, to: st.to_user_id, created: US(st.created_at), revs: rev.map((r) => ({ amount: r.amount, eff: US(r.effective_at), rec: US(r.recorded_at) })) });
   }
   async function anyParty(id) {
     for (const n of NAMES) if ((await c.get(`/payments/${id}/revisions`, { token: tok[n] })).status === 200) return n;
@@ -121,14 +123,16 @@ async function scenario(seed) {
   for (const h of auths) {
     const a = (await c.get('/authorizations?limit=200', { token: tok[h.from] })).json.authorizations.find((x) => x.authorization_id === h.id);
     model.auths.push({
-      from: `u_${h.from}`, amount: a.amount, created: Date.parse(a.created_at), exp: Date.parse(a.expires_at), status: a.status,
+      from: `u_${h.from}`, amount: a.amount, created: US(a.created_at), exp: US(a.expires_at), status: a.status,
       captures: a.payment_ids.map((pid, i) => ({ t: byId.get(pid).created, amount: byId.get(pid).revs[0].amount, final: a.status === 'captured' && i === a.payment_ids.length - 1 })),
-      voidAt: a.status === 'voided' ? Date.parse(a.closed_at) : null,
+      voidAt: a.status === 'voided' ? US(a.closed_at) : null,
     });
   }
   const stats = { corrected: model.pays.filter((p) => p.revs.length > 1).length, pays: model.pays.length, holds: model.auths.length, voided: model.auths.filter((a) => a.voidAt !== null).length, captured: model.auths.filter((a) => a.captures.length).length };
   assert.ok(stats.corrected >= 2 && stats.holds >= 3 && stats.captured >= 1, JSON.stringify({ seed, ...stats }));
-  function expected(uid, A, K) {
+  function expected(uid, Ams, Kms) {
+    const A = Ams * 1000; // milliseconds -> microseconds, to compare exactly with the service's stamps
+    const K = Kms === null ? null : Kms * 1000;
     let tot = opening[uid];
     for (const p of model.pays) {
       const sg = p.from === uid ? -1 : p.to === uid ? 1 : 0;

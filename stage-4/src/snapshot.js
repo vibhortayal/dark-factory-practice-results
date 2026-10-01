@@ -44,7 +44,7 @@ export function exportState(s) {
       settlement_operator_ids: [...s.operators],
       idempotency: [...s.idem.values()].map((e) => ({ ...e })),
       statement_snapshots: [...s.snapshots].map(([token, x]) => ({
-        token, user_id: x.user_id, from_ns: nsText(x.fromNs), to_ns: nsText(x.toNs), known_ns: nsText(x.K), kseq: x.kseq, known_at: x.knownAtText,
+        token, user_id: x.user_id, from_ns: nsText(x.fromNs), to_ns: nsText(x.toNs), known_ns: nsText(x.K), kseq: x.kseq, known_at: x.knownAtText, payment_shape: x.shape,
       })),
       kseq: s.kseq,
       counters: { ...s.counters },
@@ -256,10 +256,12 @@ export function importState(doc) {
     s.kseq = Math.max(s.kseq, st.kseq);
     for (const raw of arr(st, 'statement_snapshots')) {
       const x = obj(raw, 'statement snapshot');
-      if (!str(x.token) || x.token === '' || x.token.length > 64 || !s.users.has(x.user_id) || !int(x.kseq) || !(x.known_at === null || str(x.known_at))) throw bad('statement snapshot is invalid');
+      if (!str(x.token) || x.token === '' || x.token.length > 64 || !s.users.has(x.user_id) || !int(x.kseq) || !(x.known_at === null || str(x.known_at)) || (v4 && x.payment_shape !== 3 && x.payment_shape !== 4)) throw bad('statement snapshot is invalid');
       s.snapshots.set(x.token, {
         user_id: x.user_id, fromNs: x.from_ns === null ? null : bigint(x.from_ns), toNs: bigint(x.to_ns),
         K: x.known_ns === null ? null : bigint(x.known_ns), kseq: x.kseq, knownAtText: x.known_at,
+        // saved by stage 3 (no payment_shape) => entries keep the stage-3 payment shape; stage-4 snapshots record theirs
+        shape: v4 ? x.payment_shape : 3,
       });
     }
   }

@@ -221,7 +221,7 @@ test('AE: corrections, revisions, money, replay', async () => {
   assert.equal(revs.status, 200);
   assert.deepEqual(revs.json.revisions.map((x) => [x.revision, x.amount, x.reason]), [[1, 1000, ''], [2, 400, 'corrected amount'], [3, 700, 'again']]);
   assert.equal(revs.json.revisions[0].effective_at, p.created_at); assert.equal(revs.json.revisions[0].recorded_at, p.created_at);
-  const rec = revs.json.revisions.map((x) => Date.parse(x.recorded_at));
+  const rec = revs.json.revisions.map((x) => x.recorded_at);
   assert.ok(rec[0] < rec[1] && rec[1] < rec[2], 'recorded_at strictly increases');
   err(await c.get(`/payments/${p.payment_id}/revisions`, { token: t.cy }), 404, 'not_found');
   err(await c.get(`/payments/${p.payment_id}/revisions`, { token: t.op }), 404, 'not_found');
@@ -472,7 +472,7 @@ test('AG6/AJ1: snapshots and invariants under concurrent writes', async () => {
   const same = await Promise.all(Array.from({ length: 20 }, () => correct(t.ada, p.payment_id, body, key)));
   assert.equal(same.filter((r) => r.status === 201).length, 1); assert.equal(same.filter((r) => r.status === 200).length, 19);
   const revs = (await c.get(`/payments/${p.payment_id}/revisions`, { token: t.ada })).json.revisions;
-  const rec = revs.map((x) => Date.parse(x.recorded_at));
+  const rec = revs.map((x) => x.recorded_at); // same six-digit format: string order is time order (Date.parse would truncate to ms)
   assert.ok(rec.every((x, i) => i === 0 || x > rec[i - 1]));
   assert.equal(await balanceSum(c, all()), 12500);
 });
@@ -525,7 +525,7 @@ test('AJ1: mixed 50-way burst keeps every view conserved and every statement con
     assert.equal(sum, 12500);
   }
   const revs = (await c.get(`/payments/${seedPays[0]}/revisions`, { token: t.ada })).json.revisions;
-  const rec = revs.map((r) => Date.parse(r.recorded_at));
+  const rec = revs.map((r) => r.recorded_at);
   assert.ok(rec.every((x, i) => i === 0 || x > rec[i - 1]));
   assert.deepEqual(revs.map((r) => r.revision), revs.map((_, i) => i + 1));
   for (const tok of all()) { const m = await me(tok); const view = await me(tok, `?as_of=${enc(new Date(Date.now() + 1).toISOString())}`); assert.deepEqual([m.total, m.available, m.held], [view.total, view.available, view.held]); }
