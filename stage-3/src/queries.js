@@ -25,8 +25,11 @@ export function me(user, search) {
     const held = heldOf(s, user.id);
     return { ...base, balance: user.balance, total: user.balance, available: user.balance - held, held, currency: s.currency, minor_units: s.minorUnits };
   }
+  // Without as_of the instant is the one the request began: movements count up to the end of the current clock tick
+  // (the clock reads whole milliseconds, clients send microseconds); holds expire at the plain reading.
   const A = asOf ? asOf.ns : msToNs(clockMs(s));
-  const v = viewOf(s, user, A, knownAt ? knownAt.ns : null, FOREVER);
+  const moveA = asOf ? asOf.ns : A + 999999n;
+  const v = viewOf(s, user, A, knownAt ? knownAt.ns : null, FOREVER, moveA);
   const out = { ...base, balance: v.total, total: v.total, available: v.available, held: v.held, currency: s.currency, minor_units: s.minorUnits };
   if (asOf) out.as_of = asOf.text;
   if (knownAt) out.known_at = knownAt.text;
@@ -62,7 +65,7 @@ export function statement(user, search) {
   const knownAt = instantParam(raw, 'known_at');
   if (from && to && from.ns > to.ns) throw invalid('from must not be later than to');
   // An omitted `to` includes everything effective up to and including the instant the read began.
-  const toNs = to ? to.ns : msToNs(clockMs(s)) + 1n;
+  const toNs = to ? to.ns : msToNs(clockMs(s)) + 1000000n; // the end of the current clock tick, exclusive
   const snap = {
     user_id: user.id,
     fromNs: from ? from.ns : null,

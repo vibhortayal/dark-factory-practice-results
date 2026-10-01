@@ -70,8 +70,10 @@ export function heldAtView(s, user, A, K, kseqLimit) {
 }
 
 // All four money fields of a view.
-export function viewOf(s, user, A, K, kseqLimit = FOREVER) {
-  const total = totalAt(s, user, A, K, kseqLimit);
+// `moveA` bounds the money movements; it defaults to A. A default (present-instant) read passes the end of the current
+// clock tick here so a movement accepted as "not later than now" is never missed, while holds expire at the plain reading A.
+export function viewOf(s, user, A, K, kseqLimit = FOREVER, moveA = A) {
+  const total = totalAt(s, user, moveA, K, kseqLimit);
   const held = heldAtView(s, user, A, K, kseqLimit);
   return { total, held, available: total - held };
 }

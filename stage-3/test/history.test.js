@@ -597,12 +597,19 @@ test('the present instant, at microsecond precision, is "not later than now"', a
   await fresh();
   const p = await pay(t.ada, 'bob', 100);
   let rev = 1;
-  for (let i = 0; i < 100; i++) {
-    const r = await correct(t.ada, p.payment_id, goodBody({ expected_revision: rev, amount: 100 - (i % 2), effective_at: nowMicro(), reason: 'now' }));
-    assert.equal(r.status, 201, r.text);
+  for (let i = 0; i < 300; i++) {
+    const eff = nowMicro();
+    const r = await correct(t.ada, p.payment_id, goodBody({ expected_revision: rev, amount: 100 - ((i % 2) + 1), effective_at: eff, reason: 'now' }));
+    assert.equal(r.status, 201, `${eff}: ${r.text}`);
     rev += 1;
+    // visible to the very next default read, however the instant falls inside the clock tick
+    const cur = (await me(t.ada)).balance;
+    assert.equal((await me(t.ada, `?known_at=${enc(new Date(Date.now() + 5).toISOString())}`)).balance, cur, 'known_at-only read');
+    const s = await stmt(t.ada);
+    assert.equal(s.closing_balance, cur, 'default statement read');
+    assert.equal(s.entries.find((e) => e.payment.payment_id === p.payment_id).revision, rev);
   }
-  for (let i = 0; i < 100; i++) {
+  for (let i = 0; i < 300; i++) {
     const at0 = nowMicro();
     const rs = await c.reset(FX({ payments: [{ id: 'p_now', from_user_id: 'u_ada', to_user_id: 'u_bob', amount: 5, created_at: at0 }] }));
     assert.equal(rs.status, 204, `${at0}: ${rs.text}`);
@@ -611,5 +618,7 @@ test('the present instant, at microsecond precision, is "not later than now"', a
   // an instant a whole millisecond or more in the future is still refused
   const p2 = await pay(t.ada, 'bob', 100);
   err(await correct(t.ada, p2.payment_id, goodBody({ effective_at: new Date(Date.now() + 5).toISOString().replace('Z', '+00:00') })), 422, 'validation_failed');
+  err(await correct(t.ada, p2.payment_id, goodBody({ effective_at: new Date(Date.now() + 3600000).toISOString() })), 422, 'validation_failed');
+  err(await c.reset(FX({ payments: [{ id: 'p_f2', from_user_id: 'u_ada', to_user_id: 'u_bob', amount: 5, created_at: new Date(Date.now() + 3600000).toISOString() }] })), 422, 'validation_failed');
   err(await c.reset(FX({ payments: [{ id: 'p_f', from_user_id: 'u_ada', to_user_id: 'u_bob', amount: 5, created_at: new Date(Date.now() + 50).toISOString() }] })), 422, 'validation_failed');
 });
