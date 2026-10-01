@@ -257,3 +257,36 @@ test('BA6: 200 batches with client-now instants, read back at once', async () =>
   const rec = revs.map((r) => r.recorded_at);
   for (let i = 1; i < rec.length; i++) assert.ok(rec[i] > rec[i - 1]);
 });
+
+test('mixed 50-way burst of payments, refunds, corrections and batches keeps every view conserved', async () => {
+  await fresh();
+  const base = [];
+  for (let i = 0; i < 6; i++) base.push(await pay(t.ada, 'bob', 300));
+  for (let i = 0; i < 4; i++) base.push(await pay(t.bob, 'cy', 100));
+  const jobs = [];
+  const reads = [];
+  for (let i = 0; i < 50; i++) {
+    const m = i % 5;
+    if (m === 0) jobs.push(c.post('/payments', { token: t.ada, key: k(), body: { to_handle: 'cy', amount: 25 } }));
+    else if (m === 1) jobs.push(c.post(`/payments/${base[i % 6].payment_id}/refunds`, { token: t.bob, key: k(), body: { amount: 40 } }));
+    else if (m === 2) jobs.push(c.post(`/payments/${base[i % 6].payment_id}/corrections`, { token: t.ada, key: k(), body: { expected_revision: 1, amount: 200 + i, effective_at: at(-1), reason: `c${i}` } }));
+    else if (m === 3) jobs.push(batch(t.op, { corrections: [item(base[6 + (i % 4)].payment_id, { amount: 50 + (i % 7), effective_at: at(-1) }), item(base[i % 6].payment_id, { amount: 250, effective_at: at(-1) })] }));
+    else jobs.push(c.get('/statement?limit=200', { token: t.bob }));
+    reads.push(c.get(`/me?as_of=${enc(new Date().toISOString())}`, { token: t.ada }), c.get('/me', { token: t.bob }));
+  }
+  const res = await Promise.all([...jobs, ...reads]);
+  assert.ok(res.every((r) => r.status < 500), res.filter((r) => r.status >= 500).map((r) => r.text).join('|'));
+  for (const r of res.filter((x) => x.json && x.json.entries)) assert.equal(r.json.opening_balance + r.json.entries.reduce((a, e) => a + e.delta, 0), r.json.closing_balance);
+  for (const as of [Date.now() - 100000, Date.now(), Date.now() + 100]) {
+    let sum = 0;
+    for (const tok of all()) { const m = await me(tok, `?as_of=${enc(new Date(as).toISOString())}`); assert.ok(m.total >= 0 && m.available >= 0); sum += m.total; }
+    assert.equal(sum, 12500);
+  }
+  for (const b of base) {
+    const revs = (await c.get(`/payments/${b.payment_id}/revisions`, { token: t.ada }).then((r) => (r.status === 200 ? r : c.get(`/payments/${b.payment_id}/revisions`, { token: t.bob })))).json.revisions;
+    const rec = revs.map((r) => r.recorded_at);
+    for (let i = 1; i < rec.length; i++) assert.ok(rec[i] > rec[i - 1]);
+    const refunded = (await c.get('/statement?limit=200', { token: t.bob })).json.entries.filter((e) => e.payment.refund_of === b.payment_id).reduce((a, e) => a + e.payment.amount, 0);
+    assert.ok(refunded <= revs.at(-1).amount, `${b.payment_id}: refunded ${refunded} > ${revs.at(-1).amount}`);
+  }
+});
