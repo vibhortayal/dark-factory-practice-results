@@ -18,8 +18,12 @@ URL = urlsplit(sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:8080")
 CONTAINER = sys.argv[2] if len(sys.argv) > 2 else None
 
 
+_local = threading.local()
+
+
 def call(method, path, body=None, token=None, key=None, raw=None, timeout=120):
-    conn = http.client.HTTPConnection(URL.hostname, URL.port, timeout=timeout)
+    """One request; each thread reuses its keep-alive connection (fresh connections per request
+    would exhaust ephemeral ports in the long fill runs)."""
     h = {}
     if token:
         h["Authorization"] = "Bearer " + token
@@ -27,15 +31,23 @@ def call(method, path, body=None, token=None, key=None, raw=None, timeout=120):
         h["Idempotency-Key"] = key
     data = raw if raw is not None else (None if body is None else json.dumps(body).encode())
     t0 = time.time()
-    try:
-        conn.request(method, path, data, h)
-        r = conn.getresponse()
-        out = r.read()
-        return r.status, time.time() - t0, out
-    except Exception as e:  # dropped connection etc.
-        return "ERR:" + type(e).__name__, time.time() - t0, b""
-    finally:
-        conn.close()
+    for attempt in (0, 1):
+        conn = getattr(_local, "conn", None)
+        if conn is None:
+            conn = _local.conn = http.client.HTTPConnection(URL.hostname, URL.port, timeout=timeout)
+        try:
+            conn.request(method, path, data, h)
+            r = conn.getresponse()
+            out = r.read()
+            if r.getheader("Connection", "").lower() == "close":
+                conn.close()
+                _local.conn = None
+            return r.status, time.time() - t0, out
+        except Exception as e:  # stale keep-alive connection or a dropped one: retry once on a new one
+            conn.close()
+            _local.conn = None
+            if attempt == 1:
+                return "ERR:" + type(e).__name__, time.time() - t0, b""
 
 
 def peak_mib():
@@ -284,7 +296,6 @@ def main():
     rs = burst(4, lambda i: call("POST", "/_test/import", raw=exp))
     report("4 concurrent imports of the full export", rs)
 
-    emoji_fill()
     print("== E6: reads at the full budget")
     tok = login(0)
     for path in ("/activity", "/activity?offset=0&limit=200", "/activity?offset=30000&limit=50",
@@ -297,6 +308,7 @@ def main():
     ops = [{"from_handle": "h0", "to_handle": "h%d" % (1 + j % 19), "amount": 1} for j in range(32)]
     rs = burst(50, lambda i: call("POST", "/settlements", {"transfers": ops}, token=tok, key="full-st-%d" % i))
     report("50 x 32-entry settlement near capacity", rs)
+    emoji_fill()
 
 
 main()
