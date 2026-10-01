@@ -163,13 +163,11 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/health":
             return 200, {"status": "ok"}, None
         if path == "/_test/reset":
-            svc.reset(parse_limited(self.raw, large_test_bodies, parse_json))
-            return 204, None, None
+            return self.test_load(svc.reset, parse_json)
         if path == "/_test/export":
             return 200, None, svc.export()
         if path == "/_test/import":
-            svc.import_(parse_limited(self.raw, large_test_bodies, parse_plain))
-            return 204, None, None
+            return self.test_load(svc.import_, parse_plain)
         if path == "/auth/signup":
             return 201, svc.signup(parse_object(self.raw)), None
         if path == "/auth/login":
@@ -193,6 +191,20 @@ class Handler(BaseHTTPRequestHandler):
         if action == "decline":
             return 200, svc.decline_request(uid, rid), None
         return 200, svc.cancel_request(uid, rid), None
+
+    def test_load(self, load, parse):
+        """POST /_test/reset and /_test/import: parse + validate + build, one large document at a
+        time (bounds peak memory), nothing held under the state lock until the final swap."""
+        raw = self.raw
+        if len(raw) > 1024 * 1024 and \
+                raw.count(b",") + raw.count(b"[") + raw.count(b"{") > MAX_JSON_VALUES:
+            raise invalid("document has too many values")
+        if len(raw) > LARGE_BODY:
+            with large_test_bodies:
+                load(parse(raw))
+        else:
+            load(parse(raw))
+        return 204, None, None
 
     def bearer_token(self):
         header = self.headers.get("Authorization") or ""

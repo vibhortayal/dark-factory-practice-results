@@ -192,7 +192,7 @@ def main():
     report("50 x split at capacity", rs)
     ops = [{"from_handle": "h0", "to_handle": "h%d" % (1 + j % 19), "amount": 1} for j in range(32)]
     rs = burst(50, lambda i: call("POST", "/settlements", {"transfers": ops}, token=tok, key="full-st-%d" % i))
-    report("50 x 32-entry settlement at capacity (not operator: 403)", rs)
+    report("50 x 32-entry settlement near capacity", rs)
 
 
 main()
