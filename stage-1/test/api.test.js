@@ -185,3 +185,65 @@ test('deep unknown fields, odd paths, huge headers, unicode handles never 5xx', 
   const su = await call('POST', '/auth/signup', { body: { email: 'a😀b@x.y', password: '12345678', display_name: 'E' } });
   assert.equal((await call('GET', '/me', { token: su.json.token })).json.handle, 'a_b');
 });
+
+test('idempotency key length counts characters (N1)', async () => {
+  const t = await world();
+  const net = require('node:net');
+  const body = '{"to_handle":"bob","amount":1}';
+  const post = (k) => new Promise((res) => {
+    const sock = net.connect(PORT, '127.0.0.1');
+    let buf = '';
+    sock.on('data', (d) => { buf += d; });
+    sock.on('close', () => res(Number(buf.split(' ')[1])));
+    sock.write(Buffer.concat([
+      Buffer.from(`POST /payments HTTP/1.1\r\nHost: x\r\nConnection: close\r\nContent-Length: ${body.length}\r\nAuthorization: Bearer ${t.ada}\r\nIdempotency-Key: `),
+      k, Buffer.from('\r\n\r\n' + body)]));
+  });
+  const utf8 = (s) => Buffer.from(s, 'utf8');
+  assert.equal(await post(utf8('é'.repeat(255))), 201);
+  assert.equal(await post(utf8('é'.repeat(256))), 422);
+  assert.equal(await post(utf8('é'.repeat(255) + 'x')), 422);
+});
+
+test('odd request targets and parser rejections carry the error body (F2/F3)', async () => {
+  await world();
+  const net = require('node:net');
+  const raw = (head, extra = '') => new Promise((res) => {
+    const s = net.connect(PORT, '127.0.0.1');
+    let buf = '';
+    s.on('data', (d) => { buf += d; });
+    s.on('close', () => res(buf));
+    s.on('error', () => res(buf));
+    s.write(head + '\r\nHost: x\r\nConnection: close\r\n' + extra + '\r\n');
+  });
+  for (const target of ['//', '///', '/\\', '*', '//x/health', 'http://evil/health', '/%zz', '/health%', '/activity?limit=%zz', '/' + 'a'.repeat(50000)]) {
+    for (const m of ['GET', 'POST']) {
+      const out = await raw(`${m} ${target} HTTP/1.1`, 'Content-Length: 0\r\n');
+      const code = Number(out.split(' ')[1]);
+      assert.ok(code < 500, `${m} ${target} -> ${out.slice(0, 40)}`);
+      if (code >= 400) assert.ok(out.includes('"error"'), `${m} ${target} lacks error body`);
+    }
+  }
+  assert.ok((await raw('GET //x/health HTTP/1.1')).startsWith('HTTP/1.1 404'));
+  const big = await raw('GET /me HTTP/1.1', 'X-Big: ' + 'a'.repeat(8 * 1024 * 1024) + '\r\n');
+  assert.ok(big.includes('"error"'), 'oversized header gets the JSON error body');
+});
+
+test('reset with many users stays responsive and atomic (N2)', async () => {
+  const users = Array.from({ length: 1500 }, (_, i) => ({ id: `u${i}`, email: `e${i}@x.y`, password: `pw-${i}-xxxxxxxx`, display_name: 'D', handle: `h${i}`, balance: 5 }));
+  const t0 = Date.now();
+  const reset = call('POST', '/_test/reset', { body: { currency: 'EUR', minor_units: 2, users } });
+  let slowest = 0;
+  for (let i = 0; i < 10; i++) { const s = Date.now(); await call('GET', '/health'); slowest = Math.max(slowest, Date.now() - s); }
+  assert.equal((await reset).status, 204);
+  console.log(`reset 1500 distinct-password users: ${Date.now() - t0} ms, slowest /health during it: ${slowest} ms`);
+  assert.ok(slowest < 500);
+  const tok = (await call('POST', '/auth/login', { body: { email: 'e1499@x.y', password: 'pw-1499-xxxxxxxx' } })).json.token;
+  assert.equal((await call('GET', '/me', { token: tok })).json.handle, 'h1499');
+  // an invalid fixture queued after a valid one changes nothing, and order is kept
+  const a = call('POST', '/_test/reset', { body: { currency: 'EUR', minor_units: 2, users: [user('first', 1)] } });
+  const b = call('POST', '/_test/reset', { body: { currency: 'EUR', minor_units: 2, users: [user('second', 2)] } });
+  const c = call('POST', '/_test/reset', { body: { currency: 'EUR', minor_units: 2, users: [user('third', -1)] } });
+  assert.deepEqual((await Promise.all([a, b, c])).map((r) => r.status), [204, 204, 422]);
+  assert.equal((await call('POST', '/auth/login', { body: { email: 'second@example.com', password: 'correct horse' } })).status, 200);
+});

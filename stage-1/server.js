@@ -4,6 +4,7 @@
 const http = require('http');
 const crypto = require('crypto');
 
+const decoder = new TextDecoder('utf-8', { fatal: true });
 const MAX_AMOUNT = 1000000000;
 const MAX_EXACT = 9007199254740992; // 2^53
 const HANDLE_RE = /^[a-z0-9_]{1,20}$/;
@@ -56,14 +57,25 @@ function canon(v) {
 }
 
 const SCRYPT = { N: 1024, r: 8, p: 1 };
-function hashPw(pw) {
+const scryptAsync = (pw, salt) => new Promise((resolve, reject) => {
+  crypto.scrypt(pw, salt, 32, SCRYPT, (err, key) => (err ? reject(err) : resolve(key)));
+});
+async function hashPw(pw) {
   const salt = crypto.randomBytes(16);
-  return { s: salt.toString('hex'), h: crypto.scryptSync(pw, salt, 32, SCRYPT).toString('hex') };
+  return { s: salt.toString('hex'), h: (await scryptAsync(pw, salt)).toString('hex') };
 }
-function checkPw(pw, rec) {
-  const h = crypto.scryptSync(pw, Buffer.from(rec.s, 'hex'), 32, SCRYPT);
+async function checkPw(pw, rec) {
+  const h = await scryptAsync(pw, Buffer.from(rec.s, 'hex'));
   const want = Buffer.from(rec.h, 'hex');
   return want.length === h.length && crypto.timingSafeEqual(h, want);
+}
+// Resets and imports run one at a time in arrival order, so a slow earlier
+// one can never overwrite the state of a later one.
+let chain = Promise.resolve();
+function serial(fn) {
+  const p = chain.then(fn);
+  chain = p.catch(() => {});
+  return p;
 }
 
 // ---------------------------------------------------------------- state
@@ -137,6 +149,7 @@ function buildFromFixture(f) {
   const ops = f.settlement_operator_ids === undefined ? [] : f.settlement_operator_ids;
   need(Array.isArray(ops), 'settlement_operator_ids');
   const created = nowStr();
+  const pending = [];
   for (const u of f.users) {
     need(isObj(u), 'user');
     need(typeof u.handle === 'string' && HANDLE_RE.test(u.handle), 'handle');
@@ -144,9 +157,10 @@ function buildFromFixture(f) {
     const rec = {
       id: str(u.id, 'user id'), email: str(u.email, 'email'),
       display_name: u.display_name === undefined ? u.handle : str(u.display_name, 'display_name'),
-      handle: u.handle, balance: intv(u.balance, 'balance'), pw: hashPw(u.password),
+      handle: u.handle, balance: intv(u.balance, 'balance'), pw: null,
     };
     addUser(st, rec);
+    pending.push([rec, u.password]);
   }
   for (const p of payments) {
     need(isObj(p), 'payment');
@@ -168,7 +182,18 @@ function buildFromFixture(f) {
     need(typeof id === 'string' && st.users.has(id), 'unknown operator');
     st.operators.add(id);
   }
+  st.pending = pending;
   return st;
+}
+
+async function hashFixture(st) {
+  // Users sharing a password share one salted scrypt hash within a reset.
+  const byPw = new Map();
+  for (const [rec, pw] of st.pending) {
+    if (!byPw.has(pw)) byPw.set(pw, hashPw(pw));
+  }
+  for (const [rec, pw] of st.pending) rec.pw = await byPw.get(pw);
+  delete st.pending;
 }
 
 function fixPay(st, p, amount, created) {
@@ -475,7 +500,7 @@ function session(user, status) {
   S.tokens.set(token, user.id);
   return { status, body: { user_id: user.id, display_name: user.display_name, token } };
 }
-function signup(body) {
+async function signup(body) {
   const f = ['email', 'password', 'display_name'];
   for (const k of f) if (hasOwn(body, k) && typeof body[k] !== 'string') throw malformed(k + ' must be a string');
   for (const k of f) if (!hasOwn(body, k)) throw bad(k + ' is required');
@@ -485,16 +510,19 @@ function signup(body) {
   if (S.emails.has(email)) throw E(409, 'email_taken', 'email already registered');
   const handle = Array.from(email.slice(0, email.indexOf('@')).toLowerCase()).map((c) => (/^[a-z0-9_]$/.test(c) ? c : '_')).slice(0, 20).join('');
   if (S.handles.has(handle)) throw E(409, 'handle_taken', 'handle already taken');
+  const pw = await hashPw(password);
+  if (S.emails.has(email)) throw E(409, 'email_taken', 'email already registered');
+  if (S.handles.has(handle)) throw E(409, 'handle_taken', 'handle already taken');
   const id = newId('u', (i) => S.users.has(i));
-  const user = { id, email, display_name: body.display_name, handle, balance: 0, pw: hashPw(password) };
+  const user = { id, email, display_name: body.display_name, handle, balance: 0, pw };
   S.users.set(id, user); S.emails.set(email, user); S.handles.set(handle, user);
   return session(user, 201);
 }
-function login(body) {
+async function login(body) {
   for (const k of ['email', 'password']) if (hasOwn(body, k) && typeof body[k] !== 'string') throw malformed(k + ' must be a string');
   for (const k of ['email', 'password']) if (!hasOwn(body, k)) throw bad(k + ' is required');
   const user = S.emails.get(body.email);
-  if (!user || !checkPw(body.password, user.pw)) throw E(401, 'unauthenticated', 'invalid credentials');
+  if (!user || !(await checkPw(body.password, user.pw)) || S.users.get(user.id) !== user) throw E(401, 'unauthenticated', 'invalid credentials');
   return session(user, 200);
 }
 
@@ -518,11 +546,17 @@ function parseBody(raw, allowEmpty) {
   return v;
 }
 
+// Header values arrive as latin1; when the bytes are valid UTF-8 count the
+// decoded characters, otherwise the raw units. Identity stays the raw string.
+function keyChars(key) {
+  try { return cpLen(decoder.decode(Buffer.from(key, 'latin1'))); } catch (e) { return key.length; }
+}
+
 // Runs an idempotent write. Order per D1: key header, body parse, claimed key, fields.
 function keyed(req, user, path, raw, allowEmpty, fn) {
   const key = req.headers['idempotency-key'];
   if (key === undefined || key === '') throw E(400, 'missing_idempotency_key', 'Idempotency-Key required');
-  if (key.length > 255) throw bad('Idempotency-Key too long');
+  if (keyChars(key) > 255) throw bad('Idempotency-Key too long');
   const body = parseBody(raw, allowEmpty);
   const k = user.id + '\u0000' + path + '\u0000' + key;
   const c = canon(body);
@@ -541,22 +575,27 @@ function handle(req, url, raw) {
   const m = req.method, path = url.pathname, q = url.searchParams;
   if (m === 'GET' && path === '/health') return { status: 200, body: { status: 'ok' } };
   if (m === 'POST' && path === '/_test/reset') {
-    const f = parseBody(raw, false);
-    let st;
-    try { st = buildFromFixture(f); } catch (e) { if (e instanceof Invalid) throw bad('invalid fixture: ' + e.message); throw e; }
-    S = st;
-    return { status: 204 };
+    return serial(async () => {
+      const f = parseBody(raw, false);
+      let st;
+      try { st = buildFromFixture(f); } catch (e) { if (e instanceof Invalid) throw bad('invalid fixture: ' + e.message); throw e; }
+      await hashFixture(st);
+      S = st;
+      return { status: 204 };
+    });
   }
   if (m === 'GET' && path === '/_test/export') {
     return { status: 200, text: JSON.stringify({ track: 'pocketful', format_version: 1, state: exportState() }) };
   }
   if (m === 'POST' && path === '/_test/import') {
-    const b = parseBody(raw, false);
-    if (b.track !== 'pocketful' || b.format_version !== 1 || !isObj(b.state)) throw bad('invalid export');
-    let st;
-    try { st = buildFromState(b.state); } catch (e) { if (e instanceof Invalid) throw bad('invalid state: ' + e.message); throw e; }
-    S = st;
-    return { status: 204 };
+    return serial(async () => {
+      const b = parseBody(raw, false);
+      if (b.track !== 'pocketful' || b.format_version !== 1 || !isObj(b.state)) throw bad('invalid export');
+      let st;
+      try { st = buildFromState(b.state); } catch (e) { if (e instanceof Invalid) throw bad('invalid state: ' + e.message); throw e; }
+      S = st;
+      return { status: 204 };
+    });
   }
   if (m === 'POST' && path === '/auth/signup') return signup(parseBody(raw, false));
   if (m === 'POST' && path === '/auth/login') return login(parseBody(raw, false));
@@ -607,7 +646,6 @@ function send(res, status, text) {
 }
 const errText = (code, message) => JSON.stringify({ error: { code, message } });
 
-const decoder = new TextDecoder('utf-8', { fatal: true });
 const server = http.createServer({ maxHeaderSize: 4 * 1024 * 1024 }, (req, res) => {
   const chunks = [];
   let size = 0, dead = false;
@@ -617,7 +655,7 @@ const server = http.createServer({ maxHeaderSize: 4 * 1024 * 1024 }, (req, res) 
     chunks.push(c);
   });
   req.on('error', () => {});
-  req.on('end', () => {
+  req.on('end', async () => {
     if (dead) return;
     try {
       let raw;
@@ -628,7 +666,7 @@ const server = http.createServer({ maxHeaderSize: 4 * 1024 * 1024 }, (req, res) 
         // Undecodable bodies are malformed; routes that take no body never look.
         raw = '\u0000not-utf8';
       }
-      const out = handle(req, url, raw);
+      const out = await handle(req, url, raw);
       if (out.text !== undefined) send(res, out.status, out.text);
       else send(res, out.status, out.body === undefined ? '' : JSON.stringify(out.body));
     } catch (e) {
