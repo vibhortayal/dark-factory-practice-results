@@ -31,6 +31,7 @@ AUTH_STATUSES = ("open", "captured", "voided", "expired")
 SCRYPT_N, SCRYPT_R, SCRYPT_P = 2 ** 12, 8, 1
 FIXTURE_SCRYPT_N = 2 ** 9  # seeded users: keep a 5000-user reset well inside 10 s
 MAX_BODY = 8 * 1024 * 1024
+MAX_TEST_BODY = 400 * 1024 * 1024  # reset/import bodies carry whole states (an export grows with history)
 
 
 class ApiError(Exception):
@@ -1706,6 +1707,9 @@ class Handler(BaseHTTPRequestHandler):
         if data and self.command != "HEAD":
             self.wfile.write(data)
 
+    def _body_limit(self):
+        return MAX_TEST_BODY if self.path.startswith("/_test/") else MAX_BODY
+
     def _read_body(self):
         te = self.headers.get("Transfer-Encoding", "")
         if "chunked" in te.lower():
@@ -1719,7 +1723,7 @@ class Handler(BaseHTTPRequestHandler):
                         pass
                     break
                 total += size
-                if total > MAX_BODY:
+                if total > self._body_limit():
                     raise err(400, "malformed_request", "body too large")
                 chunks.append(self.rfile.read(size))
                 self.rfile.readline(8)
@@ -1728,7 +1732,7 @@ class Handler(BaseHTTPRequestHandler):
         if not n:
             return b""
         n = int(n)
-        if n < 0 or n > MAX_BODY:
+        if n < 0 or n > self._body_limit():
             self.close_connection = True
             raise err(400, "malformed_request", "bad content length")
         return self.rfile.read(n)

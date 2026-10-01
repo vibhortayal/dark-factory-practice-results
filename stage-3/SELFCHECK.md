@@ -1,7 +1,7 @@
 # Stage 3 self-check (row by row)
 
 Evidence at the reported revision (`stage-3/tests` against the built image, `docker run --cpus 2 --memory 2g`):
-`test_stage3_api` (35 tests: PT, ME, ST, CO, KA, SN, HH, UP, fuzz, concurrency, a 20k-payment history),
+`test_stage3_api` (36 tests: PT, ME, ST, CO, KA, SN, HH, UP, fuzz, concurrency, a 20k-payment history),
 `test_api` + `test_concurrency` + `test_stage2_api` (the stage-1 and stage-2 suites, adapted only where stage 3
 changes behaviour: `GET /statement` / `as_of` are no longer 404, authorizations carry `closed_at`), `test_browser`
 (34 Playwright tests, unchanged UI). Supplied harness: `claimed stage: 3`. Real stage-1 (8e43652) and stage-2
@@ -40,3 +40,9 @@ Known incomplete: none. Readings beyond S3-1..S3-11: a seeded payment without `c
 authorizations without `created_at` are created at the reset instant (+ index microseconds); for a seeded closed authorization
 `closed_at` is its `expires_at` (expired) or its `created_at`, and it holds nothing in any view; stage-2 imports
 reconstruct captures from the capture payments' instants and the void time is approximated by the last capture or creation.
+
+Round 1 (Verifier BLOCK on d5a23ed, F1): the 8 MiB request-body limit applied to `POST /_test/import` too, so the service
+refused its own export once a state grew past it (revisions and snapshots make stage-3 exports large). Bodies of `/_test/*`
+(reset, import) are now limited to 400 MiB; every other endpoint keeps 8 MiB. Test: `Scale.test_large_export_imports`
+(20000 payments + 20000 requests + 300 snapshots -> an 11.6 MB export is imported in ~0.8 s, state intact, export itself
+0.23 s). stage-1/ and stage-2/ are untouched.

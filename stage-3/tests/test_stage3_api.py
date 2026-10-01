@@ -849,6 +849,31 @@ class Concurrency(S3):
 
 
 class Scale(unittest.TestCase):
+    def test_large_export_imports(self):  # X2/X3: the service must accept its own (>8 MiB) export
+        n = 20000
+        base = datetime.now(timezone.utc) - timedelta(days=2)
+        pays = [{"id": f"p_{i}", "from_user_id": "u_ada" if i % 2 == 0 else "u_bob", "to_user_id": "u_bob" if i % 2 == 0 else "u_ada",
+                 "amount": 1 + i % 7, "note": "n" * 20, "created_at": iso(base + timedelta(seconds=i))} for i in range(n)]
+        rqs = [{"id": f"rq_{i}", "requester_id": "u_ada", "payer_id": "u_bob", "amount": 5, "note": "n" * 20, "status": "pending"} for i in range(n)]
+        reset(fixture(users=[user("ada", 10 ** 6), user("bob", 10 ** 6)], payments=pays, requests=rqs))
+        ada = login("ada")
+        for i in range(300):
+            call("GET", "/statement?limit=1", token=ada)
+        t = time.time()
+        s, _, exp, raw = call("GET", "/_test/export")
+        self.assertEqual(s, 200)
+        self.assertGreater(len(raw), 8 * 1024 * 1024)
+        took_export = time.time() - t
+        t = time.time()
+        s, _, b, _ = call("POST", "/_test/import", raw=raw)
+        self.assertEqual(s, 204, b)
+        print("export %.1f MB: export %.2fs import %.2fs" % (len(raw) / 1e6, took_export, time.time() - t))
+        self.assertLess(time.time() - t, 9)
+        self.assertEqual(me(ada)["total"], 10 ** 6)
+        self.assertEqual(call("GET", "/statement?limit=1", token=ada)[0], 200)
+        reset(fixture())
+
+
     def test_20k_payments(self):  # B3.6 SN6
         n = 20000
         base = datetime.now(timezone.utc) - timedelta(days=2)
