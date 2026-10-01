@@ -545,7 +545,10 @@ def paginate(ctx):
 def idempotent(ctx, body, fn):
     """Runs fn() (validate fully, then mutate) under the lock with idempotency handling."""
     k = (ctx.user_id, ctx.method, ctx.path, ctx.key_value)
-    c = canon(body)
+    try:
+        c = canon(body)
+    except RecursionError:
+        raise malformed("body nested too deeply")
     st = STATE[0]
     rec = st.idem.get(k)
     if rec is not None:
@@ -1035,7 +1038,7 @@ class Handler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionError, TimeoutError):
             self.close_connection = True
         except Exception:
-            traceback.print_exc()
+            traceback.print_exc(limit=-6)
             try:
                 self.send_json(400, {"error": {"code": "malformed_request",
                                                "message": "request could not be processed"}})
@@ -1056,8 +1059,7 @@ def main():
         port = int(os.environ.get("PORT") or 8080)
     except ValueError:
         port = 8080
-    sys.setrecursionlimit(100000)
-    threading.stack_size(256 * 1024 * 1024)
+    sys.setrecursionlimit(3000)
     Server(("0.0.0.0", port), Handler).serve_forever()
 
 

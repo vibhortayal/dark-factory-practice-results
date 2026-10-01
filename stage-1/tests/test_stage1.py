@@ -770,6 +770,17 @@ def fix_round1():  # parse limits, regex anchors, key chars, decoded path, lock
     assert set(codes) <= {200, 401}, codes
 
 
+@test
+def deep_json_burst_is_fast():  # A6/A7: deeply nested bodies never stall the service
+    ada, bob, cy = basic3()
+    for d in (1200, 5000, 9000):
+        raw = b'{"to_handle":"bob","amount":1,"x":' + b"[" * d + b"]" * d + b"}"
+        t0 = time.time()
+        r = burst(50, lambda i: call("POST", "/payments", raw=raw, token=ada, key=K())[0])
+        assert set(r) <= {201, 400} and time.time() - t0 < 5, (d, set(r), time.time() - t0)
+        assert call("GET", "/health")[0] == 200
+
+
 if __name__ == "__main__":
     only = sys.argv[1:]
     failed = 0
