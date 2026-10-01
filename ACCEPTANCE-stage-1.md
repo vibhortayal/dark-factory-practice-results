@@ -100,7 +100,7 @@ the decision and its reason are listed in section D at the end and are binding f
 | F2 | `POST /auth/login` → 200 `{user_id, display_name, token}` | H; V |
 | F3 | Email already registered → 409 `email_taken` | V |
 | F4 | Password shorter than 8 characters → 422 | V: 7 → 422, 8 → 201 |
-| F5 | `email` not `local@domain` → 422 | V: `nope`, `@x`, `x@`, `a@b@c` |
+| F5 | `email` not `local@domain` → 422 | V: `nope`, `x@`, `a@b@c`, and an email with an empty local part |
 | F6 | Wrong password or unknown email → 401 `unauthenticated` | H; V |
 | F7 | Derived handle already taken → 409 `handle_taken`, no account created | H |
 | F8 | All other endpoints need a bearer token, except `/health`, `/_test/reset`, `/_test/export`, `/_test/import`, signup, login | V |
