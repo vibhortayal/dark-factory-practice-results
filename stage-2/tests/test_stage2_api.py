@@ -287,6 +287,60 @@ class Capture(S2):
         self.assertEqual((me(ada)["total"], me(ada)["held"]), (9600, 0))
 
 
+class AmountSpellings(S2):
+    ZEROS = [b"0", b"0.0", b"-0", b"-0.0", b"0e5", b"0E-5", b"0e1000000000000000000", b"0.0e-999999999999999999999",
+             b"-0e1000000000000000000", b"0.000e+999999999999999999999"]
+    NEG = [b"-1", b"-1e30", b"-1e1000000000000000000", b"-0.5", b"-1e-1000000000000000000"]
+    FRAC = [b"1.5", b"1e-1", b"1e-1000000000000000000", b"0.5", b"15e-1", b"1.0000000000000000000000000000000001"]
+
+    def post(self, path, tok, raw):
+        return call("POST", path, raw=raw, token=tok, key=k())
+
+    def test_capture_classified_by_value(self):  # S2-9
+        aid = self.auth(self.ada, "bob", 2000)[2]["authorization_id"]
+        p = f"/authorizations/{aid}/capture"
+        for z in self.ZEROS + self.NEG + self.FRAC:
+            err(self, self.post(p, self.bob, b'{"amount":' + z + b"}"), 422, "validation_failed")
+        for big in (b"1e30", b"1e1000000000000000000", b"10e999999999999999999", b"1.0e999999999999999999999",
+                    b"5000000000", b"2001", b"20010e-1", b"2.001e3"):
+            err(self, self.post(p, self.bob, b'{"amount":' + big + b"}"), 422, "capture_exceeds_authorization")
+        self.assertEqual(self.post(p, self.bob, b'{"amount":2e3,"final":true}')[0], 201)
+        # closed: state first, whatever the spelling
+        err(self, self.post(p, self.bob, b'{"amount":1e1000000000000000000}'), 409, "authorization_not_open")
+
+    def test_zero_spellings_on_every_amount_field(self):  # all amounts: 422 validation_failed, never 5xx
+        rq = call("POST", "/requests", {"payer_handle": "ada", "amount": 5}, self.bob, k())[2]["request_id"]
+        op = None
+        for z in self.ZEROS + self.NEG + self.FRAC:
+            a = b'"amount":' + z
+            err(self, self.post("/payments", self.ada, b'{"to_handle":"bob",' + a + b"}"), 422, "validation_failed")
+            err(self, self.post("/requests", self.ada, b'{"payer_handle":"bob",' + a + b"}"), 422, "validation_failed")
+            err(self, self.post("/splits", self.ada, b'{"participant_handles":["bob"],' + a + b"}"), 422, "validation_failed")
+            err(self, self.post("/authorizations", self.ada, b'{"to_handle":"bob",' + a + b"}"), 422, "validation_failed")
+        self.assertEqual(me(self.ada)["total"], 10000)
+
+    def test_settlement_and_fixture_spellings(self):
+        reset(fixture(users=[user("ada", 100), user("bob", 0), user("op", 0)], settlement_operator_ids=["u_op"]))
+        op = login("op")
+        for z in self.ZEROS + self.NEG + self.FRAC:
+            raw = b'{"transfers":[{"from_handle":"ada","to_handle":"bob","amount":' + z + b"}]}"
+            err(self, self.post("/settlements", op, raw), 422, "validation_failed")
+        def fx(balance, **extra):
+            d = fixture(users=[user("ada", 1)])
+            d.update(extra)
+            return json.dumps(d).replace('"balance": 1', '"balance": ' + balance).encode()
+        for z in self.ZEROS[:1] + [b"0.0", b"0e5", b"0e1000000000000000000", b"0.0e-999999999999999999999"]:
+            self.assertEqual(call("POST", "/_test/reset", raw=fx(z.decode()))[0], 204, z)
+            self.assertEqual(me(login("ada"))["total"], 0)
+        for bad in self.NEG + self.FRAC + [b"1e30", b"1e1000000000000000000"]:
+            self.assertEqual(call("POST", "/_test/reset", raw=fx(bad.decode()))[0], 422, bad)
+        for bad in self.ZEROS + self.NEG + self.FRAC:
+            self.assertEqual(call("POST", "/_test/reset", raw=fx("5", authorization_ttl_seconds="@@").replace(b'"@@"', bad))[0], 422, bad)
+            fixture_amount = json.dumps(fixture(authorizations=[{"id": "a_1", "from_user_id": "u_ada", "to_user_id": "u_bob",
+                                                                 "amount": 5, "status": "open", "expires_at": in_(7200)}])).replace('"amount": 5', '"amount": ' + bad.decode())
+            self.assertEqual(call("POST", "/_test/reset", raw=fixture_amount.encode())[0], 422, bad)
+
+
 class Fixtures(S2):
     def auths(self, *items, **extra):
         return fixture(authorizations=list(items), **extra)

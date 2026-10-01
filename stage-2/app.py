@@ -116,8 +116,36 @@ def dumps(obj):
     return json.dumps(obj, ensure_ascii=True, separators=(",", ":")).encode("ascii")
 
 
+_NUM_RE = re.compile(r"(-?)([0-9]*)(?:\.([0-9]*))?(?:[eE]([+-]?)([0-9]+))?")
+
+
+def huge_class(text):
+    """Classify a JSON number too large for Decimal by its value: zero, neg, frac or posint."""
+    m = _NUM_RE.fullmatch(text)
+    if not m:
+        return "frac"
+    sign, whole, frac, esign, edigits = m.groups()
+    frac = frac or ""
+    digits = (whole or "") + frac
+    if not digits.strip("0"):
+        return "zero"
+    if sign:
+        return "neg"
+    exp = 0
+    if edigits:
+        exp = 10 ** 9 if len(edigits) > 9 else int(edigits)
+        if esign == "-":
+            exp = -exp
+    exp -= len(frac)
+    stripped = digits.rstrip("0")
+    exp += len(digits) - len(stripped)  # trailing zeros of the mantissa are integral
+    return "posint" if exp >= 0 else "frac"
+
+
 def fx_int(v):
     """Integral number (1000, 1000.0, 1e3) -> int, else None."""
+    if isinstance(v, Huge):
+        return 0 if huge_class(v.text) == "zero" else None
     if is_int(v):
         return v
     if isinstance(v, Decimal) and v.is_finite() and v.adjusted() <= 30 \
@@ -751,8 +779,8 @@ def capture_amount(v):
         n = v
     elif isinstance(v, Decimal) and v.is_finite() and v == v.to_integral_value():
         n = int(v) if v.adjusted() <= 30 else (10 ** 31 if v > 0 else None)
-    elif isinstance(v, Huge) and not v.text.lstrip().startswith("-"):
-        n = 10 ** 31 if "e-" not in v.text.lower() else None
+    elif isinstance(v, Huge):
+        n = 10 ** 31 if huge_class(v.text) == "posint" else None
     if n is None or n < 1:
         raise err(422, "validation_failed", "amount must be an integer of at least 1")
     return n

@@ -756,7 +756,7 @@
         el('div', { class: 'item-side' },
           el('div', { class: 'amount-line' }, el('span', { class: 'amount', testid: 'authorization-amount-' + id, text: fmt(a.amount) })),
           extra,
-          el('div', { class: 'meta' }, a.status === 'open' ? 'Expires ' : 'Expiry ', el('span', { testid: 'authorization-expires-' + id, text: a.expires_at }),
+          el('div', { class: 'meta' }, a.status === 'open' ? 'Expires ' : 'Expiry ', el('span', { class: 'nowrap', testid: 'authorization-expires-' + id, text: a.expires_at }),
             ' ', a.status === 'open' || a.status === 'expired' ? el('span', { text: '(' + relativeExpiry(a.expires_at) + ')' }) : null))),
       actions);
   }
