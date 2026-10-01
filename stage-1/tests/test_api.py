@@ -962,5 +962,133 @@ class TestMisc(Base):
         self.assertEqual(self.total(), 13000)
 
 
+class TestRegressions(Base):
+    def test_login_racing_reset_never_leaks_or_5xx(self):
+        for rnd in range(30):
+            self.reset({"users": [user("a", 1, id="u1", email="a@x.io", password="passwordA")]})
+            other = {"users": [user("b", 2, id="u1" if rnd % 2 else "zz", email="b@x.io", password="passwordB")]}
+            with ThreadPoolExecutor(8) as ex:
+                logins = [ex.submit(self.req, "POST", "/auth/login", {"email": "a@x.io", "password": "passwordA"})
+                          for _ in range(6)]
+                time.sleep(0.004)
+                rs = ex.submit(self.req, "POST", "/_test/reset", other)
+                self.assertEqual(rs.result().status, 204)
+                results = [f.result() for f in logins]
+            for r in results:
+                self.assertLess(r.status, 500)
+                if r.status == 200:
+                    me = self.req("GET", "/me", token=r.json["token"])
+                    self.assertEqual(me.status, 401, me.raw)
+                    self.assertEqual(self.req("POST", "/payments", {"to_handle": "b", "amount": 1},
+                                              token=r.json["token"], key="k").status, 401)
+
+    def test_deep_nesting_unknown_field(self):
+        for depth in (10, 950, 1000, 5000):
+            raw = b'{"to_handle":"bob","amount":1,"x":' + b"[" * depth + b"]" * depth + b"}"
+            key = "deep%d" % depth
+            r = self.req("POST", "/payments", raw=raw, token=self.ada, key=key)
+            self.assertEqual(r.status, 201, (depth, r.raw[:80]))
+            self.assertEqual(self.req("POST", "/payments", raw=raw, token=self.ada, key=key).status, 200)
+            raw2 = b'{"to_handle":"bob","amount":1,"x":' + b'{"a":' * depth + b"1" + b"}" * depth + b"}"
+            self.assertEqual(self.req("POST", "/payments", raw=raw2, token=self.ada, key=key + "o").status, 201)
+        exp = self.req("GET", "/_test/export")
+        self.assertEqual(self.req("POST", "/_test/import", raw=exp.raw).status, 204)
+        for depth in (20000, 200000):
+            raw = b'{"to_handle":"bob","amount":1,"x":' + b"[" * depth + b"]" * depth + b"}"
+            self.assertLess(self.req("POST", "/payments", raw=raw, token=self.ada, key="huge").status, 500)
+            self.assertLess(self.req("POST", "/_test/reset", raw=raw).status, 500)
+            self.assertLess(self.req("POST", "/_test/import", raw=raw).status, 500)
+        self.assertEqual(self.req("GET", "/health").status, 200)
+
+    def test_reset_structural_garbage_is_4xx(self):
+        base = fixture(payments=[{"id": "p", "from_user_id": "u_ada", "to_user_id": "u_bob", "amount": 1}],
+                       requests=[{"id": "r", "requester_id": "u_bob", "payer_id": "u_ada", "amount": 1,
+                                  "status": "pending"}])
+        import copy as cp
+        bad = []
+        for path in (("payments", 0, "from_user_id"), ("payments", 0, "to_user_id"),
+                     ("requests", 0, "requester_id"), ("requests", 0, "payer_id")):
+            for v in ([], {}, None, 5, True):
+                fx = cp.deepcopy(base)
+                fx[path[0]][path[1]][path[2]] = v
+                bad.append(fx)
+        for raw_val in ("1e400", "-1e400", "1e999999"):
+            for where in ("user", "payment", "request"):
+                text = json.dumps(base)
+                if where == "user":
+                    text = text.replace('"balance": 10000', '"balance": ' + raw_val)
+                else:
+                    text = text.replace('"amount": 1,', '"amount": ' + raw_val + ',', 1 if where == "payment" else 2)
+                bad.append(text.encode())
+        for fx in bad:
+            r = self.req("POST", "/_test/reset", raw=fx if isinstance(fx, bytes) else json.dumps(fx).encode())
+            self.assertIn(r.status, (400, 422), fx)
+            self.assertIn("error", r.json)
+        self.assertEqual(self.bal(self.ada), 10000)
+
+    def test_import_invalid_state_is_422_and_harmless(self):
+        import copy as cp
+        self.post("/payments", {"to_handle": "bob", "amount": 5}, self.ada, key="a")
+        self.post("/requests", {"payer_handle": "bob", "amount": 5}, self.ada, key="b")
+        exp = self.req("GET", "/_test/export").json
+        mutations = [
+            lambda d: d["state"]["payments"][0].__setitem__("from", []),
+            lambda d: d["state"]["requests"][0].__setitem__("payer_id", {}),
+            lambda d: d["state"]["idem"][0].__setitem__("user", []),
+            lambda d: d["state"]["tokens"].__setitem__("t", []),
+            lambda d: d["state"]["payments"][0].pop("request_id"),
+            lambda d: d["state"]["payments"][0].pop("settlement_id"),
+            lambda d: d["state"]["requests"][0].pop("payment_id"),
+            lambda d: d.__setitem__("format_version", True),
+            lambda d: d.__setitem__("format_version", 1.5),
+            lambda d: d.__setitem__("track", ["pocketful"]),
+            lambda d: d["state"]["users"]["u_ada"].__setitem__("balance", True),
+            lambda d: d["state"]["users"]["u_ada"].__setitem__("pw", None),
+            lambda d: d["state"]["counters"].pop("payment"),
+        ]
+        for mut in mutations:
+            d = cp.deepcopy(exp)
+            mut(d)
+            r = self.req("POST", "/_test/import", d)
+            self.err(r, 422, "validation_failed")
+        self.assertEqual(self.bal(self.ada), 9995)
+        self.assertEqual(self.req("GET", "/activity", token=self.ada).status, 200)
+        self.assertEqual(self.req("GET", "/requests", token=self.ada).status, 200)
+
+    def test_huge_integer_literals(self):
+        digits = b"1" + b"0" * 4300
+        self.err(self.req("POST", "/payments", raw=b'{"to_handle":"bob","amount":' + digits + b"}",
+                          token=self.ada, key="h1"), 422, "validation_failed")
+        self.err(self.req("POST", "/payments", raw=b'{"to_handle":"bob","amount":-' + digits + b"}",
+                          token=self.ada, key="h2"), 422, "validation_failed")
+        raw = b'{"to_handle":"bob","amount":1,"x":' + digits + b"}"
+        self.assertEqual(self.req("POST", "/payments", raw=raw, token=self.ada, key="h3").status, 201)
+        self.assertEqual(self.req("POST", "/payments", raw=raw, token=self.ada, key="h3").status, 200)
+        self.assertEqual(self.req("POST", "/_test/import", raw=self.req("GET", "/_test/export").raw).status, 204)
+
+    def test_large_offset(self):
+        for path in ("/activity", "/requests"):
+            for off in ("1000000000000", "9" * 40, "0" * 30 + "7"):
+                r = self.req("GET", path + "?offset=" + off, token=self.ada)
+                self.assertEqual(r.status, 200, (path, off))
+                self.assertFalse(r.json["has_more"])
+        self.err(self.req("GET", "/activity?limit=" + "9" * 40, token=self.ada), 422, "validation_failed")
+
+    def test_reset_speed_many_users(self):
+        for n in (1000, 2000):
+            fx = fixture(users=[user("w%d" % i, 10, ) for i in range(n)])
+            t0 = time.time()
+            self.assertEqual(self.req("POST", "/_test/reset", fx).status, 204)
+            took = time.time() - t0
+            print("reset %d users: %.2fs" % (n, took))
+            self.assertLess(took, 10)
+        tok = self.login("w5")
+        self.assertEqual(self.bal(tok), 10)
+        exp = self.req("GET", "/_test/export")
+        t0 = time.time()
+        self.assertEqual(self.req("POST", "/_test/import", raw=exp.raw).status, 204)
+        self.assertLess(time.time() - t0, 3)
+
+
 if __name__ == "__main__":
     unittest.main()

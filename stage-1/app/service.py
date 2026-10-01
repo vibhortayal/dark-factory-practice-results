@@ -13,13 +13,14 @@ import os
 import secrets
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
 from .validation import (HANDLE_RE, EMAIL_RE, STATUSES, ApiError, amount_of,
                          canon, handle_field, int_param, invalid, malformed,
                          note_of, text_field, visibility_of)
 
-SCRYPT_N = 2 ** 12
+SCRYPT_N = 2 ** 11
 SCRYPT_R = 8
 SCRYPT_P = 1
 TRACK = "pocketful"
@@ -117,7 +118,7 @@ def build_state_from_fixture(fx):
         total += bal
         users[u["id"]] = {"id": u["id"], "email": u["email"],
                           "display_name": u["display_name"], "handle": u["handle"],
-                          "balance": bal, "pw": hash_password(u["password"])}
+                          "balance": bal, "pw": u["password"]}
     ops = []
     for o in ops_in:
         if not isinstance(o, str):
@@ -179,7 +180,20 @@ def build_state_from_fixture(fx):
             "amount": amount, "note": note, "status": status,
             "payment_id": r.get("payment_id") if isinstance(r.get("payment_id"), str) else None,
             "split_id": None, "created_at": created, "ts": ts, "seq": state["seq"]})
+    hash_fixture_passwords(users)
     return state
+
+
+def hash_fixture_passwords(users):
+    """Replace each seeded plaintext password with its (per-user salted) scrypt record.
+
+    Hashing runs on two threads (scrypt releases the GIL) and happens after the
+    whole fixture has been validated, before the state is swapped in.
+    """
+    members = list(users.values())
+    with ThreadPoolExecutor(2) as pool:
+        for u, record in zip(members, pool.map(hash_password, [u["pw"] for u in members])):
+            u["pw"] = record
 
 
 def new_state(currency, minor_units, total):
@@ -232,6 +246,8 @@ def validate_state(st):
               and p.get("visibility") in ("public", "private")
               and isinstance(p.get("created_at"), str) and isinstance(p.get("ts"), (int, float))
               and is_int(p.get("seq")))
+        for k in ("request_id", "settlement_id"):
+            _need(k in p and (p[k] is None or isinstance(p[k], str)))
     for r in st["requests"]:
         _need(isinstance(r, dict) and isinstance(r.get("id"), str) and r["id"] not in rids)
         rids.add(r["id"])
@@ -240,6 +256,7 @@ def validate_state(st):
               and r.get("status") in STATUSES
               and isinstance(r.get("created_at"), str) and isinstance(r.get("ts"), (int, float))
               and is_int(r.get("seq")))
+        _need("payment_id" in r and (r["payment_id"] is None or isinstance(r["payment_id"], str)))
     for s in st["splits"]:
         _need(isinstance(s, dict) and isinstance(s.get("id"), str))
     for s in st["settlements"]:
@@ -271,7 +288,12 @@ class Service:
             self.operators = set(state["operators"])
 
     def reset(self, fixture):
-        state = build_state_from_fixture(fixture)
+        try:
+            state = build_state_from_fixture(fixture)
+        except ApiError:
+            raise
+        except (TypeError, ValueError, KeyError, AttributeError, OverflowError, RecursionError):
+            raise fixture_error("structurally invalid")
         self.install(state)
 
     def export(self):
@@ -283,11 +305,16 @@ class Service:
     def import_(self, doc):
         if not isinstance(doc, dict):
             raise malformed("body must be a JSON object")
-        if doc.get("track") != TRACK or doc.get("format_version") != FORMAT_VERSION \
-                or "state" not in doc:
+        if doc.get("track") != TRACK or not is_int(doc.get("format_version")) \
+                or doc["format_version"] != FORMAT_VERSION or "state" not in doc:
             raise invalid("wrong or missing track/format_version/state")
         state = copy.deepcopy(doc["state"])
-        validate_state(state)
+        try:
+            validate_state(state)
+        except ApiError:
+            raise
+        except (TypeError, ValueError, KeyError, AttributeError, OverflowError, RecursionError):
+            raise invalid("state: invalid")
         self.install(state)
 
     def next_id(self, kind, prefix, taken):
@@ -346,15 +373,24 @@ class Service:
         if rec is None or not verify_password(password, rec["pw"]):
             raise ApiError(401, "unauthenticated", "invalid credentials")
         with self.lock:
+            if self.state["users"].get(uid) is not rec:  # state replaced while hashing
+                raise ApiError(401, "unauthenticated", "invalid credentials")
             return {"user_id": uid, "display_name": rec["display_name"],
                     "token": self.issue_token(uid)}
 
     def me(self, uid):
         with self.lock:
-            u = self.state["users"][uid]
+            u = self._user(uid)
             return {"user_id": uid, "display_name": u["display_name"], "handle": u["handle"],
                     "balance": u["balance"], "currency": self.state["currency"],
                     "minor_units": self.state["minor_units"]}
+
+    def _user(self, uid):
+        """The caller's wallet; a token can outlive a reset/import that raced it."""
+        u = self.state["users"].get(uid)
+        if u is None:
+            raise ApiError(401, "unauthenticated", "token no longer valid")
+        return u
 
     def is_operator(self, uid):
         with self.lock:
@@ -389,6 +425,7 @@ class Service:
         """
         sig = canon(body)
         with self.lock:
+            self._user(uid)
             entry = self.idem.get((uid, method, path, key))
             if entry is not None:
                 if entry["body"] == sig:

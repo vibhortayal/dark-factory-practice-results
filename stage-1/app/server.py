@@ -3,6 +3,7 @@ import json
 import os
 import re
 import sys
+import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qsl, unquote, urlsplit
 
@@ -16,6 +17,8 @@ PATHS = {"/health": ("GET",), "/_test/reset": ("POST",), "/_test/export": ("GET"
          "/me": ("GET",), "/payments": ("POST",), "/requests": ("GET", "POST"),
          "/splits": ("POST",), "/activity": ("GET",), "/settlements": ("POST",)}
 
+sys.setrecursionlimit(12000)  # deep-but-valid JSON must parse, not 5xx
+threading.stack_size(64 * 1024 * 1024)
 svc = Service()
 
 
@@ -85,7 +88,7 @@ class Handler(BaseHTTPRequestHandler):
                 status, body, raw = self.route()
             except ApiError as e:
                 status, body, raw = e.status, {"error": {"code": e.code, "message": e.message}}, None
-            except (ValueError, OSError):
+            except (ValueError, OSError, RecursionError):
                 status, body, raw = 400, {"error": {"code": "malformed_request",
                                                     "message": "bad request"}}, None
             except Exception as e:  # never leak a stack trace or break the connection
