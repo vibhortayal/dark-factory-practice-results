@@ -2,6 +2,7 @@
 import json
 import math
 import re
+from decimal import Decimal
 
 HANDLE_RE = re.compile(r"^[a-z0-9_]{1,20}$")
 DIGITS_RE = re.compile(r"^[0-9]+$")
@@ -31,18 +32,45 @@ def _reject_constant(name):
     raise ValueError("non-finite constant " + name)
 
 
+class BigNumber:
+    """A JSON number too large (or too tiny) for int/float, kept as an exact value.
+
+    Never a valid amount; compares (via canon) equal only to the same number.
+    """
+    __slots__ = ("text",)
+
+    def __init__(self, literal):
+        try:
+            t = Decimal(literal).as_tuple()
+        except ArithmeticError:  # exponent beyond Decimal's range: keep the literal
+            self.text = "x" + literal
+            return
+        digits = list(t.digits)
+        exp = t.exponent
+        while len(digits) > 1 and digits[-1] == 0:
+            digits.pop()
+            exp += 1
+        self.text = "%s%se%d" % ("-" if t.sign else "", "".join(map(str, digits)), exp)
+
+
 def _parse_int(text):
-    """Integers with absurd digit counts become +/-inf (always out of range)."""
     if len(text) > 4000:
-        return float("-inf") if text.startswith("-") else float("inf")
+        return BigNumber(text)
     return int(text)
+
+
+def _parse_float(text):
+    f = float(text)
+    if math.isfinite(f) and f != 0.0:
+        return f
+    return BigNumber(text) if (f == 0.0 and Decimal(text) != 0) or not math.isfinite(f) else f
 
 
 def parse_json(raw):
     """Parse a request body; raises malformed() when it is not valid JSON."""
     try:
         return json.loads(raw.decode("utf-8"), parse_constant=_reject_constant,
-                          parse_int=_parse_int)
+                          parse_int=_parse_int, parse_float=_parse_float)
     except Exception:
         raise malformed("body is not valid JSON")
 
@@ -65,6 +93,8 @@ def _scalar(v):
         if math.isfinite(v) and v == int(v):
             return "n" + str(int(v))
         return "f" + repr(v)
+    if isinstance(v, BigNumber):
+        return "b" + v.text
     return json.dumps(v, ensure_ascii=True)
 
 

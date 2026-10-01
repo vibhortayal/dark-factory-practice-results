@@ -367,10 +367,13 @@ class Service:
     def login(self, body):
         email = text_field(body, "email")
         password = text_field(body, "password")
-        for _ in range(20):
+        for attempt in range(4):
+            last = attempt == 3
             with self.lock:
                 uid = self.by_email.get(email.lower())
                 rec = self.state["users"][uid] if uid else None
+                if last:  # final pass: verify while holding the lock, so the answer is exact
+                    return self._finish_login(uid, rec, password)
             if rec is None or not verify_password(password, rec["pw"]):
                 raise ApiError(401, "unauthenticated", "invalid credentials")
             with self.lock:
@@ -378,7 +381,11 @@ class Service:
                     return {"user_id": uid, "display_name": rec["display_name"],
                             "token": self.issue_token(uid)}
             # state was replaced while hashing: re-evaluate against the new state
-        raise ApiError(401, "unauthenticated", "invalid credentials")
+
+    def _finish_login(self, uid, rec, password):
+        if rec is None or not verify_password(password, rec["pw"]):
+            raise ApiError(401, "unauthenticated", "invalid credentials")
+        return {"user_id": uid, "display_name": rec["display_name"], "token": self.issue_token(uid)}
 
     def me(self, uid):
         with self.lock:

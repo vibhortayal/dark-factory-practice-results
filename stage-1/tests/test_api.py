@@ -998,6 +998,40 @@ class TestRegressions(Base):
             for r in results:
                 self.assertEqual(r.status, 200, r.raw)
 
+    def test_overlong_numbers_compare_by_value_for_idempotency(self):
+        def body(x):
+            return b'{"to_handle":"bob","amount":1,"x":' + x + b"}"
+        big1, big2 = b"1" + b"0" * 4300, b"1" + b"0" * 4299 + b"1"
+        for i, (a, b, same) in enumerate(((big1, big2, False), (b"1e400", b"2e400", False),
+                                          (b"1e400", b"10e399", True), (b"1e-400", b"2e-400", False),
+                                          (b"1e999999999999999999999", b"1e999999999999999999998", False))):
+            key = "big%d" % i
+            self.assertEqual(self.req("POST", "/payments", raw=body(a), token=self.ada, key=key).status, 201)
+            self.assertEqual(self.req("POST", "/payments", raw=body(a), token=self.ada, key=key).status, 200)
+            r = self.req("POST", "/payments", raw=body(b), token=self.ada, key=key)
+            if same:
+                self.assertEqual(r.status, 200)
+            else:
+                self.err(r, 409, "idempotency_key_reuse")
+        self.assertEqual(self.req("POST", "/_test/import", raw=self.req("GET", "/_test/export").raw).status, 204)
+
+    def test_authenticated_write_racing_reset_is_never_applied_to_new_state(self):
+        for rnd in range(15):
+            self.reset()
+            old = self.login("ada")
+            with ThreadPoolExecutor(10) as ex:
+                writes = [ex.submit(self.req, "POST", "/payments", {"to_handle": "bob", "amount": 1},
+                                    token=old, key="w%d" % i) for i in range(8)]
+                reads = [ex.submit(self.req, "GET", "/me", token=old) for _ in range(4)]
+                time.sleep(0.002)
+                self.assertEqual(ex.submit(self.req, "POST", "/_test/reset", fixture()).result().status, 204)
+                rs = [f.result() for f in writes + reads]
+            self.assertTrue(all(r.status in (200, 201, 401) for r in rs))
+            fresh = self.login("ada")
+            self.assertEqual(self.bal(fresh), 10000)
+            self.assertEqual(self.req("GET", "/activity", token=fresh).json["payments"], [])
+            self.err(self.req("GET", "/me", token=old), 401, "unauthenticated")
+
     def test_deep_nesting_unknown_field(self):
         for depth in (10, 950, 1000, 5000):
             raw = b'{"to_handle":"bob","amount":1,"x":' + b"[" * depth + b"]" * depth + b"}"
