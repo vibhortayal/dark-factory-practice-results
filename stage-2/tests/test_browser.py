@@ -528,7 +528,7 @@ class Authorizations(B):
         self.assertIsNone(p.query_selector(sel(f"authorization-captured-{aid}")))
         self.assertIsNone(p.query_selector(sel("empty-authorizations")))
         self.shot("auth-ada")
-        p.fill(sel("authorize-amount"), "100.00")
+        p.fill(sel("authorize-amount"), "100.01")
         p.click(sel("authorize-submit"))
         p.wait_for_selector(sel("authorize-error"))
         p.fill(sel("authorize-amount"), "1.001")
@@ -616,6 +616,46 @@ class Authorizations(B):
         self.page.goto("/authorizations")
         self.page.wait_for_selector(sel("authorization-item-a_1"))
         self.assertEqual(self.page.text_content(sel("authorization-expires-a_1")).strip(), "2099-01-01T00:00:00+00:00")
+
+
+class AuthorizeFormOnBothRoutes(B):  # S2-8 / A2.3
+    def test_home_and_authorizations(self):
+        for route in ("/", "/authorizations"):
+            reset(fixture())
+            self.page.evaluate("localStorage.clear()") if self.page.url != "about:blank" else None
+            self.log_in()
+            p = self.page
+            p.goto(route)
+            p.wait_for_selector(sel("authorize-submit"))
+            for t in ("authorize-handle", "authorize-amount", "authorize-note", "authorize-visibility", "authorize-submit"):
+                self.assertEqual(p.locator(sel(t)).count(), 1, (route, t))
+            self.assertEqual(p.locator(sel("authorize-error")).count(), 0)
+            p.fill(sel("authorize-handle"), "bob")
+            p.fill(sel("authorize-amount"), "100.01")
+            p.click(sel("authorize-submit"))
+            p.wait_for_selector(sel("authorize-error"))      # more than available
+            p.fill(sel("authorize-amount"), "1.001")
+            p.click(sel("authorize-submit"))
+            p.wait_for_selector(sel("authorize-error"))
+            p.fill(sel("authorize-amount"), "20.00")
+            p.fill(sel("authorize-note"), "deposit")
+            p.select_option(sel("authorize-visibility"), "private")
+            if route == "/":
+                p.fill(sel("pay-handle"), "cy")
+                p.fill(sel("pay-amount"), "1.00")
+            p.click(sel("authorize-submit"))
+            p.wait_for_selector(f"{sel('wallet-held')}[data-amount='2000']")
+            self.assertEqual(self.bal("wallet-available"), 8000)
+            self.assertEqual(self.bal("wallet-balance"), 10000)
+            if route == "/":
+                self.assertEqual(p.input_value(sel("pay-handle")), "cy")
+                self.assertEqual(p.input_value(sel("pay-amount")), "1.00")
+                self.assertEqual(p.query_selector(sel("activity-list")), None)  # holds are not feed items
+            else:
+                p.wait_for_selector("[data-testid^='authorization-item-']")
+            a = call("GET", "/authorizations", token=login("ada"))[2]["authorizations"]
+            self.assertEqual((len(a), a[0]["note"], a[0]["visibility"], a[0]["amount"]), (1, "deposit", "private", 2000))
+            self.shot("home-with-authorize" if route == "/" else "auth-page")
 
 
 class Narrow(B):

@@ -3,7 +3,7 @@
 Evidence at the reported revision: `stage-2/tests` against the built image (`docker run --cpus 2 --memory 2g`):
 `test_api` + `test_concurrency` (stage-1 rows, adapted only for the two stage-2 changes: payment objects gain
 `authorization_id`, `/authorizations` and `/` are no longer 404), `test_stage2_api` (33 tests), `test_browser`
-(27 Playwright/Chromium tests, 375 px and 1280 px). Supplied harness: `claimed stage: 2`. The unmodified stage-1 own
+(28 Playwright/Chromium tests, 375 px and 1280 px). Supplied harness: `claimed stage: 2`. The unmodified stage-1 own
 tests (from 8e43652) against the stage-2 image fail exactly those two stage-changed assertions and nothing else.
 Screens at 375 px and 1280 px were looked at (`SHOTS=` screenshots) for every route.
 
@@ -28,6 +28,7 @@ Screens at 375 px and 1280 px were looked at (`SHOTS=` screenshots) for every ro
 | W1-W7 | `Wallet`, `Capture`, `Fixtures`, `Concurrent.test_holds_never_overspend` | OK |
 | Z1-Z19 | `Capture` (default and extended capture, errors and S2-1 order, idempotency incl. `{}` vs `{"amount"}` and `final`, void, partial then void/expiry, list filters and paging, expiry by the clock with ttl 1-2 s, no activity item for holds) | OK |
 | X2.1-X2.6 | `Fixtures` (ttl default/validation, seeded statuses, expired seeded open ignored, holds above balance -> 422 nothing changed, seeded holds capturable/voidable) | OK |
+| A2.3 / S2-8 | `AuthorizeFormOnBothRoutes`: the authorise form (all six testids, unique per page) on `/` and on `/authorizations`; refusal shows `authorize-error` on the route used; success refreshes wallet numbers in place without clearing the pay form on `/`, and the list on `/authorizations` | OK |
 | A2.1-A2.10 | `Screens.test_formats_and_headline` (headline font size vs total/held, held absent at zero), `Authorizations` (authorize, partial capture keeping the rest, final capture, void, refused capture, expiry, seeded holds after reset, empty state) | OK |
 | V1-V6 | Screenshot review of every route at both widths; `Narrow`/`Wide` assert `scrollWidth <= clientWidth` with 200-char notes; `Accessibility` (labels on every input, focus outlines, keyboard-only login, computed WCAG contrast over all text on four screens with a held balance, request and private payment present); distinct states: available/held/pending/loading/ok/refused/uncertain have different colours and icons plus text | OK |
 | C2.1 C2.2 | `Concurrent` (over-capture race, capture vs void vs final, mixed load incl. exports and expiry, same-key races) | OK |
@@ -37,3 +38,5 @@ S2-1..S2-7 followed. Authorization timestamps carry millisecond precision (`crea
 `expires_at - created_at == ttl` holds exactly and short ttls do not expire early); other timestamps keep second
 precision. Retry identity (key + body) lives in page memory per form. Seeded fixture users are hashed with scrypt
 n=2^9 (stored in the hash), signups with n=2^12.
+
+Round S2-8: the authorise form is on both `/` (under the request form, pay stays first) and `/authorizations`.

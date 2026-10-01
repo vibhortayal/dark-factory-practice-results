@@ -462,7 +462,7 @@
     feedHost.appendChild(el('div', { class: 'card' }, el('span', { class: 'skeleton', 'aria-label': 'Loading activity' })));
     main.appendChild(walletHost);
     main.appendChild(el('div', { class: 'two-col' },
-      el('div', { class: 'stack' }, payForm(), requestForm()),
+      el('div', { class: 'stack' }, payForm(), requestForm(), authorizeForm(refreshWallet)),
       el('section', { class: 'stack', 'aria-labelledby': 'feed-title' }, el('h2', { id: 'feed-title', text: 'Activity' }), feedHost)));
     refreshWallet();
   }
