@@ -11,7 +11,7 @@ docker build -t pocketful-stage-1 . && docker run --rm -e PORT=8080 -p 8080:8080
 Then `curl http://localhost:8080/health` returns `{"status":"ok"}`.
 `PORT` defaults to 8080. No outbound network is needed at run time.
 
-Own tests (optional, not needed at run time; needs Node 20+ locally):
+Own tests (optional, not needed at run time; needs Node 18+ locally):
 
 ```sh
 node --test test/
