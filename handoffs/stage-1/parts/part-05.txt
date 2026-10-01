@@ -1,0 +1,115 @@
+@vibhor15/nightshift-implementer STAGE 1 BUILD HANDOFF — PART 5 of 6 — COMPLETE ACCEPTANCE MAP (section 1 of 2)
+
+# Acceptance map — Pocketful stage 1
+
+Source: `dark-factory-wearedevs/pocketful/spec/stage-1.md` (kickoff checkout, read-only).
+Target folder: `stage-1/`. Every row must hold for the revision under review.
+"Check" says how the row is verified. `H` = supplied harness suite covers part of it;
+`T` = Implementer's own automated test required; `V` = Verifier's independent probe required.
+The supplied harness is a partial sample: a green harness run does not close a row marked T or V.
+
+## A. Delivery and runtime (§2, §3)
+
+| Row | Requirement | Check |
+|---|---|---|
+| A1 | `stage-1/` holds source, a `Dockerfile` and a `RUN.md` whose command builds and starts the service with no manual setup. No `.git`, submodule or symlink inside the folder. | V: follow RUN.md verbatim from a clean clone; `find stage-1 -name .git -o -type l` empty |
+| A2 | Image runs alone with `-e PORT=<port>` and a port mapping; no compose needed; all dependencies, init and seed inside the single container. | H (harness builds and starts image); V: `docker run -e PORT=9123 -p 9123:9123` |
+| A3 | No outbound network at run time (build may fetch). | H `--mode isolated`; V: `docker run --network none` + exec health, or isolated run |
+| A4 | Listens on `0.0.0.0`, port from `PORT`, default `8080` when unset. | V: run without `-e PORT`, map 8080 |
+| A5 | `GET /health` → 200 `{"status":"ok"}` within 60 s of start, once the store can serve. | H; V: time from `docker run` to first 200 |
+| A6 | Works within 2 vCPU / 2 GiB, 50 requests in flight, each request < 5 s (reset/export/import < 10 s). | H isolated; T/V: 50-way concurrent load, no timeouts, no 5xx |
+| A7 | State is ephemeral; nothing requires a volume or survives-restart behaviour. | V: inspect Dockerfile/RUN.md |
+| A8 | Responses are `application/json; charset=utf-8` (204 has no body). Requests are JSON. | T; V: header check on 2xx and 4xx |
+| A9 | Timestamps are RFC 3339 with explicit offset (e.g. `+00:00`), never naive. | T; V: regex on `created_at`, `committed_at` |
+| A10 | Unknown body fields ignored; unknown query parameters ignored (never an error). | H; T on every write path and both list endpoints |
+| A11 | IDs are opaque strings ≤ 64 chars. Seeded ids are kept exactly as given in the fixture. | T; V |
+| A12 | No request yields 5xx, including malformed input and concurrent load. Unknown routes/methods return a 4xx with the §5 error body. | H; T fuzz of types on every field; V |
+| A13 | Implementation is original: no source, API docs or schemas copied from existing products. | V: review |
+| A14 | Stage-1 folder does not implement stage 2 (harness overshoot line for suite 2 reads fail; `claimed stage: 1`). | H: harness output |
+
+## B. Reset and fixture (§3.3, §4 fixture format)
+
+| Row | Requirement | Check |
+|---|---|---|
+| B1 | `POST /_test/reset` with a fixture → 204, no auth needed; all state replaced (users, tokens, payments, requests, splits, settlements, idempotency records, operators). | H; T: token from before reset is 401 after |
+| B2 | Repeated resets supported; after 204 only the fixture is visible. | H; T |
+| B3 | Fixture `currency`, `minor_units` (0, 2 or 3; EUR/JPY/BHD) drive `/me` and every `currency` field. | H; T for all three |
+| B4 | Seeded users log in immediately with the given password; id, email, display_name, handle, balance taken verbatim. | H; T |
+| B5 | Seeded `balance` is final; seeded payments are NOT replayed against balances. | H; T: balances after reset equal fixture values |
+| B6 | Seeded payments appear in `/activity` under the feed contract with their id, parties, amount, note, visibility; `request_id` null unless linked, `settlement_id` null. | H; T |
+| B7 | Seeded requests keep id, parties, amount, note, status; visible to both parties only; a seeded `pending` one is payable, a non-pending one gives 409 `request_not_pending`. | H; T |
+| B8 | A negative `balance` in the fixture → 422 `validation_failed` and the previous state is unchanged (old tokens, balances still valid). | H; T |
+| B9 | `payments`, `requests`, `settlement_operator_ids` are optional in the fixture (default `[]`). | T |
+| B10 | Unparseable reset body → 400 `malformed_request`; structurally invalid fixture → 4xx with §5 body, never 5xx, state unchanged. | T; V |
+| B11 | Sum of balances always equals the total seeded by the last reset (invariant 1). | H (`conservation`); T after every scenario and under load |
+
+## C. Errors (§5)
+
+| Row | Requirement | Check |
+|---|---|---|
+| C1 | Every 4xx/5xx body is `{"error":{"code":...,"message":...}}`. | T: asserted in every negative test |
+| C2 | 400 `malformed_request`: unparseable body, body that is not a JSON object, or a field of the wrong JSON type (except the endpoint-specific 422 rules in C6). | H; T |
+| C3 | 400 `missing_idempotency_key`: header absent or empty on the five idempotent paths. | H; T all five |
+| C4 | 401 `unauthenticated`: missing, malformed or unknown bearer token on every authenticated endpoint. | T on every endpoint; V |
+| C5 | 422 `validation_failed`: missing required field or query parameter; correct type but bad format / out of range / too long. | H; T |
+| C6 | Field rules that override C2: invalid `amount` incl. strings and booleans → 422; non-string `note` incl. `null` → 422; any `visibility` other than `public`/`private` (any type, incl. `null`) → 422. Omission selects defaults. | H; T matrix on payments, requests, pay, splits, settlements |
+| C7 | Integer query parameters must be plain decimal digits: `1e9`, `4.0`, `+4`, `-1`, empty, `abc` → 422. | H; T |
+| C8 | `Idempotency-Key` longer than 255 characters → 422 `validation_failed` (1..255 valid; 255 accepted, 256 rejected). | H; T boundary |
+| C9 | `limit` 1..200 (0, 201 → 422), `offset` ≥ 0, on `/requests` and `/activity`. | H; T boundary 1, 200, 0, 201 |
+| C10 | 403 `forbidden`, 404 `not_found`, 409 `idempotency_key_reuse` used as specified per endpoint. | rows E–J |
+
+## D. Authentication and users (§4 users, §6)
+
+| Row | Requirement | Check |
+|---|---|---|
+| D1 | `POST /auth/signup` → 201 `{user_id, display_name, token}`; new balance 0; can immediately receive money and be requested. | H; T |
+| D2 | Handle derived from email: local part, lowercased, every char outside `[a-z0-9_]` → `_`, truncated to 20. Handle is unique, immutable. | H; T: `Foo.Bar+x@…` → `foo_bar_x`; 25-char local part truncated |
+| D3 | Email already registered → 409 `email_taken`. | T |
+| D4 | Derived handle already taken → 409 `handle_taken`, no account created (login with that email fails 401). | H; T |
+| D5 | Password shorter than 8 characters → 422; exactly 8 accepted. | T |
+| D6 | `email` not `local@domain` → 422. Missing fields → 422. Wrong JSON types → 400. | T |
+| D7 | `POST /auth/login` → 200 `{user_id, display_name, token}`; wrong password or unknown email → 401 `unauthenticated`. | H; T |
+| D8 | Tokens never expire; multiple tokens per account valid concurrently (two logins → both tokens work). | T |
+| D9 | Passwords stored with bcrypt/scrypt/Argon2 or equivalent; never plaintext (also inside export state). | V: source + export inspection |
+| D10 | Every endpoint except `/health`, `/_test/*`, `/auth/signup`, `/auth/login` requires `Authorization: Bearer <token>`. | T; V |
+| D11 | `GET /me` → `{user_id, display_name, handle, balance, currency, minor_units}`. | H; T |
+| D12 | Concurrent signups with the same email / same derived handle: exactly one 201. | T |
+
+## E. Idempotency (§7) — applies independently to each of the five paths
+
+Paths: `POST /payments`, `POST /requests`, `POST /requests/{id}/pay`, `POST /splits`, `POST /settlements`.
+
+| Row | Requirement | Check |
+|---|---|---|
+| E1 | First use → normal response, 201. | H; T ×5 |
+| E2 | Replay (same user, method, path, JSON-equal body) → 200 with a body equal as a JSON value to the original; no further state change. | H; T ×5 |
+| E3 | Same key, different body (same user, same path) → 409 `idempotency_key_reuse`. | H; T ×5 |
+| E4 | "Same body" is JSON-value equality: key order and whitespace irrelevant; `{}` ≠ `{"visibility":"public"}`. | H; T |
+| E5 | Key scoped to the authenticated user: two users, same key string, no interaction. | H; T |
+| E6 | Same key + same body on a different path (incl. `/requests/a/pay` vs `/requests/b/pay`, `/payments` vs `/requests`) is a first use and succeeds. | H; T |
+| E7 | A key whose original request failed with 4xx is treated as first use (not recorded); e.g. insufficient funds then funded → 201. | H; T |
+| E8 | Concurrent identical requests with an unused key: exactly one 201, the rest 200 with the same body, effect applied once. | T: 20 parallel ×5 paths; V |
+| E9 | Replay returns the original response even after the resource changed (request later paid/cancelled, etc.). | H; T |
+| E10 | Order: auth (401) → key header present (400) → key length (422) → body parses as JSON object (400) → claimed-key resolution (200 / 409) → field validation and resource checks. So a claimed key with a now-invalid body → 409 `idempotency_key_reuse`, and a pay replay on an already-paid request → 200, never `request_not_pending`. | H; T |
+| E11 | Failed validation or failed funds claims no key and leaves no payment, request, split or settlement. | T |
+
+## F. Payments (§8 `POST /payments`)
+
+| Row | Requirement | Check |
+|---|---|---|
+| F1 | 201 body: `payment_id, from_user_id, from_handle, to_user_id, to_handle, amount, currency, note, visibility, request_id (null), settlement_id (null), created_at`. | H; T exact key set |
+| F2 | `note` optional default `""`; `visibility` optional default `"public"`. | H; T |
+| F3 | Balance below `amount` → 409 `insufficient_funds`, nothing changes; paying exactly the balance succeeds (balance → 0). | H; T |
+| F4 | `amount` < 1, > 1000000000, non-integral (`10.5`), string, boolean, null → 422. `1000`, `1000.0`, `1e3` accepted and returned as integer. `1000000000` accepted. | H; T matrix |
+| F5 | `to_handle` equal to caller's handle → 422 `self_payment`. | H; T |
+| F6 | `note` > 200 characters → 422; exactly 200 accepted; length counted in characters (200 emoji accepted). | H; T |
+| F7 | `note` stored and returned verbatim, byte for byte (unicode, emoji, whitespace, HTML-like text; no trimming or escaping). | H; T |
+| F8 | Unknown `to_handle` → 404 `not_found`. Missing `to_handle`/`amount` → 422. `to_handle` of wrong JSON type → 400. | H; T |
+| F9 | Debit and credit are one atomic step; no negative balance, even transiently (invariant 2). | H (ten clients, one wallet); T: 50 parallel overspend, exactly floor(balance/amount) succeed |
+| F10 | Opposing concurrent transfers (A→B and B→A, many pairs) neither deadlock nor lose money. | T; V |
+
+## G. Requests (§4, §8)
+
+| Row | Requirement | Check |
+|---|---|---|
+| G1 | `POST /requests` 201 body: `request_id, requester_id, requester_handle, payer_id, payer_handle, amount, currency, note, status:"pending", payment_id:null, created_at`. Caller is requester. | H; T exact key set |

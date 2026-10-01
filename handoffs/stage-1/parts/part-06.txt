@@ -1,0 +1,85 @@
+@vibhor15/nightshift-implementer STAGE 1 BUILD HANDOFF — PART 6 of 6 — FINAL PART — COMPLETE ACCEPTANCE MAP (section 2 of 2)
+
+| G2 | Amount / note rules as F4, F6, F7; `note` default `""`. | H; T |
+| G3 | `payer_handle` is caller → 422 `self_request`; unknown handle → 404. | H; T |
+| G4 | Payer's balance is not checked at creation; request above the balance is created `pending`. | H; T |
+| G5 | `POST /requests/{id}/pay` by the payer → 201 with the payment (as F1) with `request_id` set; request becomes `paid` with `payment_id`; money moves payer → requester. | H; T |
+| G6 | Pay body carries optional `visibility` only (default `public`); visibility is the payer's choice and lives on the payment. | H; T |
+| G7 | Pay: unknown request → 404; caller not the payer (requester or third party) → 403 `forbidden`; not `pending` → 409 `request_not_pending`; balance short → 409 `insufficient_funds` and the request stays `pending` and becomes payable once funded. | H; T |
+| G8 | A request moves money at most once (invariant 3): concurrent pays with different keys → exactly one 201, others 409 `request_not_pending`; concurrent pay vs decline/cancel → exactly one wins. | T; V |
+| G9 | `POST /requests/{id}/decline`: payer only, no key needed, 200 with request `declined`; already declined → 200; `paid`/`cancelled` → 409 `request_not_pending`; not payer → 403; unknown → 404. | H; T |
+| G10 | `POST /requests/{id}/cancel`: requester only, no key needed, 200 with request `cancelled`; already cancelled → 200; `paid`/`declined` → 409; not requester → 403; unknown → 404. | H; T |
+| G11 | `GET /requests`: only requests where caller is requester or payer; newest first by `created_at`; body `{requests, has_more}`. | H; T |
+| G12 | `direction` = `incoming` (caller is payer) / `outgoing` (caller is requester) / absent = both; `status` one of the four or absent; unknown value of either → 422. | H; T |
+| G13 | `limit` default 50, 1..200; `offset` default 0, ≥ 0; `has_more` true iff items exist beyond the last returned. | H; T |
+| G14 | A request never appears in `/activity` and never in a third party's `/requests` under any filter; operator status grants no access to others' requests. | H; T |
+
+## H. Splits (§8, §9)
+
+| Row | Requirement | Check |
+|---|---|---|
+| H1 | `POST /splits` 201 body: `split_id, amount, currency, note, shares[{handle, amount}], requests[...], created_at`. | H; T |
+| H2 | Caller may be in `participant_handles` or omitted; n = number of handles given. One `pending` request per participant except the caller, caller as requester, amount = that participant's share, note = split note. | H; T |
+| H3 | `shares` covers every participant incl. caller, in input order, sums to `amount`; `requests` covers all but the caller, same order. | H; T |
+| H4 | Equal-split rule: base = amount div n, first (amount mod n) participants get +1. Table: 1000/3 → 334,333,333; 1/3 → 1,0,0; 10/3 → 4,3,3; 999/3 → 333×3; 5/5 → 1×5. | H; T all five |
+| H5 | Different handle order moves the extra unit; a share of 0 is legal and still creates a request. | H; T |
+| H6 | Only participant is the caller → valid, one share, `"requests": []`. | H; T |
+| H7 | Empty `participant_handles` or a duplicate handle → 422; any unknown handle → 404; missing field → 422; not an array / non-string member → 400 or 422, never 5xx. Amount/note rules as F4, F6. | H; T |
+| H8 | No balance is checked by a split. Very large lists (1000 handles) are validated, not crashed. | H; T |
+| H9 | Split creation is atomic: either all requests exist or none (e.g. unknown handle in last position leaves no requests). | T |
+| H10 | After splits are paid in full, balances still sum to the seeded total. | T |
+
+## I. Activity feed (§4 feed contract, §8)
+
+| Row | Requirement | Check |
+|---|---|---|
+| I1 | `GET /activity` → `{payments, has_more}`, payments only, newest first by `created_at`. | H; T |
+| I2 | A payment is visible iff `visibility` is `public` OR caller is sender or receiver. No other rule. | H; T: third party sees public, not private; both parties see private |
+| I3 | Visibility is one value seen identically by all viewers of that payment. | T |
+| I4 | `limit`/`offset`/`has_more` exactly as `/requests`; parameters such as `direction`/`status` are ignored here. | H; T |
+| I5 | Operators get no extra visibility into private payments they are not party to. | T |
+| I6 | Payments created by pay-request and by settlements appear under the same rule with `request_id` / `settlement_id` populated. | T |
+
+## J. Settlements (§11)
+
+| Row | Requirement | Check |
+|---|---|---|
+| J1 | Fixture `settlement_operator_ids` (array of user ids, default `[]`) defines operators. | H; T |
+| J2 | `POST /settlements`: no token → 401; authenticated non-operator → 403 `forbidden`; idempotency key required (400 when missing). | T |
+| J3 | `transfers` is an array of 1..32 objects `{from_handle, to_handle, amount, note?, visibility?}`; not an array, 0 or 33 entries, missing, or non-object member → 422 `validation_failed`. 32 accepted. | T boundary |
+| J4 | Each entry uses payment rules: amount (F4), note (F6, default `""`), visibility (default `public`); unknown handle → 404; `from_handle` == `to_handle` → 422 `self_payment`; unknown fields ignored. | T |
+| J5 | Entry errors are reported in input order (first bad entry decides the error) and before insufficient funds. | T: entry 1 unaffordable + entry 2 unknown handle → 404 |
+| J6 | Affordability is on the NET: every wallet's balance after all transfers ≥ 0. A chain ada→bob→cy where bob starts at 0 succeeds; otherwise 409 `insufficient_funds`. | T |
+| J7 | All movements commit together or none; a failed settlement claims no key and creates no payment. | T; concurrent with ordinary payments keeps invariants B11/F9 |
+| J8 | 201 body: `settlement_id, committed_at, payments` in input order. Each member is an ordinary payment object with `settlement_id` set, `request_id` null, `created_at` == `committed_at` for all members. | H; T |
+| J9 | Every payment object everywhere carries `settlement_id` (null for non-members). | T |
+| J10 | Members follow ordinary feed visibility; the settlement response still contains every member's receipt. | T |
+| J11 | Replay → 200 with the original complete response (fifth idempotent path; rows E1–E11 apply). | T |
+| J12 | Operator may move money between wallets they do not own, but gains no access to other users' requests or private activity. | T |
+
+## K. Export and import (§10)
+
+| Row | Requirement | Check |
+|---|---|---|
+| K1 | `GET /_test/export` (no auth) → 200 `{track:"pocketful", format_version:1, state:{...}}`; atomic read-only snapshot. | H; T |
+| K2 | `POST /_test/import` (no auth) with an unchanged export → 204; state atomically replaced (not merged); repeating the import duplicates nothing. | H; T |
+| K3 | Import has no dependency on the source process/files/port: export from container A imports into fresh container B. | V: two containers |
+| K4 | Preserved: accounts, hashed-password login, existing bearer tokens, currency/minor_units, balances, payments, requests, splits, settlement membership, operator permissions, ids, timestamps. Nothing regenerated; balances not re-derived by replay. | T: export → reset to other fixture → import → compare `/me`, `/activity`, `/requests`, old tokens |
+| K5 | Completed idempotent request bodies and original responses preserved: replay after import → 200 original body; changed body → 409; no money moves. All five paths. | T |
+| K6 | Failed-request keys remain reusable after import. | T |
+| K7 | Import removes all previous destination data and credentials (pre-import tokens/users not in the export are gone). | T |
+| K8 | Invalid JSON → 400 `malformed_request`; missing `track`/`format_version`/`state`, wrong track, wrong version, or invalid state → 422 `validation_failed`, destination unchanged. | T |
+| K9 | Reset after import clears everything, including imported state. | T |
+| K10 | Export/import/reset complete within 10 s on a populated state (thousands of records). | T/V timing |
+| K11 | Export taken during concurrent writes is internally consistent (balances sum to seeded total inside the snapshot once imported). | T/V |
+
+## Decisions recorded by the Architect
+
+- D-1: caller who is neither party calling pay/decline/cancel on an existing request gets 403 `forbidden`
+  (endpoint tables say "not the payer/requester → 403"; supplied checks accept 403 or 404).
+- D-2: precedence on idempotent paths is the order in E10; missing key (400) is reported before body parsing.
+- D-3: a JSON body that parses but is not an object is 400 `malformed_request`.
+- D-4: wrong JSON type for fields not named in C6 (`to_handle`, `payer_handle`, `email`, `password`,
+  `display_name`, `participant_handles` not an array) is 400; settlement batch shape problems are 422 per §11.
+- D-5: precedence inside one request: field validation (422) → self-payment/self-request (422) →
+  unknown handle (404) → state (409). In settlements the first entry in input order with any error decides.

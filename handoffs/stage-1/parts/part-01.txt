@@ -1,0 +1,68 @@
+@vibhor15/nightshift-implementer STAGE 1 BUILD HANDOFF — PART 1 of 6 — TASK AND INSTRUCTIONS (section 1 of 1)
+
+Rows: all rows A1–K11 of acceptance/stage-1.md · Revision: base = current HEAD of the result repository (run `git -C /home/ubuntu/nightshift-claude-run-4b/band-work/result rev-parse HEAD`) · Files: stage-1/ (to be created) · Command: see "Commands" below · Expected / actual: stage-1/ does not exist yet / must exist as a complete buildable service · Repro: n/a · Next: Implementer
+
+STAGE 1 HANDOFF — BUILD. This handoff comes in numbered parts; do not start until you hold the part marked FINAL. Parts: task and instructions (this part), then the complete stage-1 specification, then the complete acceptance map.
+
+== THE HUMAN'S COMPLETE TASK (verbatim) ==
+
+You are the lead seat for our factory. Build all four stages sequentially, coordinating the other seats and keeping every stage in its own complete, buildable folder.
+
+Workspace root: /home/ubuntu/nightshift-claude-run-4b
+Kickoff checkout (read-only reference): /home/ubuntu/nightshift-claude-run-4b/dark-factory-wearedevs
+Track: pocketful
+Result repository: /home/ubuntu/nightshift-claude-run-4b/band-work/result
+
+For stage 1, read the full spec at /home/ubuntu/nightshift-claude-run-4b/dark-factory-wearedevs/pocketful/spec/stage-1.md and deliver it in /home/ubuntu/nightshift-claude-run-4b/band-work/result/stage-1/ as a complete, buildable service with its own Dockerfile and RUN.md. Implement each stage fully, and only then move to the next.
+
+When stage 1 is accepted, continue to stage 2: copy the stage-1 folder to stage-2 and extend that code to the stage-2 spec (pocketful/spec/stage-2.md). Continue the same way to stage 3 and stage 4. At the end there is one folder per stage, each satisfying its own spec and every earlier one, and none implementing a later stage early.
+
+Checks, run from the kickoff checkout: .venv/bin/python -m harness run --track pocketful --repo ../band-work/result --stage N --out ../band-work/checks/<new-name>. Run the final check of each stage with --mode isolated. Every run needs a new --out directory.
+
+This is a dark-factory run: this message is the only human input. Finish with one final report.
+
+== YOUR UNIT OF WORK ==
+
+Unit: stage 1 only. Do not read or implement stage-2/3/4 specifications. A stage-1 folder that also passes the stage-2 suite claims nothing, so build exactly stage 1.
+
+- Result repository (shared, already a git repository, branch main): /home/ubuntu/nightshift-claude-run-4b/band-work/result
+- Target folder: /home/ubuntu/nightshift-claude-run-4b/band-work/result/stage-1/
+- Deliver in that folder: the service source, your own tests, a `Dockerfile`, and a `RUN.md` with the exact command(s) that build and start the service with no manual setup. No nested `.git`, no submodules, no symlinks. Do not touch mandates/, acceptance/, handoffs/, STATUS.md, README.md or FACTORY.md.
+- Language, framework and storage are your choice. The folder will be copied forward and extended three more times (a browser UI and richer model in stage 2, time-dependent rules in stage 3, bulk atomic changes in stage 4), so choose a structure that stays easy to extend: one process, in-container storage, a single serialisation point for all writes (this makes the atomicity, at-most-once and export-snapshot rows straightforward), all runtime dependencies baked into the image at build time. The service gets 2 vCPU / 2 GiB, no outbound network at run time, 60 s to first healthy response, and must handle 50 requests in flight.
+- The specification file is also at /home/ubuntu/nightshift-claude-run-4b/dark-factory-wearedevs/pocketful/spec/stage-1.md (read-only checkout; never modify anything under dark-factory-wearedevs). The supplied checks live under dark-factory-wearedevs/pocketful/test/stage_1; they are a partial sample of the judging suite. Implement the specification, not the checks.
+
+== COMMANDS ==
+
+Supplied check (host mode, while iterating; every run needs a NEW --out directory name):
+  cd /home/ubuntu/nightshift-claude-run-4b/dark-factory-wearedevs && .venv/bin/python -m harness run --track pocketful --repo ../band-work/result --stage 1 --out ../band-work/checks/s1-impl-01
+
+Final check before you report (isolated mode: internal network, no outbound access, 2 vCPU, 2 GiB):
+  cd /home/ubuntu/nightshift-claude-run-4b/dark-factory-wearedevs && .venv/bin/python -m harness run --track pocketful --repo ../band-work/result --stage 1 --mode isolated --out ../band-work/checks/s1-impl-final-01
+
+Reading the output: `--stage 1` runs suite 1 and then suite 2 as an overshoot probe. The suite-2 line is supposed to read `fail`. You want `highest contiguous stage: 1` and `claimed stage: 1 on the shipped checks`, with every suite-1 check passing (no skips, no errors).
+
+Manual run of the image (must also work this way):
+  docker build -t pocketful-s1 /home/ubuntu/nightshift-claude-run-4b/band-work/result/stage-1 && docker run -d --rm --name pocketful-s1 -e PORT=18080 -p 18080:18080 pocketful-s1
+  stop with: docker stop pocketful-s1
+Start services detached and stop them with an ordinary command; do not leave long-lived background tasks running when you send a message.
+
+Commit (your seat as author, no amend/rebase/squash after reporting):
+  git -C /home/ubuntu/nightshift-claude-run-4b/band-work/result add stage-1 && git -C /home/ubuntu/nightshift-claude-run-4b/band-work/result -c user.name="Nightshift Implementer" -c user.email="nightshift-implementer@nightshift.invalid" commit -m "stage-1: <summary>"
+
+== WHAT TO SEND WHEN DONE ==
+
+1. Go through every row of the acceptance map (A1–K11), record how you checked it and the result, fix failures first.
+2. Commit, then send the Verifier (inspect the room participants for the verifier seat's handle and start the message with it) a self-contained handoff: evidence header, row-by-row self-check, this complete task, the complete specification, the complete acceptance map, the repository path, the FULL commit hash, commands run with real results (including the path of the isolated harness report), design choices, and anything incomplete. Paste the requirements; numbered parts are fine.
+3. Send the Architect a short report with the evidence header and the same full commit hash, stating that the Verifier handoff has been sent.
+4. On a Verifier BLOCK: fix, rerun everything, commit a new revision, send a complete updated handoff.
+
+== ARCHITECT DECISIONS ON OPEN POINTS (binding unless the specification text contradicts them — if you think one does, tell the Architect with the clause) ==
+
+D-1. A caller who is neither party calling pay / decline / cancel on an existing request gets 403 `forbidden` (the endpoint tables say "not the payer / not the requester → 403").
+D-2. Precedence on the five idempotent paths: authentication (401) → operator permission on /settlements (403) → Idempotency-Key present and non-empty (400 `missing_idempotency_key`) → key length ≤ 255 (422) → body parses as a JSON object (400 `malformed_request`) → already-claimed key resolved (same JSON value → 200 replay; different → 409 `idempotency_key_reuse`) → endpoint field validation → resource checks. Keys are recorded only for successful (201) operations, per (user, method, path).
+D-3. A body that parses as JSON but is not an object is 400 `malformed_request`.
+D-4. Wrong JSON type: `amount` (string, boolean, null, non-integral number), `note` (anything that is not a string, including null) and `visibility` (anything other than "public"/"private") are 422 `validation_failed`. Other fields of the wrong JSON type (`to_handle`, `payer_handle`, `email`, `password`, `display_name`, `participant_handles` not an array) are 400 `malformed_request`. Missing required fields are 422. A string handle that does not match the handle pattern cannot name a user: treat as unknown → 404. In /settlements, batch-shape problems (transfers missing, not an array, 0 or more than 32 entries, an entry that is not an object) are 422 `validation_failed`.
+D-5. Precedence within one request: field validation (422) → self-payment / self-request (422) → unknown handle (404) → state checks (409). In /settlements the first entry in input order that has any error decides the response, and all entry errors come before `insufficient_funds`. On pay / decline / cancel: unknown request 404 → wrong caller 403 → status 409 → funds 409.
+D-6. `amount` accepts any JSON number with an integral value (1000, 1000.0, 1e3) and is always returned as a plain JSON integer. Make sure your JSON parser does not lose this (and does not accept `true` as 1).
+D-7. Every payment object, wherever it is returned (POST /payments, pay, /activity, settlements), has the same key set, including `request_id` and `settlement_id` (null when not applicable).
+D-8. Note length is counted in Unicode characters (code points), so 200 emoji are accepted; notes round-trip byte for byte.
