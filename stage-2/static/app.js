@@ -53,17 +53,18 @@
   }
   function plainDecimal(minor) { return fmt(minor).replace(/ \S+$/, ''); }
 
-  /* "15", "15.5", "15.50" -> minor units, exactly; null when not a valid amount. */
+  /* What a person types as a number -> minor units, exactly (string arithmetic).
+     Digits with an optional fraction of at most minor_units digits: "15", "15.5", "15.50", ".5", "15.".
+     Empty input, signs, exponents, separators, letters or too many fraction digits -> null. */
   function parseDecimal(text) {
     var mu = ctx.me.minor_units;
-    var t = String(text).trim();
-    var re = mu === 0 ? /^[0-9]+$/ : new RegExp('^[0-9]+(\\.[0-9]{1,' + mu + '})?$');
-    if (!re.test(t)) return null;
-    var parts = t.split('.');
-    var frac = parts[1] || '';
+    var m = /^([0-9]*)(?:\.([0-9]*))?$/.exec(String(text).trim());
+    if (!m) return null;
+    var whole = m[1] || '', frac = m[2] || '';
+    if (!whole && !frac) return null;
+    if (frac.length > mu) return null;
     while (frac.length < mu) frac += '0';
-    var digits = (parts[0] + frac).replace(/^0+(?=\d)/, '');
-    return Number(digits);
+    return Number(((whole || '0') + frac).replace(/^0+(?=\d)/, ''));
   }
   function amountHint() {
     var mu = ctx.me.minor_units;
@@ -162,8 +163,8 @@
   function Identity() {
     var cur = null;
     return {
-      key: function (body) {
-        var j = JSON.stringify(body);
+      key: function (body, typed) {
+        var j = JSON.stringify(typed === undefined ? body : typed);
         if (!cur || cur.json !== j) cur = { json: j, key: uuid() };
         return cur.key;
       }
@@ -361,7 +362,7 @@
       var handle = cleanHandle(val('pay-handle'));
       if (!handle) { show(slot, 'error', 'pay-error', 'Enter the handle of the person you are paying.'); return; }
       var body = { to_handle: handle, amount: amount, note: val('pay-note'), visibility: val('pay-visibility') };
-      var key = ident.key(body);
+      var key = ident.key(body, [val('pay-handle'), val('pay-amount'), val('pay-note'), val('pay-visibility')]);
       busy = true; btn.setAttribute('aria-busy', 'true');
       show(slot, 'loading', null, 'Sending…');
       api('POST', '/payments', body, { key: key }).then(function (r) {
@@ -402,7 +403,7 @@
       var body = { payer_handle: handle, amount: amount, note: val('request-note') };
       busy = true; btn.setAttribute('aria-busy', 'true');
       show(slot, 'loading', null, 'Sending request…');
-      api('POST', '/requests', body, { key: ident.key(body) }).then(function (r) {
+      api('POST', '/requests', body, { key: ident.key(body, [val('request-handle'), val('request-amount'), val('request-note')]) }).then(function (r) {
         if (r.ok) {
           show(slot, 'ok', 'request-success', 'Requested ' + fmt(r.data.amount) + ' from ' + r.data.payer_handle + '.');
           return refreshWallet();
@@ -438,7 +439,7 @@
       var body = { to_handle: handle, amount: amount, note: val('authorize-note'), visibility: val('authorize-visibility') };
       busy = true; btn.setAttribute('aria-busy', 'true');
       show(slot, 'loading', null, 'Placing hold…');
-      api('POST', '/authorizations', body, { key: ident.key(body) }).then(function (r) {
+      api('POST', '/authorizations', body, { key: ident.key(body, [val('authorize-handle'), val('authorize-amount'), val('authorize-note'), val('authorize-visibility')]) }).then(function (r) {
         if (r.ok) {
           show(slot, 'ok', 'authorize-success', 'Holding ' + fmt(r.data.amount) + ' for ' + r.data.to_handle + '.');
           return onDone();
@@ -641,7 +642,7 @@
       var body = { amount: amount, participant_handles: hs, note: val('split-note') };
       busy = true; btn.setAttribute('aria-busy', 'true');
       show(slot, 'loading', null, 'Creating requests…');
-      api('POST', '/splits', body, { key: ident.key(body) }).then(function (r) {
+      api('POST', '/splits', body, { key: ident.key(body, [val('split-amount'), val('split-handles'), val('split-note')]) }).then(function (r) {
         if (r.ok) {
           var n = r.data.requests.length;
           clear(slot);
@@ -723,6 +724,19 @@
       }
     }
     var label = a.status.charAt(0).toUpperCase() + a.status.slice(1);
+    var released = a.amount - a.captured_amount;
+    var story;
+    if (a.status === 'open') {
+      story = incoming ? a.from_handle + ' is holding money for you' : 'You are holding money for ' + a.to_handle;
+    } else if (a.status === 'captured') {
+      story = (incoming ? 'You collected ' + fmt(a.captured_amount) + ' from ' + a.from_handle : a.to_handle + ' collected ' + fmt(a.captured_amount) + ' from you') +
+        (released > 0 ? '; ' + fmt(released) + ' was released' : '');
+    } else if (a.status === 'voided') {
+      story = (incoming ? a.from_handle + ' released the hold' : 'You released the hold') +
+        (a.captured_amount > 0 ? ' after ' + fmt(a.captured_amount) + ' was collected' : '');
+    } else {
+      story = 'The hold expired and was released' + (a.captured_amount > 0 ? ' after ' + fmt(a.captured_amount) + ' was collected' : '');
+    }
     var extra = [];
     if (a.status === 'captured') {
       extra.push(el('div', { class: 'meta' }, 'Captured ', el('span', { testid: 'authorization-captured-' + id, text: fmt(a.captured_amount) })));
@@ -737,13 +751,13 @@
             el('span', { class: 'chip ' + a.status, text: label }),
             el('span', { class: 'chip ' + (incoming ? 'received' : 'sent'), text: incoming ? 'Incoming' : 'Outgoing' }),
             el('span', { class: 'chip ' + a.visibility, text: a.visibility === 'private' ? 'Private' : 'Public' })),
-          el('div', { class: 'parties', text: a.status === 'open' ? (incoming ? a.from_handle + ' is holding money for you' : 'You are holding money for ' + a.to_handle) : (incoming ? a.from_handle + ' held money for you' : 'You held money for ' + a.to_handle) }),
+          el('div', { class: 'parties', text: story }),
           el('div', { class: 'note', testid: 'authorization-note-' + id, text: a.note })),
         el('div', { class: 'item-side' },
           el('div', { class: 'amount-line' }, el('span', { class: 'amount', testid: 'authorization-amount-' + id, text: fmt(a.amount) })),
           extra,
           el('div', { class: 'meta' }, a.status === 'open' ? 'Expires ' : 'Expiry ', el('span', { testid: 'authorization-expires-' + id, text: a.expires_at }),
-            ' ', a.status === 'open' ? el('span', { text: '(' + relativeExpiry(a.expires_at) + ')' }) : null))),
+            ' ', a.status === 'open' || a.status === 'expired' ? el('span', { text: '(' + relativeExpiry(a.expires_at) + ')' }) : null))),
       actions);
   }
 

@@ -150,3 +150,8 @@ button[disabled], button[aria-busy="true"] { opacity: .65; cursor: progress; }
   .amount-line { justify-content: flex-start; }
   .actions .field { max-width: none; }
 }
+@media (min-width: 481px) {
+  .item-top { flex-wrap: nowrap; }
+  .item-main { flex: 1 1 0; }
+  .item-side { flex: none; width: 13rem; }
+}

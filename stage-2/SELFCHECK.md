@@ -3,7 +3,7 @@
 Evidence at the reported revision: `stage-2/tests` against the built image (`docker run --cpus 2 --memory 2g`):
 `test_api` + `test_concurrency` (stage-1 rows, adapted only for the two stage-2 changes: payment objects gain
 `authorization_id`, `/authorizations` and `/` are no longer 404), `test_stage2_api` (33 tests), `test_browser`
-(28 Playwright/Chromium tests, 375 px and 1280 px). Supplied harness: `claimed stage: 2`. The unmodified stage-1 own
+(34 Playwright/Chromium tests, 375 px and 1280 px). Supplied harness: `claimed stage: 2`. The unmodified stage-1 own
 tests (from 8e43652) against the stage-2 image fail exactly those two stage-changed assertions and nothing else.
 Screens at 375 px and 1280 px were looked at (`SHOTS=` screenshots) for every route.
 
@@ -42,3 +42,6 @@ n=2^9 (stored in the hash), signups with n=2^12.
 Round S2-8: the authorise form is on both `/` (under the request form, pay stays first) and `/authorizations`.
 
 Round 1 (Verifier BLOCK on 10c60b0): F1 capture amount above 1000000000 (or any size) is now `capture_exceeds_authorization`; only amounts below 1 / non-integral stay `validation_failed` (`Capture.test_errors_and_precedence`). F2 the per-request payment-visibility select has a visible `<label>` (`Competing.test_stale_request_pay_button` checks label count and visibility). Also: closed authorizations no longer say "is holding" / "(in N min)"; item side column has a fixed minimum width so amounts align.
+
+Round 1 continued (Architect S2-9..S2-12): S2-9 capture amount rule (see above, also 1e30, 2^53+1 -> `capture_exceeds_authorization`; 1.5, 0, negatives -> `validation_failed`). S2-10 decimal inputs accept `.5` and `15.` (never more than `minor_units` fraction digits; `minor_units` 0 refuses any fraction digits except a bare trailing dot), in pay, request, split, authorise and capture (`Decimals`). S2-11 retry identity of pay/request/authorise/split forms is the typed text of every field: `15` -> `15.00` is a new payment, an unchanged form replays (`Decimals.test_typed_text_is_the_retry_identity`). S2-12 `Labels.test_every_control_has_a_visible_label` (every visible input/select/checkbox on every route at 375 and 1280 px has a visible `<label>`, no horizontal scroll); closed authorizations describe what happened (captured: collected/released amounts, voided, expired) and keep exact `authorization-expires-{id}` text (`Labels.test_closed_authorization_copy`); amounts are aligned to a fixed right column on cards.
+Browser suite is now 34 tests.

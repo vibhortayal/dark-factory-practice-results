@@ -174,7 +174,7 @@ class Pay(B):
         self.page.wait_for_selector(f"{sel('wallet-balance')}[data-amount='8450']")
         self.assertEqual(self.bal("wallet-available"), 8450)
         n = len(self.posts)
-        for bad in ("15.005", "abc", "", "1e3", "-5", "1,5", ".", "15.", "1 5"):
+        for bad in ("15.005", "abc", "", "1e3", "-5", "+5", "1,5", ".", "1 5", "1.2.3", "0x10", "\u0661"):
             self.page.fill(sel("pay-amount"), bad)
             self.page.click(sel("pay-submit"))
             self.page.wait_for_selector(sel("pay-error"))
@@ -281,6 +281,115 @@ class Pay(B):
         p.fill(sel("request-handle"), "ghost")
         p.click(sel("request-submit"))
         p.wait_for_selector(sel("request-error"))
+
+
+class Decimals(B):  # S2-10 / S2-11
+    def test_forms_of_decimal_input(self):
+        self.log_in()
+        self.pay_form(amount=".5")
+        self.page.click(sel("pay-submit"))
+        self.page.wait_for_selector(f"{sel('wallet-balance')}[data-amount='9950']")
+        self.page.fill(sel("pay-amount"), "15.")
+        self.page.click(sel("pay-submit"))
+        self.page.wait_for_selector(f"{sel('wallet-balance')}[data-amount='8450']")
+        amounts = [json.loads(p[2])["amount"] for p in self.posts if p[1].endswith("/payments")]
+        self.assertEqual(amounts, [50, 1500])
+        for bad in ("15.005", ".", "-1"):
+            self.page.fill(sel("pay-amount"), bad)
+            self.page.click(sel("pay-submit"))
+            self.page.wait_for_selector(sel("pay-error"))
+        self.assertEqual(len([p for p in self.posts if p[1].endswith("/payments")]), 2)
+
+    def test_jpy_trailing_dot_only(self):
+        reset(fixture(currency="JPY", minor_units=0))
+        self.log_in()
+        self.pay_form(amount="15.")
+        self.page.click(sel("pay-submit"))
+        self.page.wait_for_selector(f"{sel('wallet-balance')}[data-amount='9985']")
+        for bad in (".5", "15.0", "."):
+            self.page.fill(sel("pay-amount"), bad)
+            self.page.click(sel("pay-submit"))
+            self.page.wait_for_selector(sel("pay-error"))
+        self.assertEqual(len([p for p in self.posts if p[1].endswith("/payments")]), 1)
+
+    def test_other_forms_accept_same_decimals(self):
+        self.log_in()
+        p = self.page
+        p.goto("/split")
+        p.fill(sel("split-amount"), ".5")
+        p.fill(sel("split-handles"), "ada,bob")
+        self.assertEqual(p.text_content(sel("split-share-ada")).strip(), "0.25 EUR")
+        p.fill(sel("split-amount"), "10.")
+        self.assertEqual(p.text_content(sel("split-share-ada")).strip(), "5.00 EUR")
+        p.goto("/authorizations")
+        p.wait_for_selector(sel("authorize-submit"))
+        p.fill(sel("authorize-handle"), "bob")
+        p.fill(sel("authorize-amount"), ".5")
+        p.click(sel("authorize-submit"))
+        p.wait_for_selector(f"{sel('wallet-held')}[data-amount='50']")
+        aid = p.locator("[data-testid^='authorization-item-']").first.get_attribute("data-testid").replace("authorization-item-", "")
+        self.assertEqual(call("GET", "/authorizations", token=login("ada"))[2]["authorizations"][0]["amount"], 50)
+        self.page.evaluate("localStorage.clear()")
+        self.log_in("bob")
+        p.goto("/authorizations")
+        p.fill(sel(f"authorization-capture-amount-{aid}"), ".2")
+        p.click(sel(f"authorization-capture-{aid}"))
+        p.wait_for_selector(f"{sel('authorization-item-' + aid)}[data-status='captured']")
+        self.assertEqual(p.text_content(sel(f"authorization-captured-{aid}")).strip(), "0.20 EUR")
+
+    def test_typed_text_is_the_retry_identity(self):  # S2-11
+        self.log_in()
+        self.pay_form(amount="15")
+        self.page.click(sel("pay-submit"))
+        self.page.wait_for_selector(f"{sel('wallet-balance')}[data-amount='8500']")
+        self.page.fill(sel("pay-amount"), "15.00")      # same value, different text: a new payment
+        self.page.click(sel("pay-submit"))
+        self.page.wait_for_selector(f"{sel('wallet-balance')}[data-amount='7000']")
+        self.page.click(sel("pay-submit"))              # unchanged: replay
+        self.page.wait_for_timeout(500)
+        self.assertEqual(self.bal(), 7000)
+        self.assertEqual(len(call("GET", "/activity", token=login("ada"))[2]["payments"]), 2)
+
+
+class Labels(B):  # S2-12 / V5
+    def test_every_control_has_a_visible_label(self):
+        ada, bob = login("ada"), login("bob")
+        call("POST", "/requests", {"payer_handle": "ada", "amount": 100}, bob, k())
+        call("POST", "/authorizations", {"to_handle": "bob", "amount": 100}, ada, k())
+        call("POST", "/authorizations", {"to_handle": "ada", "amount": 100}, bob, k())
+        script = """() => [...document.querySelectorAll('input:not([type=hidden]), select, textarea')].filter(e => e.offsetParent !== null || e.type === 'checkbox')
+          .map(e => { const ls = [...(e.labels || [])]; const vis = ls.some(l => l.offsetParent !== null && l.textContent.trim().length > 0); return vis ? null : (e.id || e.outerHTML.slice(0, 60)); }).filter(Boolean)"""
+        for width in (375, 1280):
+            self.page.set_viewport_size({"width": width, "height": 900})
+            for route in ("/login", "/signup"):
+                self.page.goto(route)
+                self.page.wait_for_selector("form")
+                self.assertEqual(self.page.evaluate(script), [], (route, width))
+            self.log_in() if width == 375 else None
+            for route in ("/", "/requests", "/split", "/authorizations"):
+                self.page.goto(route)
+                self.page.wait_for_selector(sel("current-user"))
+                self.page.wait_for_timeout(500)
+                self.assertEqual(self.page.evaluate(script), [], (route, width))
+                self.no_hscroll()
+
+    def test_closed_authorization_copy(self):
+        ada, bob = login("ada"), login("bob")
+        def mk(amount):
+            return call("POST", "/authorizations", {"to_handle": "bob", "amount": amount}, ada, k())[2]["authorization_id"]
+        cap, void = mk(1000), mk(500)
+        call("POST", f"/authorizations/{cap}/capture", {"amount": 600}, bob, k())
+        call("POST", f"/authorizations/{void}/void", token=ada)
+        self.log_in()
+        self.page.goto("/authorizations")
+        self.page.wait_for_selector(sel(f"authorization-item-{cap}"))
+        t = lambda aid: self.page.inner_text(sel(f"authorization-item-{aid}"))
+        self.assertIn("bob collected 6.00 EUR from you; 4.00 EUR was released", t(cap))
+        self.assertNotIn("holding money", t(cap))
+        self.assertIn("You released the hold", t(void))
+        self.assertNotIn("holding money", t(void))
+        self.assertNotRegex(t(cap) + t(void), r"\(in \d")
+        self.assertRegex(self.page.text_content(sel(f"authorization-expires-{cap}")).strip(), r"^\d{4}-\d\d-\d\dT")
 
 
 class Competing(B):
