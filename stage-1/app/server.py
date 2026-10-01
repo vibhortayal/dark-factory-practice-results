@@ -135,6 +135,10 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/auth/login":
             return 200, svc.login(parse_object(self.raw)), None
 
+        with svc.lock:  # authenticate and act in one state generation
+            return self.authed(path, method, m)
+
+    def authed(self, path, method, m):
         uid = self.authenticate()
         if path == "/me":
             return 200, svc.me(uid), None

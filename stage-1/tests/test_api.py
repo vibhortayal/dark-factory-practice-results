@@ -982,6 +982,22 @@ class TestRegressions(Base):
                     self.assertEqual(self.req("POST", "/payments", {"to_handle": "b", "amount": 1},
                                               token=r.json["token"], key="k").status, 401)
 
+    def test_login_overlapping_import_or_reset_of_same_account_succeeds(self):
+        exp = self.req("GET", "/_test/export").raw
+        for rnd in range(15):
+            with ThreadPoolExecutor(8) as ex:
+                logins = [ex.submit(self.req, "POST", "/auth/login",
+                                    {"email": "ada@example.com", "password": "correct horse"}) for _ in range(4)]
+                time.sleep(0.003)
+                if rnd % 2:
+                    imp = ex.submit(self.req, "POST", "/_test/import", raw=exp)
+                else:
+                    imp = ex.submit(self.req, "POST", "/_test/reset", fixture())
+                self.assertEqual(imp.result().status, 204)
+                results = [f.result() for f in logins]
+            for r in results:
+                self.assertEqual(r.status, 200, r.raw)
+
     def test_deep_nesting_unknown_field(self):
         for depth in (10, 950, 1000, 5000):
             raw = b'{"to_handle":"bob","amount":1,"x":' + b"[" * depth + b"]" * depth + b"}"
