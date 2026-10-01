@@ -19,3 +19,9 @@ memory and listens on `0.0.0.0:$PORT`. Passwords are hashed with scrypt.
 ```sh
 BASE_URL=http://localhost:8080 python3 tests/test_stage1.py
 ```
+
+## Implementation limits
+
+- Request bodies larger than 8 MiB are refused with 413 `payload_too_large`.
+- JSON bodies nested deeper than 128 levels of `[`/`{` are refused with 400 `malformed_request`
+  (checked by an iterative scan before parsing, so hostile nesting costs constant time).

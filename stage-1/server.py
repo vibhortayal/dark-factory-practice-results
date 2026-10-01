@@ -17,7 +17,8 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 MAX_AMOUNT = 1_000_000_000
 MAX_BALANCE = 2 ** 53
-MAX_BODY = 16 * 1024 * 1024
+MAX_BODY = 8 * 1024 * 1024
+MAX_DEPTH = 128
 HANDLE_RE = re.compile(r"^[a-z0-9_]{1,20}$")
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+$")
 DIGITS_RE = re.compile(r"^[0-9]+$")
@@ -59,7 +60,26 @@ def _parse_int(s):
     return int(s) if len(s) <= 4000 else Decimal(s)
 
 
+_TOKEN_RE = re.compile(rb'"[^"\\]*(?:\\.[^"\\]*)*"|[\[\]{}]', re.S)
+
+
+def check_depth(raw):
+    """Iterative nesting scan (strings skipped); bodies deeper than MAX_DEPTH are rejected."""
+    if raw.count(b"[") + raw.count(b"{") <= MAX_DEPTH:
+        return
+    depth = 0
+    for m in _TOKEN_RE.finditer(raw):
+        c = m.group()
+        if c in (b"[", b"{"):
+            depth += 1
+            if depth > MAX_DEPTH:
+                raise malformed("body nested too deeply (limit %d)" % MAX_DEPTH)
+        elif c in (b"]", b"}"):
+            depth -= 1
+
+
 def parse_json(raw):
+    check_depth(raw)
     try:
         text = raw.decode("utf-8")
         return json.loads(text, parse_float=_parse_float, parse_int=_parse_int,
@@ -931,7 +951,8 @@ def route(method, path):
 
 def error_code_for(status):
     return {400: "malformed_request", 401: "unauthenticated", 403: "forbidden",
-            404: "not_found", 405: "method_not_allowed"}.get(status, "malformed_request")
+            404: "not_found", 405: "method_not_allowed",
+            413: "payload_too_large"}.get(status, "malformed_request")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -991,7 +1012,7 @@ class Handler(BaseHTTPRequestHandler):
                     return data
                 if len(data) + size > MAX_BODY:
                     self.close_connection = True
-                    raise malformed("body too large")
+                    raise ApiError(413, "payload_too_large", "body too large")
                 data += self.rfile.read(size)
                 self.rfile.readline(65537)
         cl = self.headers.get("Content-Length")
@@ -1003,7 +1024,7 @@ class Handler(BaseHTTPRequestHandler):
         n = int(cl)
         if n > MAX_BODY:
             self.close_connection = True
-            raise malformed("body too large")
+            raise ApiError(413, "payload_too_large", "body too large")
         return self.rfile.read(n) if n else b""
 
     def dispatch(self):
@@ -1038,7 +1059,7 @@ class Handler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionError, TimeoutError):
             self.close_connection = True
         except Exception:
-            traceback.print_exc(limit=-6)
+            sys.stderr.write("internal error: %s\n" % traceback.format_exc().strip().splitlines()[-1][:300])
             try:
                 self.send_json(400, {"error": {"code": "malformed_request",
                                                "message": "request could not be processed"}})
@@ -1059,7 +1080,6 @@ def main():
         port = int(os.environ.get("PORT") or 8080)
     except ValueError:
         port = 8080
-    sys.setrecursionlimit(3000)
     Server(("0.0.0.0", port), Handler).serve_forever()
 
 

@@ -771,14 +771,43 @@ def fix_round1():  # parse limits, regex anchors, key chars, decoded path, lock
 
 
 @test
-def deep_json_burst_is_fast():  # A6/A7: deeply nested bodies never stall the service
+def deep_json_burst_is_fast():  # A6/A7: depth cap 128; hostile nesting is cheap
     ada, bob, cy = basic3()
-    for d in (1200, 5000, 9000):
-        raw = b'{"to_handle":"bob","amount":1,"x":' + b"[" * d + b"]" * d + b"}"
+    def body(d):
+        return b'{"to_handle":"bob","amount":1,"x":' + b"[" * (d - 1) + b"]" * (d - 1) + b"}"
+    # depth counts the outer object: 128 levels accepted, 129 rejected
+    assert call("POST", "/payments", raw=body(128), token=ada, key=K())[0] == 201
+    err(call("POST", "/payments", raw=body(129), token=ada, key=K()), 400, "malformed_request")
+    # brackets inside strings do not count
+    raw = json.dumps({"to_handle": "bob", "amount": 1, "note": "[" * 120 + '\\"' + "{" * 60}).encode()
+    assert call("POST", "/payments", raw=raw, token=ada, key=K())[0] == 201
+    for d in (129, 1200, 5000, 9000, 100000):
         t0 = time.time()
-        r = burst(50, lambda i: call("POST", "/payments", raw=raw, token=ada, key=K())[0])
-        assert set(r) <= {201, 400} and time.time() - t0 < 5, (d, set(r), time.time() - t0)
+        r = burst(50, lambda i: call("POST", "/payments", raw=body(d), token=ada, key=K())[0])
+        assert set(r) == {400} and time.time() - t0 < 5, (d, set(r), time.time() - t0)
         assert call("GET", "/health")[0] == 200
+    for path in ("/auth/login", "/_test/import", "/requests", "/splits"):
+        err(call("POST", path, raw=body(5000), token=ada, key=K()), 400, "malformed_request")
+    # oversized body: 4xx envelope, not read into memory
+    s, js, _, _ = call("POST", "/payments", raw=b'{"note":"' + b"a" * (9 * 1024 * 1024) + b'"}', token=ada, key=K())
+    assert s == 413 and js["error"]["code"] == "payload_too_large", s
+
+
+@test
+def large_state_roundtrip():  # export/import of a large state fits the body limit and 10 s
+    users = [U(0, "w%d" % i, 1000) for i in range(2000)]
+    pays = [{"id": "p%d" % i, "from_user_id": "u_w%d" % (i % 2000), "to_user_id": "u_w%d" % ((i + 1) % 2000), "amount": 1, "note": "n" * 20} for i in range(5000)]
+    reqs = [{"id": "r%d" % i, "requester_id": "u_w%d" % (i % 2000), "payer_id": "u_w%d" % ((i + 7) % 2000), "amount": 1, "status": "pending"} for i in range(5000)]
+    t0 = time.time()
+    reset(users, payments=pays, requests=reqs)
+    t1 = time.time()
+    s, ex, _, raw = call("GET", "/_test/export")
+    t2 = time.time()
+    assert s == 200 and len(raw) < 8 * 1024 * 1024, len(raw)
+    assert call("POST", "/_test/import", ex)[0] == 204
+    t3 = time.time()
+    print("   large: reset %.1fs export %.1fs (%d bytes) import %.1fs" % (t1 - t0, t2 - t1, len(raw), t3 - t2))
+    assert t2 - t1 < 10 and t3 - t2 < 10
 
 
 if __name__ == "__main__":
