@@ -142,7 +142,7 @@ def b_amounts_and_types():  # B2 C2-C6
     err(call("POST", "/payments", raw=b"[1]", token=ada, key=K()), 400, "malformed_request")
     err(call("POST", "/payments", raw=b'"x"', token=ada, key=K()), 400, "malformed_request")
     err(call("POST", "/payments", raw=b"", token=ada, key=K()), 400, "malformed_request")
-    err(call("POST", "/payments", raw=b"[" * 100000, token=ada, key=K()), 400, "malformed_request")
+    assert call("POST", "/payments", raw=b"[" * 100000, token=ada, key=K())[0] in (400, 413)
     for v in (None, "", "Public", 1, True, []):
         err(pay(ada, "bob", 5, visibility=v), 422, "validation_failed")
     for n in (None, 5, [], True):
@@ -696,6 +696,15 @@ def export_import():  # H1-H11 (+ cross container)
     if BASE2:
         assert call("POST", "/_test/import", ex, base=BASE2)[0] == 204
         assert call("GET", "/me", token=ada, base=BASE2)[1]["handle"] == "ada"
+        B2 = dict(base=BASE2)
+        assert call("POST", "/payments", {"to_handle": "bob", "amount": 100}, ada, k1, **B2)[:2] == (200, p)
+        err(call("POST", "/payments", {"to_handle": "bob", "amount": 101}, ada, k1, **B2), 409, "idempotency_key_reuse")
+        assert call("POST", "/requests", {"payer_handle": "ada", "amount": 77}, bob, k2, **B2)[:2] == (200, rq)
+        assert call("POST", "/splits", {"amount": 10, "participant_handles": ["ada", "bob", "cy"]}, ada, sp_key, **B2)[:2] == (200, sp)
+        assert call("POST", "/settlements", stb, dee, st_key, **B2)[:2] == (200, st)
+        assert call("POST", "/requests/%s/pay" % rq["request_id"], {"visibility": "private"}, ada, pk, **B2)[:2] == (200, pr)
+        err(call("POST", "/requests/%s/pay" % rq["request_id"], {"visibility": "public"}, ada, pk, **B2), 409, "idempotency_key_reuse")
+        assert call("POST", "/payments", {"to_handle": "cy", "amount": 3}, ada, bad_key, **B2)[0] == 201
 
 
 @test
@@ -791,72 +800,108 @@ def deep_json_burst_is_fast():  # A6/A7: depth cap 128; hostile nesting is cheap
     for d in (129, 1200, 5000, 9000, 40000):
         t0 = time.time()
         r = burst(50, lambda i: call("POST", "/payments", raw=body(d), token=ada, key=K())[0])
-        assert set(r) == {400} and time.time() - t0 < 5, (d, set(r), time.time() - t0)
+        assert set(r) <= {400, 413} and (d > 8000 or set(r) == {400}) and time.time() - t0 < 5, (d, set(r), time.time() - t0)
         assert call("GET", "/health")[0] == 200
     for path in ("/auth/login", "/requests", "/splits"):
         err(call("POST", path, raw=body(5000), token=ada, key=K()), 400, "malformed_request")
     # oversized body: 4xx envelope, not read into memory
-    s, js, _, _ = call("POST", "/payments", raw=b'{"note":"' + b"a" * (300 * 1024) + b'"}', token=ada, key=K())
+    s, js, _, _ = call("POST", "/payments", raw=b'{"note":"' + b"a" * (600 * 1024) + b'"}', token=ada, key=K())
     assert s == 413 and js["error"]["code"] == "payload_too_large", s
     # large JSON array inside an accepted-size body is cheap; 50-way at the cap stays fast
-    raw = b'{"to_handle":"bob","amount":1,"x":[' + b"0," * 30000 + b"0]}"
+    raw = b'{"to_handle":"bob","amount":1,"x":[' + b"0," * 7000 + b"0]}"
     t0 = time.time()
     r = burst(50, lambda i: call("POST", "/payments", raw=raw, token=ada, key=K())[0])
     assert set(r) == {201} and time.time() - t0 < 5, (set(r), time.time() - t0)
     assert call("GET", "/me", token=ada)[0] == 200
 
 
-@test
-def max_body_perf():  # ordinary bodies at the 256 KiB cap: fast, outside the lock, /me and /health responsive
-    ada, bob, cy = basic3(ada=10 ** 9)
-    cap = 94 * 1024
-    variants = {
-        "zeros": b"[" + b"0," * (cap // 2) + b"0]",
-        "string": b'"' + b"a" * cap + b'"',
-        "objects": b"[" + b'{"a":1,"b":[2]},' * (cap // 16) + b"{}]",
-        "brackets": b"[" + b"[]," * (cap // 3) + b"[]]",
-    }
-    for u in (b"1E999,", b"1.5,", b"1e9,", b"1e1,", b"1.5e-9,", b"-0.0,"):
-        variants["num " + u.decode()] = b"[" + u * (cap // len(u)) + b"0]"
-    for name, x in variants.items():
-        raw = b'{"to_handle":"bob","amount":1,"x":' + x + b"}"
-        assert len(raw) <= 96 * 1024, (name, len(raw))
-        t0 = time.time()
-        assert call("POST", "/payments", raw=raw, token=ada, key=K())[0] == 201
-        single = time.time() - t0
-        lat = []
+def timed_burst(label, ada, mk, expect, n=50):
+    """n concurrent requests (mk(i) -> (method, path, raw, key)); /me and /health probed meanwhile."""
+    lat = []
 
-        def probe(i):
-            t = time.time()
-            s = call("GET", "/me" if i % 2 else "/health", token=ada)[0]
-            lat.append(time.time() - t)
-            return s
-        t0 = time.time()
-        with cf.ThreadPoolExecutor(52) as ex:
-            f1 = [ex.submit(lambda: call("POST", "/payments", raw=raw, token=ada, key=K())[0]) for _ in range(50)]
-            time.sleep(0.1)
-            f2 = [ex.submit(probe, i) for i in range(2)]
-            codes = [f.result() for f in f1]
-            [f.result() for f in f2]
-        el = time.time() - t0
-        print("   %-8s %6d bytes single %.2fs 50-way %.2fs probe max %.2fs" % (name, len(raw), single, el, max(lat)))
-        assert set(codes) == {201} and el < 5 and single < 1 and max(lat) < 1, (name, set(codes), el, single, lat)
-    # largest legitimate ordinary body: 32 transfers with 200 astral-plane characters each, \\u-escaped
-    reset([U(0, "ada", 10 ** 6), U(0, "bob", 0), U(0, "dee", 10 ** 6)], settlement_operator_ids=["u_dee"])
-    dee = login("dee")
-    tr = [{"from_handle": "dee", "to_handle": "bob", "amount": 1, "note": "\U0001F600" * 200} for _ in range(32)]
-    big = json.dumps({"transfers": tr}).encode()
-    assert 70000 < len(big) < 96 * 1024, len(big)
-    s, js, _, _ = call("POST", "/settlements", raw=big, token=dee, key=K())
-    assert s == 201 and len(js["payments"]) == 32 and js["payments"][0]["note"] == "\U0001F600" * 200
+    def probe(i):
+        t = time.time()
+        s = call("GET", "/me" if i % 2 else "/health", token=ada)[0]
+        lat.append(time.time() - t)
+        return s
+
+    def one(i):
+        m, p, raw, key = mk(i)
+        return call(m, p, raw=raw, token=ada, key=key)[0]
+    t0 = time.time()
+    with cf.ThreadPoolExecutor(n + 2) as ex:
+        f1 = [ex.submit(one, i) for i in range(n)]
+        time.sleep(0.1)
+        f2 = [ex.submit(probe, i) for i in range(2)]
+        codes = [f.result() for f in f1]
+        [f.result() for f in f2]
+    el = time.time() - t0
+    print("   %-26s %-9s 50-way %.2fs probe max %.2fs" % (label, sorted(set(codes)), el, max(lat)))
+    assert set(codes) <= set(expect) and el < 5 and max(lat) < 1, (label, set(codes), el, lat)
+
+
+@test
+def max_body_perf():  # ordinary bodies: 512 KiB cap, 16 KiB structure cap; fast, outside the lock
+    ada, bob, cy = basic3(ada=10 ** 9)
+    pre = b'{"to_handle":"bob","amount":1,"x":'
+    units = [b"1E999,", b"1.5,", b"1e9,", b"1e1,", b"1.5e-9,", b"-0.0,", b"0,"]
+    big_str = b"a" * 490000
+    for u in units:  # (a) numbers up to the structure limit plus a ~490 KiB string elsewhere
+        raw = pre + b"[" + u * (16000 // len(u)) + b'0],"y":"' + big_str + b'"}'
+        assert len(raw) < 512 * 1024
+        timed_burst("num %s +490K str" % u.decode(), ada, lambda i: ("POST", "/payments", raw, K()), [201])
+    strs = {"ascii": b"a" * 510000, "emoji-escapes": b"\\ud83d\\ude00" * 42000,
+            "quote-escapes": b'\\"' * 255000, "backslash-escapes": b"\\\\" * 255000,
+            "raw-utf8-emoji": "\U0001F600".encode() * 127000}
+    for name, x in strs.items():  # (b) one ~510 KiB string
+        raw = pre + b'"' + x + b'"}'
+        assert len(raw) <= 512 * 1024, (name, len(raw))
+        timed_burst("str " + name, ada, lambda i: ("POST", "/payments", raw, K()), [201])
+    for u in units[:6]:  # (c) the Verifier's repro: ~256 KB of numbers -> 413 at once
+        raw = pre + b"[" + u * (256000 // len(u)) + b"0]}"
+        timed_burst("413 " + u.decode(), ada, lambda i: ("POST", "/payments", raw, K()), [413])
+    err(call("POST", "/payments", raw=pre + b"[" + b"1.5," * 5000 + b"0]}", token=ada, key=K()), 413, "payload_too_large")
+    t0 = time.time()
+    err(call("POST", "/payments", {"to_handle": "bob", "amount": 1, "note": "n" * 300000}, ada, K()), 422, "validation_failed")
+    assert time.time() - t0 < 1
+    # (d) other paths
+    nums = pre + b"[" + b"1.5," * 5000 + b"0]}"
+    rq = call("POST", "/requests", {"payer_handle": "bob", "amount": 1}, ada, K())[1]
+    reset([U(0, "ada", 10 ** 9), U(0, "bob", 10 ** 6), U(0, "dee", 10 ** 6)], settlement_operator_ids=["u_dee"])
+    ada, bob, dee = login("ada"), login("bob"), login("dee")
+    rid = call("POST", "/requests", {"payer_handle": "bob", "amount": 1}, ada, K())[1]["request_id"]
+    s500 = b'"' + b"a" * 500000 + b'"'
+    for who, path, body_s, body_n in (
+            (ada, "/requests", b'{"payer_handle":"bob","amount":1,"x":%s}' % s500, b'{"payer_handle":"bob","amount":1,"x":[%s0]}' % (b"1.5," * 5000)),
+            (ada, "/splits", b'{"amount":3,"participant_handles":["ada","bob"],"x":%s}' % s500, b'{"amount":3,"participant_handles":["ada","bob"],"x":[%s0]}' % (b"1.5," * 5000)),
+            (bob, "/requests/%s/pay" % rid, b'{"x":%s}' % s500, b'{"x":[%s0]}' % (b"1.5," * 5000)),
+            (dee, "/settlements", b'{"transfers":[{"from_handle":"dee","to_handle":"bob","amount":1}],"x":%s}' % s500, b'{"transfers":[{"from_handle":"dee","to_handle":"bob","amount":1}],"x":[%s0]}' % (b"1.5," * 5000))):
+        timed_burst("str " + path[:14], who, lambda i: ("POST", path, body_s, K()), [201, 409])
+        timed_burst("num->413 " + path[:14], who, lambda i: ("POST", path, body_n, K()), [413])
     ada = login("ada")
-    # idempotent replay of a big body still compares correctly
-    raw = b'{"to_handle":"bob","amount":1,"x":' + variants["objects"] + b"}"
+    # equality table through real replays on /payments and /settlements
+    def replay(path, who, first, second, expect, extra=None):
+        k = K()
+        s1 = call("POST", path, raw=first, token=who, key=k)
+        assert s1[0] == 201, (path, s1[0], s1[3][:200])
+        s2 = call("POST", path, raw=second, token=who, key=k)
+        assert s2[0] == expect, (first[:80], second[:80], s2[0])
+        if expect == 200:
+            assert s2[1] == s1[1]
+    P = lambda x: b'{"to_handle":"bob","amount":1,"x":%s}' % x
+    S_ = lambda x: b'{"transfers":[{"from_handle":"dee","to_handle":"bob","amount":1}],"x":%s}' % x
+    table = [(b"1000", b"1000.0", 200), (b"1000", b"1e3", 200), (b"1000", b"10E2", 200), (b"1.5", b"1.50", 200), (b"1.5", b"15e-1", 200),
+             (b"1.5", b"1.6", 409), (b"1", b"true", 409), (b"1", b'"1"', 409), (b"1", b"null", 409), (b'{"\xef\xb7\x90n":"15e-1"}'.decode("unicode_escape").encode("latin-1"), b"1.5", 409),
+             (b"1" + b"0" * 4100, b"1e4100", 200), (b"1" + b"0" * 4100, b"1" + b"0" * 4099 + b"1", 409), (b"[1,2]", b"[2,1]", 409), (b'{"a":1,"b":2}', b' {"b" : 2,\n"a":1}', 200)]
+    for x, y, e in table:
+        replay("/payments", ada, P(x), P(y), e)
+        replay("/settlements", dee, S_(x), S_(y), e)
+    # 50 identical max-size requests with one key: one 201, 49 identical 200s
+    raw = P(b"[" + b"1.5," * 3500 + b'0],"y":"' + b"a" * 480000 + b'"')
     k = K()
-    ada = login("ada")
-    assert call("POST", "/payments", raw=raw, token=ada, key=k)[0] == 201
-    assert call("POST", "/payments", raw=raw, token=ada, key=k)[0] == 200
-    err(call("POST", "/payments", raw=raw.replace(b'"a":1', b'"a":2', 1), token=ada, key=k), 409, "idempotency_key_reuse")
+    r = burst(50, lambda i: call("POST", "/payments", raw=raw, token=ada, key=k))
+    assert [x[0] for x in r].count(201) == 1 and [x[0] for x in r].count(200) == 49, [x[0] for x in r]
+    assert len({json.dumps(x[1], sort_keys=True) for x in r}) == 1
 
 
 def timed(f):

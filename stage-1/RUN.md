@@ -22,11 +22,25 @@ BASE_URL=http://localhost:8080 python3 tests/test_stage1.py
 
 ## Implementation limits
 
-- Ordinary API endpoints refuse request bodies larger than 96 KiB with 413 `payload_too_large`
-  (the excess is drained, never buffered). `/_test/reset` and `/_test/import` accept up to 512 MiB
-  (a memory guard only), so any export this service produces can be imported again.
-- On ordinary endpoints, JSON bodies nested deeper than 128 levels of `[`/`{` are refused with 400
-  `malformed_request` (checked at C speed before parsing). Reset/import bodies are parsed by the
-  standard decoder; a body too deep for it is also 400.
-- Parsing, canonicalisation, validation and password hashing run outside the global lock; the lock
-  covers only the authenticate / replay-lookup / validate / mutate step and the state swap.
+Ordinary API endpoints (everything except `/_test/reset` and `/_test/import`):
+
+- request body at most 512 KiB, else 413 `payload_too_large` (excess drained, never buffered);
+- at most 16 KiB of JSON structure (everything left after removing string literals and whitespace:
+  numbers, brackets, commas, colons), else 413 `payload_too_large`; this bounds the number of
+  numbers/keys in any accepted body;
+- JSON nesting at most 128 levels, else 400 `malformed_request`.
+
+`/_test/reset` and `/_test/import` accept up to 512 MiB (a memory guard only) so any export this
+service produces can be imported again; they are parsed with the standard decoder (too deep -> 400).
+
+Idempotency body equality ("same JSON value"): two bodies are equal iff a fingerprint (all numbers
+read as floats, keys sorted) is equal and the exactly-parsed values (ints, Decimal floats) compare
+equal. So key order/whitespace are irrelevant, `1000 == 1000.0 == 1e3`, `1.5 == 1.50 == 15e-1`,
+`1 != true != "1" != null`, array order matters. Known and accepted: `-0.0` and `0` in an unknown
+field count as different bodies, as do two exponent literals too large for a float to tell apart.
+The stored body text of a claimed key is re-parsed under the lock for the comparison (bounded by the
+limits above to a few milliseconds).
+
+Parsing, validation of the body and password hashing run outside the global lock; the lock covers only
+authenticate / replay lookup / validate against state / mutate and the state swap. Bodies over 32 KiB
+are processed one at a time so small requests stay responsive.

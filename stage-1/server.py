@@ -20,7 +20,8 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 MAX_AMOUNT = 1_000_000_000
 MAX_BALANCE = 2 ** 53
-MAX_BODY = 96 * 1024  # ordinary API endpoints (largest legitimate body: ~77 KB settlement)
+MAX_BODY = 512 * 1024  # ordinary API endpoints
+MAX_STRUCTURE = 16384  # non-string, non-whitespace bytes of JSON on ordinary endpoints
 MAX_CONTROL_BODY = 512 * 1024 * 1024  # /_test/reset and /_test/import (memory guard)
 CONTROL_PATHS = ("/_test/reset", "/_test/import")
 MAX_DEPTH = 128
@@ -70,57 +71,60 @@ _DELTA = {91: 1, 123: 1, 93: -1, 125: -1}
 _NOT_BRACKET = bytes(set(range(256)) - set(b"[]{}"))
 
 
-def check_depth(raw):
-    """Reject bodies nested deeper than MAX_DEPTH. Strings are stripped, only brackets kept, and the
-    maximum running open-minus-close balance (= nesting depth) is taken with C-level iterators."""
-    if raw.count(b"[") + raw.count(b"{") <= MAX_DEPTH:
+def check_depth(structural):
+    """Reject nesting deeper than MAX_DEPTH. `structural` has strings and whitespace removed; only
+    brackets are kept and the maximum running open-minus-close balance (= depth) is taken with
+    C-level iterators."""
+    if structural.count(b"[") + structural.count(b"{") <= MAX_DEPTH:
         return
-    br = _STR_RE.sub(b"", raw).translate(None, _NOT_BRACKET)
+    br = structural.translate(None, _NOT_BRACKET)
     if max(accumulate(map(_DELTA.__getitem__, br), initial=0)) > MAX_DEPTH:
         raise malformed("body nested too deeply (limit %d)" % MAX_DEPTH)
 
 
-def parse_json(raw, depth_check=True):
-    if depth_check:
-        check_depth(raw)
+def _load_exact(text):
+    """Exact parse: ints as int, floats as Decimal (the C type is the hook, no Python callback)."""
+    try:
+        return json.loads(text, parse_float=Decimal, parse_constant=_bad_constant)
+    except json.JSONDecodeError:
+        raise
+    except (ValueError, ArithmeticError):  # int literal beyond the digit limit / huge exponent
+        return json.loads(text, parse_float=_parse_float, parse_int=_parse_int,
+                          parse_constant=_bad_constant)
+
+
+def parse_body(raw, ordinary=True):
+    """-> (exact, fingerprint, text). Ordinary endpoints: bounded structure and nesting first.
+
+    Two bodies are the same JSON value iff fingerprints are equal AND exact values compare equal.
+    The fingerprint (all numbers as C floats, sorted keys) fixes structure, strings and the kind of
+    every scalar; `==` on the exact values makes numbers compare exactly."""
+    fp = None
+    if ordinary:
+        structural = _STR_RE.sub(b"", raw).translate(None, b" \t\r\n")
+        if len(structural) > MAX_STRUCTURE:
+            raise ApiError(413, "payload_too_large", "too many JSON tokens")
+        check_depth(structural)
     try:
         text = raw.decode("utf-8")
-        try:
-            # fast path: C-speed ints and Decimal floats, no Python-level hooks
-            return json.loads(text, parse_float=Decimal, parse_constant=_bad_constant)
-        except json.JSONDecodeError:
-            raise
-        except (ValueError, ArithmeticError):  # int literal beyond the digit limit / huge exponent
-            return json.loads(text, parse_float=_parse_float, parse_int=_parse_int,
-                              parse_constant=_bad_constant)
+        exact = _load_exact(text)
+        if ordinary:
+            fp = json.dumps(json.loads(text, parse_float=float, parse_int=float,
+                                       parse_constant=_bad_constant),
+                            sort_keys=True, separators=(",", ":"))
     except (ValueError, RecursionError, UnicodeDecodeError):
         raise malformed("body is not valid JSON")
+    return exact, fp, text
 
 
-_CTX = decimal.Context(prec=decimal.MAX_PREC, Emax=decimal.MAX_EMAX, Emin=decimal.MIN_EMIN)
-
-
-def _canon_default(d):
-    """Numbers parsed as Decimal: integral values below 10**40 canonicalise to the same text as
-    ints (1000 == 1000.0 == 1e3); anything else gets a tagged canonical form."""
-    if not isinstance(d, Decimal):
-        raise TypeError("unserialisable")
-    if not d.is_finite():
-        return {"\ufdd0n": "inf"}
-    n = d.normalize(_CTX)
-    if not n:
-        return 0
-    if n.as_tuple().exponent >= 0 and n.adjusted() < 40:
-        return int(n)
-    return {"\ufdd0n": str(n)}
-
-
-def canon(v):
-    """Canonical text of a parsed JSON value: key order irrelevant, 1000 == 1000.0 == 1e3."""
+def same_body(rec, ctx):
+    """True when a stored idempotency record holds the same JSON value as the current body."""
+    if rec["fp"] != ctx.fp:
+        return False
     try:
-        return json.dumps(v, sort_keys=True, separators=(",", ":"), default=_canon_default)
-    except (RecursionError, ValueError):
-        raise malformed("body cannot be canonicalised")
+        return _load_exact(rec["text"]) == ctx.exact
+    except (ValueError, RecursionError, ArithmeticError):
+        return False
 
 
 def to_int(v, lo, hi):
@@ -306,7 +310,7 @@ class State:
             "payments": [dict(p) for p in self.pay_list],
             "requests": [dict(r) for r in self.req_list],
             "idempotency": [{"user": k[0], "method": k[1], "path": k[2], "key": k[3],
-                             "body": v["body"], "status": v["status"],
+                             "fp": v["fp"], "text": v["text"], "status": v["status"],
                              "response": v["response"]} for k, v in self.idem.items()],
             "operators": sorted(self.operators),
             "counters": dict(self.counters), "seq": self.seq, "last_ts": _last_ts[0],
@@ -483,11 +487,12 @@ def build_from_export(doc):
     for e in s["idempotency"]:
         need(isinstance(e, dict), "idempotency entry")
         need(e.get("user") in st.users and is_str(e.get("method")) and is_str(e.get("path"))
-             and is_str(e.get("key")) and is_str(e.get("body")), "idempotency entry")
+             and is_str(e.get("key")) and is_str(e.get("fp")) and is_str(e.get("text")),
+             "idempotency entry")
         need(to_int(e.get("status"), 100, 599) is not None and isinstance(e.get("response"), dict),
              "idempotency entry")
         st.idem[(e["user"], e["method"], e["path"], e["key"])] = {
-            "body": e["body"], "status": to_int(e["status"], 100, 599),
+            "fp": e["fp"], "text": e["text"], "status": to_int(e["status"], 100, 599),
             "response": e["response"]}
     for o in s["operators"]:
         need(is_str(o) and o in st.users, "operator")
@@ -520,14 +525,16 @@ class Ctx:
         self.params = ()
         self.control = path in CONTROL_PATHS
         self.need_operator = False
-        self.canon = None
+        self.exact = self.fp = self.text = None
 
     def body_object(self, allow_empty=False):
         if allow_empty and not self.raw.strip():
-            return {}
-        v = parse_json(self.raw, not self.control)
+            self.exact, self.fp, self.text = {}, "{}", "{}"
+            return self.exact
+        v, self.fp, self.text = parse_body(self.raw, not self.control)
         if not isinstance(v, dict):
             raise malformed("body must be a JSON object")
+        self.exact = v
         return v
 
     def authenticate(self):
@@ -577,7 +584,9 @@ def paginate(ctx):
 def idempotent(ctx, body, fn):
     """Under one lock acquisition: re-authenticate, resolve a claimed key, validate, mutate.
 
-    The body was already parsed and canonicalised (ctx.canon) outside the lock."""
+    The body was parsed and fingerprinted (ctx.exact/fp/text) outside the lock; comparing it with
+    a claimed key's stored body re-parses that stored text under the lock, which the 512 KiB /
+    16 KiB-of-structure bounds keep to a few milliseconds."""
     k_tail = (ctx.method, ctx.path, ctx.key_value)
     with LOCK:
         ctx.authenticate()
@@ -585,14 +594,13 @@ def idempotent(ctx, body, fn):
         if ctx.need_operator and ctx.user_id not in st.operators:
             raise ApiError(403, "forbidden", "settlement operators only")
         k = (ctx.user_id,) + k_tail
-        c = ctx.canon
         rec = st.idem.get(k)
         if rec is not None:
-            if rec["body"] == c:
+            if same_body(rec, ctx):
                 return 200, rec["response"]
             raise ApiError(409, "idempotency_key_reuse", "key already used with a different body")
         resp = fn(st)
-        st.idem[k] = {"body": c, "status": 201, "response": resp}
+        st.idem[k] = {"fp": ctx.fp, "text": ctx.text, "status": 201, "response": resp}
         return 201, resp
 
 
@@ -693,7 +701,6 @@ def idem_entry(ctx, allow_empty=False):
     ctx.authenticate()
     ctx.key_value = ctx.key()
     body = ctx.body_object(allow_empty)
-    ctx.canon = canon(body)
     return body
 
 
@@ -889,7 +896,6 @@ def h_settlement(ctx):
     ctx.need_operator = True
     ctx.key_value = ctx.key()
     body = ctx.body_object()
-    ctx.canon = canon(body)
 
     def run(st):
         ts_ = body.get("transfers", MISSING)
