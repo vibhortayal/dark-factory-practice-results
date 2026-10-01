@@ -788,7 +788,7 @@ def deep_json_burst_is_fast():  # A6/A7: depth cap 128; hostile nesting is cheap
     # brackets inside strings do not count
     raw = json.dumps({"to_handle": "bob", "amount": 1, "note": "[" * 120 + '\\"' + "{" * 60}).encode()
     assert call("POST", "/payments", raw=raw, token=ada, key=K())[0] == 201
-    for d in (129, 1200, 5000, 9000, 90000):
+    for d in (129, 1200, 5000, 9000, 40000):
         t0 = time.time()
         r = burst(50, lambda i: call("POST", "/payments", raw=body(d), token=ada, key=K())[0])
         assert set(r) == {400} and time.time() - t0 < 5, (d, set(r), time.time() - t0)
@@ -809,16 +809,18 @@ def deep_json_burst_is_fast():  # A6/A7: depth cap 128; hostile nesting is cheap
 @test
 def max_body_perf():  # ordinary bodies at the 256 KiB cap: fast, outside the lock, /me and /health responsive
     ada, bob, cy = basic3(ada=10 ** 9)
-    cap = 250 * 1024
+    cap = 94 * 1024
     variants = {
         "zeros": b"[" + b"0," * (cap // 2) + b"0]",
         "string": b'"' + b"a" * cap + b'"',
         "objects": b"[" + b'{"a":1,"b":[2]},' * (cap // 16) + b"{}]",
         "brackets": b"[" + b"[]," * (cap // 3) + b"[]]",
     }
+    for u in (b"1E999,", b"1.5,", b"1e9,", b"1e1,", b"1.5e-9,", b"-0.0,"):
+        variants["num " + u.decode()] = b"[" + u * (cap // len(u)) + b"0]"
     for name, x in variants.items():
         raw = b'{"to_handle":"bob","amount":1,"x":' + x + b"}"
-        assert len(raw) <= 256 * 1024, (name, len(raw))
+        assert len(raw) <= 96 * 1024, (name, len(raw))
         t0 = time.time()
         assert call("POST", "/payments", raw=raw, token=ada, key=K())[0] == 201
         single = time.time() - t0
@@ -839,9 +841,19 @@ def max_body_perf():  # ordinary bodies at the 256 KiB cap: fast, outside the lo
         el = time.time() - t0
         print("   %-8s %6d bytes single %.2fs 50-way %.2fs probe max %.2fs" % (name, len(raw), single, el, max(lat)))
         assert set(codes) == {201} and el < 5 and single < 1 and max(lat) < 1, (name, set(codes), el, single, lat)
+    # largest legitimate ordinary body: 32 transfers with 200 astral-plane characters each, \\u-escaped
+    reset([U(0, "ada", 10 ** 6), U(0, "bob", 0), U(0, "dee", 10 ** 6)], settlement_operator_ids=["u_dee"])
+    dee = login("dee")
+    tr = [{"from_handle": "dee", "to_handle": "bob", "amount": 1, "note": "\U0001F600" * 200} for _ in range(32)]
+    big = json.dumps({"transfers": tr}).encode()
+    assert 70000 < len(big) < 96 * 1024, len(big)
+    s, js, _, _ = call("POST", "/settlements", raw=big, token=dee, key=K())
+    assert s == 201 and len(js["payments"]) == 32 and js["payments"][0]["note"] == "\U0001F600" * 200
+    ada = login("ada")
     # idempotent replay of a big body still compares correctly
     raw = b'{"to_handle":"bob","amount":1,"x":' + variants["objects"] + b"}"
     k = K()
+    ada = login("ada")
     assert call("POST", "/payments", raw=raw, token=ada, key=k)[0] == 201
     assert call("POST", "/payments", raw=raw, token=ada, key=k)[0] == 200
     err(call("POST", "/payments", raw=raw.replace(b'"a":1', b'"a":2', 1), token=ada, key=k), 409, "idempotency_key_reuse")

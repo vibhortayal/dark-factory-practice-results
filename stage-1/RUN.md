@@ -22,7 +22,7 @@ BASE_URL=http://localhost:8080 python3 tests/test_stage1.py
 
 ## Implementation limits
 
-- Ordinary API endpoints refuse request bodies larger than 256 KiB with 413 `payload_too_large`
+- Ordinary API endpoints refuse request bodies larger than 96 KiB with 413 `payload_too_large`
   (the excess is drained, never buffered). `/_test/reset` and `/_test/import` accept up to 512 MiB
   (a memory guard only), so any export this service produces can be imported again.
 - On ordinary endpoints, JSON bodies nested deeper than 128 levels of `[`/`{` are refused with 400

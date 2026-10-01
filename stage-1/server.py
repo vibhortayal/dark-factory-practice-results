@@ -1,5 +1,6 @@
 """Pocketful stage 1: payments and settlements. Standard library only, in-memory state."""
 import datetime as dt
+import decimal
 import hashlib
 import hmac
 import json
@@ -19,7 +20,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 MAX_AMOUNT = 1_000_000_000
 MAX_BALANCE = 2 ** 53
-MAX_BODY = 256 * 1024  # ordinary API endpoints
+MAX_BODY = 96 * 1024  # ordinary API endpoints (largest legitimate body: ~77 KB settlement)
 MAX_CONTROL_BODY = 512 * 1024 * 1024  # /_test/reset and /_test/import (memory guard)
 CONTROL_PATHS = ("/_test/reset", "/_test/import")
 MAX_DEPTH = 128
@@ -85,34 +86,33 @@ def parse_json(raw, depth_check=True):
     try:
         text = raw.decode("utf-8")
         try:
-            # fast path: C-speed ints; only floats go through the Decimal hook
-            return json.loads(text, parse_float=_parse_float, parse_constant=_bad_constant)
+            # fast path: C-speed ints and Decimal floats, no Python-level hooks
+            return json.loads(text, parse_float=Decimal, parse_constant=_bad_constant)
         except json.JSONDecodeError:
             raise
-        except ValueError:  # integer literal beyond the interpreter's digit limit
+        except (ValueError, ArithmeticError):  # int literal beyond the digit limit / huge exponent
             return json.loads(text, parse_float=_parse_float, parse_int=_parse_int,
                               parse_constant=_bad_constant)
     except (ValueError, RecursionError, UnicodeDecodeError):
         raise malformed("body is not valid JSON")
 
 
+_CTX = decimal.Context(prec=decimal.MAX_PREC, Emax=decimal.MAX_EMAX, Emin=decimal.MIN_EMIN)
+
+
 def _canon_default(d):
-    """Numbers parsed as Decimal: integral values canonicalise to the same text as ints."""
+    """Numbers parsed as Decimal: integral values below 10**40 canonicalise to the same text as
+    ints (1000 == 1000.0 == 1e3); anything else gets a tagged canonical form."""
     if not isinstance(d, Decimal):
         raise TypeError("unserialisable")
     if not d.is_finite():
         return {"\ufdd0n": "inf"}
-    sign, digits, exp = d.as_tuple()
-    digits = list(digits)
-    while digits and digits[-1] == 0:
-        digits.pop()
-        exp += 1
-    if not digits:
+    n = d.normalize(_CTX)
+    if not n:
         return 0
-    if exp >= 0 and len(digits) + exp <= 4000:
-        n = int("".join(map(str, digits))) * 10 ** exp
-        return -n if sign else n
-    return {"\ufdd0n": "%s%se%d" % ("-" if sign else "", "".join(map(str, digits)), exp)}
+    if n.as_tuple().exponent >= 0 and n.adjusted() < 40:
+        return int(n)
+    return {"\ufdd0n": str(n)}
 
 
 def canon(v):
