@@ -141,7 +141,7 @@ test('U4-U10: capture semantics', async () => {
   const id = a.authorization_id;
   const p = await capture(t.bob, id, { amount: 1500 });
   assert.equal(p.status, 201, p.text);
-  assert.deepEqual(Object.keys(p.json), ['payment_id', 'from_user_id', 'from_handle', 'to_user_id', 'to_handle', 'amount', 'currency', 'note', 'visibility', 'request_id', 'settlement_id', 'authorization_id', 'created_at']);
+  assert.deepEqual(Object.keys(p.json), ['payment_id', 'from_user_id', 'from_handle', 'to_user_id', 'to_handle', 'amount', 'currency', 'note', 'visibility', 'request_id', 'settlement_id', 'authorization_id', 'refund_of', 'created_at']);
   assert.equal(p.json.amount, 1500); assert.equal(p.json.authorization_id, id); assert.equal(p.json.request_id, null); assert.equal(p.json.settlement_id, null);
   assert.equal(p.json.note, 'dep'); assert.equal(p.json.visibility, 'private'); assert.equal(p.json.from_handle, 'ada'); assert.equal(p.json.to_handle, 'bob');
   assert.equal(p.json.created_at.length, 32);
@@ -374,7 +374,7 @@ test('U16/T12/T14: stage-2 export/import round trip', async () => {
   const fail = k();
   err(await create(t.ada, { to_handle: 'ghost', amount: 1 }, fail), 404, 'not_found');
   const e1 = (await c.get('/_test/export')).json;
-  assert.equal(e1.format_version, 1); assert.equal(e1.state.schema_version, 3); assert.equal(e1.state.authorization_ttl_seconds, 7);
+  assert.equal(e1.format_version, 1); assert.equal(e1.state.schema_version, 4); assert.equal(e1.state.authorization_ttl_seconds, 7);
   assert.equal((await c.reset(FX())).status, 204);
   assert.equal((await c.post('/_test/import', { body: e1 })).status, 204);
   assert.deepEqual((await c.get('/_test/export')).json, e1);
@@ -392,7 +392,7 @@ test('U16/T12/T14: stage-2 export/import round trip', async () => {
   const good = JSON.parse(JSON.stringify(e1));
   const mut = (f) => { const d = JSON.parse(JSON.stringify(good)); f(d); return d; };
   assert.equal((await c.post('/_test/import', { body: good })).status, 204);
-  for (const bad of [mut((d) => { d.state.authorizations[0].amount = 0; }), mut((d) => { d.state.authorizations[0].status = 'x'; }), mut((d) => { d.state.authorizations[0].from_user_id = 'ghost'; }), mut((d) => { d.state.authorizations[0].amount = 99999999; d.state.authorizations[0].captured_amount = 0; }), mut((d) => { d.state.authorization_ttl_seconds = 0; }), mut((d) => { d.state.schema_version = 4; }), mut((d) => { d.state.authorizations = 5; })]) {
+  for (const bad of [mut((d) => { d.state.authorizations[0].amount = 0; }), mut((d) => { d.state.authorizations[0].status = 'x'; }), mut((d) => { d.state.authorizations[0].from_user_id = 'ghost'; }), mut((d) => { d.state.authorizations[0].amount = 99999999; d.state.authorizations[0].captured_amount = 0; }), mut((d) => { d.state.authorization_ttl_seconds = 0; }), mut((d) => { d.state.schema_version = 5; }), mut((d) => { d.state.authorizations = 5; })]) {
     err(await c.post('/_test/import', { body: bad }), 422, 'validation_failed');
   }
   assert.deepEqual((await c.get('/_test/export')).json, good);

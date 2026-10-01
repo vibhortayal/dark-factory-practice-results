@@ -83,18 +83,14 @@ test('K3: no external URL anywhere in the shipped UI', () => {
   }
 });
 
-test('AA3: no stage-4 surface', async () => {
-  for (const p of ['/payments/p_1/refunds', '/refunds', '/correction-batches', '/correction-batches/x']) {
-    const r = await c.get(p, { token: t.ada }); assert.equal(r.status, 404, p);
-    assert.equal((await c.post(p, { token: t.ada, key: k(), body: {} })).status, 404, p);
-  }
+test('BB9/BC5: payments carry refund_of and revisions carry correction_batch_id', async () => {
   const pay = (await c.post('/payments', { token: t.ada, key: k(), body: { to_handle: 'bob', amount: 5 } })).json;
-  assert.ok(!('refund_of' in pay));
+  assert.equal(pay.refund_of, null);
   const cor = await c.post(`/payments/${pay.payment_id}/corrections`, { token: t.ada, key: k(), body: { expected_revision: 1, amount: 4, effective_at: pay.created_at, reason: 'r' } });
   assert.equal(cor.status, 201);
-  assert.ok(!('correction_batch_id' in cor.json));
+  assert.equal(cor.json.correction_batch_id, null);
   const revs = (await c.get(`/payments/${pay.payment_id}/revisions`, { token: t.ada })).json.revisions;
-  assert.ok(revs.every((r) => !('correction_batch_id' in r)));
+  assert.ok(revs.every((r) => r.correction_batch_id === null));
 });
 
 // Needs the sibling ../stage-1 folder (a source checkout); skipped inside the image, where docker-upgrade.sh covers it.

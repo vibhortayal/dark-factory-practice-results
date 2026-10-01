@@ -40,6 +40,7 @@ async function scenario(seed) {
   const payments = new Map(); // id -> original payment object
   const auths = [];
   const startMs = Date.now();
+  let refundsOk = 0, batchesOk = 0;
 
   for (let step = 0; step < 70; step++) {
     const op = R();
@@ -68,6 +69,23 @@ async function scenario(seed) {
     } else if (op < 0.92 && auths.length) {
       const h = pickOne(auths);
       await c.post(`/authorizations/${h.id}/void`, { token: tok[h.from] });
+    } else if (op < 0.955 && paymentIds.length) {
+      // refund by the receiver
+      const id = pickOne(paymentIds);
+      const owner = await anyParty(id);
+      const entry = (await c.get('/statement?limit=200', { token: tok[owner] })).json.entries.find((e) => e.payment.payment_id === id);
+      const r = await c.post(`/payments/${id}/refunds`, { token: tok[entry.payment.to_handle], key: k(), body: { amount: ri(1, 200) } });
+      if (r.status === 201) { paymentIds.push(r.json.payment_id); refundsOk++; }
+    } else if (op < 0.985 && paymentIds.length) {
+      // operator batch of one or two payments
+      const picks = [...new Set([pickOne(paymentIds), pickOne(paymentIds)])];
+      const corrections = [];
+      for (const id of picks) {
+        const owner = await anyParty(id);
+        const revs = (await c.get(`/payments/${id}/revisions`, { token: tok[owner] })).json.revisions;
+        corrections.push({ payment_id: id, expected_revision: revs.length, amount: ri(0, 500), effective_at: iso(ri(T0, Date.now())), reason: `b${step}` });
+      }
+      if ((await c.post('/correction-batches', { token: tok.op, key: k(), body: { corrections } })).status === 201) batchesOk++;
     } else {
       const r = await c.post('/settlements', { token: tok.op, key: k(), body: { transfers: [{ from_handle: a, to_handle: b, amount: ri(1, 200) }, { from_handle: b, to_handle: 'cy' === b ? 'ada' : 'cy', amount: ri(1, 100) }] } });
       if (r.status === 201) for (const p of r.json.payments) paymentIds.push(p.payment_id);
@@ -85,6 +103,7 @@ async function scenario(seed) {
     return null;
   }
   const endMs = Date.now();
+  assert.ok(refundsOk + batchesOk >= 1, `seed ${seed}: no refund or batch succeeded`);
 
   // ---- the brute-force model from API-visible records ----
   const model = { pays: [], auths: [] };

@@ -115,16 +115,16 @@ export function statementOf(s, user, fromNs, toNsExclusive, K, kseqLimit) {
 
 // ---- historical overdraft ----
 
-// Would the latest revisions, with `proposal` appended for payment `proposal.payment`, ever leave
+// Would the latest revisions, with every proposed revision in `proposals` (Map payment -> { amount, eff }) applied together, ever leave
 // `user`'s total or available negative at some boundary? Boundaries are grouped by exact instant and each
 // group's combined effect is applied before testing.
-export function overdrawsHistory(s, user, proposal) {
+export function overdrawsHistory(s, user, proposals) {
   const events = new Map(); // ns -> { dt, dh }
   const at = (t) => { if (!events.has(t)) events.set(t, { dt: 0, dh: 0 }); return events.get(t); };
   for (const p of s.payments) {
     const sg = sign(p, user.id);
     if (sg === 0) continue;
-    const r = proposal && proposal.payment === p ? proposal.revision : selected(p, null, FOREVER);
+    const r = proposals && proposals.has(p) ? proposals.get(p) : selected(p, null, FOREVER);
     if (r) at(r.eff).dt += sg * r.amount;
   }
   for (const a of s.authorizations) {

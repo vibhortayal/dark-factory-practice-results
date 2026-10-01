@@ -12,6 +12,7 @@ import { exportState, importState, idemId } from './snapshot.js';
 import { paging, oneOf, page } from './validate.js';
 import * as ledger from './ledger.js';
 import * as queries from './queries.js';
+import * as corrections from './corrections.js';
 
 const EMAIL_RE = /^[^@\s]+@[^@\s]+$/;
 
@@ -139,12 +140,18 @@ export async function handle(req, res) {
     const u = authenticate(req);
     return sendJson(res, 200, queries.statement(u, url.search));
   }
-  if ((m = /^\/payments\/([^/]+)\/(corrections|revisions)$/.exec(path)) && (method === 'POST') === (m[2] === 'corrections')) {
+  if ((m = /^\/payments\/([^/]+)\/(corrections|revisions|refunds)$/.exec(path)) && (method === 'POST') === (m[2] !== 'revisions')) {
     let id;
     try { id = decodeURIComponent(m[1]); } catch { throw notFound(); }
     const u = authenticate(req);
-    if (m[2] === 'revisions') return sendJson(res, 200, ledger.listRevisions(u, id));
-    return idempotent(req, res, u, method, path, buf, (b) => ledger.correctPayment(u, id, b));
+    if (m[2] === 'revisions') return sendJson(res, 200, corrections.listRevisions(u, id));
+    if (m[2] === 'refunds') return idempotent(req, res, u, method, path, buf, (b) => ledger.refundPayment(u, id, b));
+    return idempotent(req, res, u, method, path, buf, (b) => corrections.correctPayment(u, id, b));
+  }
+  if (path === '/correction-batches' && method === 'POST') {
+    const u = authenticate(req);
+    if (!store.s.operators.has(u.id)) throw forbidden('correction batches require an operator');
+    return idempotent(req, res, u, method, path, buf, (b) => corrections.correctBatch(u, b));
   }
   if (path === '/payments' && method === 'POST') {
     const u = authenticate(req);

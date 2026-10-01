@@ -199,7 +199,7 @@ test('AE: corrections, revisions, money, replay', async () => {
   const eff = at(-30);
   const r = await correct(t.ada, p.payment_id, goodBody({ amount: 400, effective_at: eff }), key);
   assert.equal(r.status, 201, r.text);
-  assert.deepEqual(Object.keys(r.json), ['payment_id', 'revision', 'amount', 'effective_at', 'recorded_at', 'reason']);
+  assert.deepEqual(Object.keys(r.json), ['payment_id', 'revision', 'amount', 'effective_at', 'recorded_at', 'reason', 'correction_batch_id']);
   assert.equal(r.json.revision, 2); assert.equal(r.json.amount, 400); assert.equal(r.json.effective_at, eff); assert.equal(r.json.reason, 'corrected amount');
   assert.ok(Date.parse(r.json.recorded_at) > Date.parse(p.created_at));
   // decrease: the receiver gives the difference back; parties and visibility never change

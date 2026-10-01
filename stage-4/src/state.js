@@ -3,7 +3,7 @@
 import { stampAt } from './time.js';
 import { msToNs } from './instants.js';
 
-export const STATE_SCHEMA_VERSION = 3;
+export const STATE_SCHEMA_VERSION = 4;
 
 export function emptyState() {
   return {
@@ -30,7 +30,7 @@ export function emptyState() {
     lastMs: 0, // latest stamp issued; the service clock never runs backwards
     floorMs: 0, // stamps are at least this (the instant after reset), so reset-time records precede later ones
     snapshots: new Map(), // statement snapshot token -> { user_id, from, to, known_at, kseq, ... }
-    counters: { u: 0, p: 0, rq: 0, sp: 0, st: 0, a: 0 },
+    counters: { u: 0, p: 0, rq: 0, sp: 0, st: 0, a: 0, cb: 0 },
   };
 }
 
@@ -80,6 +80,7 @@ export const publicPayment = (p) => ({
   request_id: p.request_id,
   settlement_id: p.settlement_id,
   authorization_id: p.authorization_id,
+  refund_of: p.refund_of,
   created_at: p.created_at,
 });
 

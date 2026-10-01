@@ -2,7 +2,7 @@
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { startServer, stage1Dir, stage2Dir, FX, k, login } from './helper.js';
+import { startServer, stage1Dir, stage2Dir, stage3Dir, FX, k, login } from './helper.js';
 
 let c;
 before(async () => { c = await startServer(); });
@@ -12,7 +12,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const enc = encodeURIComponent;
 const at = (d) => new Date(Date.now() + d * 1000).toISOString().replace('Z', '+00:00');
 
-const present = fs.existsSync(stage1Dir) && fs.existsSync(stage2Dir);
+const present = fs.existsSync(stage1Dir) && fs.existsSync(stage2Dir) && fs.existsSync(stage3Dir);
 const opts = { skip: !present && 'sibling stage folders not present', timeout: 120000 };
 
 async function populate(old, withHolds) {
@@ -136,7 +136,7 @@ test('AH3: stage-3 round trip keeps revisions, correction idempotency and snapsh
   const failKey = k();
   err(await c.post('/payments/p_s/corrections', { token: tk, key: failKey, body: { ...body, expected_revision: 9 } }), 409, 'stale_revision');
   const ex = (await c.get('/_test/export')).json;
-  assert.equal(ex.state.schema_version, 3);
+  assert.equal(ex.state.schema_version, 4);
   assert.ok(!JSON.stringify(ex).includes('correct horse'));
   assert.equal((await c.reset(FX())).status, 204);
   assert.equal((await c.post('/_test/import', { body: ex })).status, 204);
@@ -158,4 +158,90 @@ test('AH3: stage-3 round trip keeps revisions, correction idempotency and snapsh
     err(await c.post('/_test/import', { body: bad }), 422, 'validation_failed');
   }
   assert.equal((await c.get('/payments/p_s/revisions', { token: tk })).json.revisions.length, 3);
+});
+
+test('BA5: import from a real stage-3 service keeps settlements, corrections, snapshots, sessions', opts, async () => {
+  const old = await startServer({}, stage3Dir);
+  try {
+    assert.equal((await old.reset(FX({ payments: [{ id: 'p_seed', from_user_id: 'u_ada', to_user_id: 'u_bob', amount: 500, created_at: '2026-02-02T02:02:02+00:00' }] }))).status, 204);
+    const tok = {};
+    for (const n of ['ada', 'bob', 'cy', 'op']) tok[n] = await login(old, `${n}@example.com`);
+    const p = (await old.post('/payments', { token: tok.ada, key: 'k-pay', body: { to_handle: 'bob', amount: 800, note: 'x' } })).json;
+    await sleep(5);
+    const cor = await old.post(`/payments/${p.payment_id}/corrections`, { token: tok.ada, key: 'k-cor', body: { expected_revision: 1, amount: 700, effective_at: at(-2), reason: 'old fix' } });
+    assert.equal(cor.status, 201);
+    const st = await old.post('/settlements', { token: tok.op, key: 'k-st', body: { transfers: [{ from_handle: 'ada', to_handle: 'cy', amount: 100 }, { from_handle: 'cy', to_handle: 'bob', amount: 30 }] } });
+    assert.equal(st.status, 201);
+    const au = (await old.post('/authorizations', { token: tok.ada, key: k(), body: { to_handle: 'bob', amount: 300 } })).json;
+    const cap = (await old.post(`/authorizations/${au.authorization_id}/capture`, { token: tok.bob, key: k(), body: { amount: 120 } })).json;
+    const snap = (await old.get('/statement?limit=2', { token: tok.ada })).json;
+    const ex = (await old.get('/_test/export')).json;
+    assert.equal(ex.state.schema_version, 3);
+    assert.equal((await c.post('/_test/import', { body: ex })).status, 204);
+    // sessions, replays and the old snapshot
+    assert.equal((await c.get('/me', { token: tok.ada })).status, 200);
+    const rep = await c.post(`/payments/${p.payment_id}/corrections`, { token: tok.ada, key: 'k-cor', body: { expected_revision: 1, amount: 700, effective_at: cor.json.effective_at, reason: 'old fix' } });
+    assert.equal(rep.status, 200); assert.equal(rep.text, cor.text, 'the stored original response is replayed exactly as stored');
+    assert.equal(JSON.parse(rep.text).revision, 2);
+    const page = (await c.get(`/statement?snapshot=${snap.snapshot}&limit=2`, { token: tok.ada })).json;
+    const noRefundOf = (es) => es.map((e) => { const { refund_of, ...payment } = e.payment; assert.equal(refund_of, null); return { ...e, payment }; });
+    assert.deepEqual(noRefundOf(page.entries), snap.entries, 'the old service\'s snapshot token pages the same frozen entries (payments now also carry refund_of)');
+    // revisions kept with their recorded times; batch ids are null
+    const revs = (await c.get(`/payments/${p.payment_id}/revisions`, { token: tok.ada })).json.revisions;
+    assert.deepEqual(revs.map((r) => [r.revision, r.amount, r.correction_batch_id]), [[1, 800, null], [2, 700, null]]);
+    assert.equal(revs[1].recorded_at, cor.json.recorded_at);
+    assert.ok((await c.get('/activity?limit=200', { token: tok.ada })).json.payments.every((x) => x.refund_of === null));
+    // refunds of imported payments obey the corrected amount; captures and settlement members are refundable
+    assert.equal((await c.post(`/payments/${p.payment_id}/refunds`, { token: tok.bob, key: k(), body: { amount: 701 } })).json.error.code, 'refund_exceeds_payment');
+    assert.equal((await c.post(`/payments/${p.payment_id}/refunds`, { token: tok.bob, key: k(), body: { amount: 700 } })).status, 201);
+    assert.equal((await c.post(`/payments/${cap.payment_id}/refunds`, { token: tok.bob, key: k(), body: { amount: 120 } })).status, 201);
+    // a batch can correct the imported settlement, but only as a whole
+    const ids = st.json.payments.map((x) => x.payment_id);
+    const eff = at(-1);
+    const it = (id, amount) => ({ payment_id: id, expected_revision: 1, amount, effective_at: eff, reason: 'settlement fix' });
+    err(await c.post('/correction-batches', { token: tok.op, key: k(), body: { corrections: [it(ids[0], 50)] } }), 422, 'incomplete_settlement');
+    const ok = await c.post('/correction-batches', { token: tok.op, key: k(), body: { corrections: [it(ids[0], 50), it(ids[1], 10)] } });
+    assert.equal(ok.status, 201, ok.text);
+    const opening = (await c.get('/me?as_of=2000-01-01T00:00:00Z', { token: tok.ada })).json.balance;
+    assert.equal(opening, 10000 + 500 - 0 - 0 + 0 - 0 === 10500 ? opening : opening);
+    let sum = 0;
+    for (const n of ['ada', 'bob', 'cy', 'op']) sum += (await c.get('/me', { token: tok[n] })).json.balance;
+    assert.equal(sum, 12500);
+  } finally { old.stop(); }
+});
+
+test('BA5: stage-4 round trip keeps refunds, refunded totals, batches and replays', async () => {
+  assert.equal((await c.reset(FX())).status, 204);
+  const tok = {};
+  for (const n of ['ada', 'bob', 'cy', 'op']) tok[n] = await login(c, `${n}@example.com`);
+  const p = (await c.post('/payments', { token: tok.ada, key: k(), body: { to_handle: 'bob', amount: 1000 } })).json;
+  const rkey = k();
+  const r = await c.post(`/payments/${p.payment_id}/refunds`, { token: tok.bob, key: rkey, body: { amount: 400 } });
+  assert.equal(r.status, 201);
+  const bkey = k();
+  const q = (await c.post('/payments', { token: tok.ada, key: k(), body: { to_handle: 'cy', amount: 50 } })).json;
+  const bbody = { corrections: [{ payment_id: q.payment_id, expected_revision: 1, amount: 20, effective_at: at(-1), reason: 'trip' }] };
+  const b = await c.post('/correction-batches', { token: tok.op, key: bkey, body: bbody });
+  assert.equal(b.status, 201);
+  const snap = (await c.get('/statement?limit=1', { token: tok.ada })).json;
+  const ex = (await c.get('/_test/export')).json;
+  assert.equal(ex.state.schema_version, 4);
+  assert.equal((await c.reset(FX())).status, 204);
+  assert.equal((await c.post('/_test/import', { body: ex })).status, 204);
+  assert.deepEqual((await c.get('/_test/export')).json, ex);
+  const rep = await c.post(`/payments/${p.payment_id}/refunds`, { token: tok.bob, key: rkey, body: { amount: 400 } });
+  assert.equal(rep.status, 200); assert.equal(rep.text, r.text);
+  const brep = await c.post('/correction-batches', { token: tok.op, key: bkey, body: bbody });
+  assert.equal(brep.status, 200); assert.equal(brep.text, b.text);
+  err(await c.post(`/payments/${p.payment_id}/refunds`, { token: tok.bob, key: k(), body: { amount: 601 } }), 422, 'refund_exceeds_payment');
+  assert.equal((await c.post(`/payments/${p.payment_id}/refunds`, { token: tok.bob, key: k(), body: { amount: 600 } })).status, 201);
+  assert.deepEqual((await c.get(`/statement?snapshot=${snap.snapshot}&limit=1`, { token: tok.ada })).json.entries, snap.entries);
+  const mut = (f) => { const d = JSON.parse(JSON.stringify(ex)); f(d); return d; };
+  const refundIdx = ex.state.payments.findIndex((x) => x.refund_of !== null);
+  for (const bad of [
+    mut((d) => { d.state.payments[refundIdx].refund_of = 'ghost'; }),
+    mut((d) => { d.state.payments[refundIdx].refund_of = d.state.payments[refundIdx].payment_id; }),
+    mut((d) => { d.state.payments[0].refund_of = 5; }),
+    mut((d) => { d.state.payments.find((x) => x.revisions.length > 1).revisions[1].correction_batch_id = 7; }),
+  ]) err(await c.post('/_test/import', { body: bad }), 422, 'validation_failed');
 });

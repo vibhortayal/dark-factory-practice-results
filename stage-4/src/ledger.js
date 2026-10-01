@@ -1,9 +1,8 @@
 // Wallet/payment/request logic. Every function here runs synchronously against
 // store.s, so each call is atomic and serialisable by construction.
 import { store, insertOrdered, newId, publicPayment, publicRequest, publicAuthorization, availableOf, heldOf, tickStamp, clockMs } from './state.js';
-import { stampAt, stampAtUs } from './time.js';
-import { msToNs, parseInstantNs } from './instants.js';
-import { overdrawsHistory } from './history.js';
+import { stampAt } from './time.js';
+import { msToNs } from './instants.js';
 import { equalShares } from '../public/assets/js/split.js';
 import { conflict, forbidden, invalid, malformed, notFound } from './errors.js';
 import {
@@ -11,7 +10,7 @@ import {
 } from './validate.js';
 import { has } from './json.js';
 
-function createPayment(s, from, to, amount, note, visibility, requestId, settlementId, stamp, authorizationId = null) {
+function createPayment(s, from, to, amount, note, visibility, requestId, settlementId, stamp, authorizationId = null, refundOf = null) {
   from.balance -= amount;
   to.balance += amount;
   const p = {
@@ -27,6 +26,8 @@ function createPayment(s, from, to, amount, note, visibility, requestId, settlem
     request_id: requestId,
     settlement_id: settlementId,
     authorization_id: authorizationId,
+    refund_of: refundOf,
+    refunded: 0, // cumulative amount refunded so far (bounds later refunds and corrections)
     created_at: stamp.text,
     ts: msToNs(stamp.ms),
     seq: ++s.seq,
@@ -301,59 +302,21 @@ export function voidAuthorization(user, id) {
   return publicAuthorization(a);
 }
 
-// ---- corrections (stage 3) ----
+// ---- refunds (stage 4) ----
 
-export const publicRevision = (p, r) => ({
-  payment_id: p.payment_id,
-  revision: r.revision,
-  amount: r.amount,
-  effective_at: r.effective_at,
-  recorded_at: r.recorded_at,
-  reason: r.reason,
-});
-
-const isInt = (v) => typeof v === 'number' && Number.isInteger(v);
-
-export function correctPayment(user, id, body) {
+// A refund is an ordinary payment in the opposite direction, linked to its target by `refund_of`.
+export function refundPayment(user, id, body) {
   const s = store.s;
-  // Field validation: every missing or invalid field, wrong JSON types included, is 422.
-  if (!has(body, 'expected_revision') || !isInt(body.expected_revision) || body.expected_revision < 1) throw invalid('expected_revision must be a positive integer');
-  if (!has(body, 'amount') || !isInt(body.amount) || body.amount < 0 || body.amount > 1000000000) throw invalid('amount must be an integer from 0 to 1000000000');
-  if (!has(body, 'reason') || typeof body.reason !== 'string' || [...body.reason].length < 1 || [...body.reason].length > 200) throw invalid('reason must be a string of 1 to 200 characters');
-  const effNs = has(body, 'effective_at') ? parseInstantNs(body.effective_at) : null;
-  if (effNs === null) throw invalid('effective_at must be an RFC 3339 instant with an offset');
-  // "Not later than now": the service clock reads whole milliseconds, so allow up to the end of the current millisecond.
-  if (effNs > msToNs(clockMs(s)) + 999999n) throw invalid('effective_at must not be in the future');
+  const amount = checkAmount(body);
   const p = s.paymentById.get(id);
   if (!p) throw notFound('no such payment');
-  if (p.from_user_id !== user.id) throw forbidden('only the original sender may correct a payment');
-  if (p.settlement_id !== null || p.authorization_id !== null) throw invalid_self('linked_payment_immutable', 'settlement members and captures cannot be corrected');
-  const last = p.revisions[p.revisions.length - 1];
-  if (body.expected_revision !== last.revision) throw conflict('stale_revision', 'the payment has a newer revision');
-  const diff = body.amount - last.amount;
+  if (p.to_user_id !== user.id) throw forbidden('only the original receiver may refund a payment');
+  if (p.refund_of !== null) throw invalid_self('invalid_refund_target', 'a refund cannot be refunded');
+  const current = p.revisions[p.revisions.length - 1].amount;
+  if (p.refunded + amount > current) throw invalid_self('refund_exceeds_payment', 'refunds would exceed the payment\'s current amount');
+  if (availableOf(s, user) < amount) throw conflict('insufficient_funds', 'available balance is below amount');
   const sender = s.users.get(p.from_user_id);
-  const receiver = s.users.get(p.to_user_id);
-  // The difference moves between the same two wallets: more -> the sender pays it, less -> the receiver gives it back.
-  if (diff > 0 && availableOf(s, sender) < diff) throw conflict('insufficient_funds', 'available balance is below the difference');
-  if (diff < 0 && availableOf(s, receiver) < -diff) throw conflict('insufficient_funds', 'available balance is below the difference');
-  const proposal = { payment: p, revision: { amount: body.amount, eff: effNs } };
-  if (overdrawsHistory(s, sender, proposal) || overdrawsHistory(s, receiver, proposal)) {
-    throw conflict('historical_overdraft', 'the correction would overdraw a wallet at an earlier time');
-  }
-  // recorded_at is the real clock, bumped past this payment's own previous recorded_at so that it strictly increases.
-  const stamp = stampAtUs(Math.max(tickStamp(s).ms * 1000, Number(last.rec / 1000n) + 1));
-  const rev = {
-    revision: last.revision + 1, amount: body.amount, effective_at: body.effective_at, eff: effNs,
-    recorded_at: stamp.text, rec: stamp.ns, reason: body.reason, kseq: ++s.kseq,
-  };
-  p.revisions.push(rev);
-  sender.balance -= diff;
-  receiver.balance += diff;
-  return publicRevision(p, rev);
-}
-
-export function listRevisions(user, id) {
-  const p = store.s.paymentById.get(id);
-  if (!p || (p.from_user_id !== user.id && p.to_user_id !== user.id)) throw notFound('no such payment');
-  return { revisions: p.revisions.map((r) => publicRevision(p, r)) };
+  const refund = createPayment(s, user, sender, amount, p.note, p.visibility, null, null, tickStamp(s), null, p.payment_id);
+  p.refunded += amount;
+  return publicPayment(refund);
 }

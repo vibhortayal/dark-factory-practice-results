@@ -11,7 +11,7 @@ export function feedItem(ctx, p) {
   const mine = ctx.me.user_id;
   const dir = p.from_user_id === mine ? 'sent' : p.to_user_id === mine ? 'received' : 'other';
   const label = { sent: 'Sent', received: 'Received', other: 'Payment' }[dir];
-  const tag = p.settlement_id ? 'Settlement' : p.authorization_id ? 'Held funds' : p.request_id ? 'Request' : null;
+  const tag = p.refund_of ? 'Refund' : p.settlement_id ? 'Settlement' : p.authorization_id ? 'Held funds' : p.request_id ? 'Request' : null;
   return h('li', { class: `feed-item dir-${dir}`, testid: `activity-item-${p.payment_id}`, 'data-visibility': p.visibility },
     h('div', { class: 'feed-main' },
       h('p', { class: 'feed-title' },

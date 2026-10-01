@@ -164,6 +164,7 @@ export async function buildState(raw) {
       amount, currency: s.currency, note: has(p, 'note') ? p.note : '', visibility: has(p, 'visibility') ? p.visibility : 'public',
       request_id: has(p, 'request_id') ? p.request_id : null, settlement_id: null,
       authorization_id: has(p, 'authorization_id') && str(p.authorization_id) ? p.authorization_id : null,
+      refund_of: has(p, 'refund_of') && str(p.refund_of) ? p.refund_of : null, refunded: 0,
       created_at: stamp.text, ts: ns, seq: ++s.seq,
     };
     rec.revisions = [{ revision: 1, amount, effective_at: stamp.text, eff: ns, recorded_at: stamp.text, rec: ns, reason: '', kseq: ++s.kseq }];
@@ -172,6 +173,10 @@ export async function buildState(raw) {
     to.opening -= amount;
     s.paymentById.set(rec.payment_id, rec);
     insertOrdered(s.payments, rec);
+  }
+  // refunded totals of seeded refunds bound later refunds and corrections of their targets
+  for (const rec of s.payments) {
+    if (rec.refund_of !== null && s.paymentById.has(rec.refund_of)) s.paymentById.get(rec.refund_of).refunded += rec.amount;
   }
   for (const { r, stamp, amount } of reqRecs) {
     const a = s.users.get(r.requester_id), b = s.users.get(r.payer_id);

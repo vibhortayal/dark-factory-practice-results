@@ -9,7 +9,7 @@ import { parseInstantNs, msToNs } from './instants.js';
 import { HANDLE_RE } from './validate.js';
 import { validHashFormat } from './passwords.js';
 
-const PAYMENT_KEYS = ['payment_id', 'from_user_id', 'from_handle', 'to_user_id', 'to_handle', 'amount', 'currency', 'note', 'visibility', 'request_id', 'settlement_id', 'authorization_id', 'created_at'];
+const PAYMENT_KEYS = ['payment_id', 'from_user_id', 'from_handle', 'to_user_id', 'to_handle', 'amount', 'currency', 'note', 'visibility', 'request_id', 'settlement_id', 'authorization_id', 'refund_of', 'created_at'];
 const AUTH_KEYS = ['authorization_id', 'from_user_id', 'from_handle', 'to_user_id', 'to_handle', 'amount', 'captured_amount', 'currency', 'note', 'visibility', 'status', 'expires_at', 'payment_id', 'payment_ids', 'created_at', 'voided_at', 'closed_at'];
 const REQUEST_KEYS = ['request_id', 'requester_id', 'requester_handle', 'payer_id', 'payer_handle', 'amount', 'currency', 'note', 'status', 'payment_id', 'created_at'];
 const pick = (o, keys) => Object.fromEntries(keys.map((k) => [k, o[k]]));
@@ -32,7 +32,7 @@ export function exportState(s) {
       tokens: [...s.tokens].map(([token, user_id]) => ({ token, user_id })),
       payments: s.payments.map((p) => ({
         ...pick(p, PAYMENT_KEYS),
-        revisions: p.revisions.map((r) => pick(r, ['revision', 'amount', 'effective_at', 'recorded_at', 'reason', 'kseq'])),
+        revisions: p.revisions.map((r) => ({ ...pick(r, ['revision', 'amount', 'effective_at', 'recorded_at', 'reason', 'kseq']), correction_batch_id: r.batch === undefined ? null : r.batch })),
       })),
       requests: s.requests.map((r) => pick(r, REQUEST_KEYS)),
       splits: s.splits.map((x) => ({ ...x, shares: x.shares.map((h) => ({ ...h })), request_ids: [...x.request_ids] })),
@@ -79,8 +79,9 @@ export function importState(doc) {
   // Stage-1 exports (schema 1) have no authorizations; stage-2 (schema 2) have no revision history or opening
   // balances. History is rebuilt from what they do contain; nothing is regenerated or replayed.
   const version = st.schema_version;
-  if (version !== 1 && version !== 2 && version !== STATE_SCHEMA_VERSION) throw bad('unsupported state schema_version');
-  const v3 = version === 3;
+  if (![1, 2, 3, 4].includes(version)) throw bad('unsupported state schema_version');
+  const v3 = version >= 3; // schema 3 and later carry opening balances, revisions and snapshots
+  const v4 = version >= 4; // schema 4 adds refunds and correction batches
   if (!str(st.currency) || st.currency === '') throw bad('currency is invalid');
   if (![0, 2, 3].includes(st.minor_units)) throw bad('minor_units is invalid');
   const s = emptyState();
@@ -129,7 +130,9 @@ export function importState(doc) {
     if (p.settlement_id !== null && !id64(p.settlement_id)) throw bad('payment settlement_id is invalid');
     if (version === 1) p.authorization_id = null;
     else if (p.authorization_id !== null && !id64(p.authorization_id)) throw bad('payment authorization_id is invalid');
-    const rec = { ...pick(p, PAYMENT_KEYS), ts: ns, seq: ++s.seq };
+    if (!v4) p.refund_of = null;
+    else if (p.refund_of !== null && !id64(p.refund_of)) throw bad('payment refund_of is invalid');
+    const rec = { ...pick(p, PAYMENT_KEYS), ts: ns, seq: ++s.seq, refunded: 0 };
     if (v3) {
       if (!Array.isArray(p.revisions) || p.revisions.length < 1) throw bad('payment revisions are invalid');
       let prevRec = null;
@@ -142,11 +145,12 @@ export function importState(doc) {
         prevRec = recd;
         prevK = r.kseq;
         seen(Number(recd / 1000000n));
-        return { revision: r.revision, amount: r.amount, effective_at: r.effective_at, eff, recorded_at: r.recorded_at, rec: recd, reason: r.reason, kseq: r.kseq };
+        if (v4 && !(r.correction_batch_id === null || id64(r.correction_batch_id))) throw bad('revision correction_batch_id is invalid');
+        return { revision: r.revision, amount: r.amount, effective_at: r.effective_at, eff, recorded_at: r.recorded_at, rec: recd, reason: r.reason, kseq: r.kseq, batch: v4 ? r.correction_batch_id : null };
       });
       if (rec.revisions[0].amount !== p.amount) throw bad('payment amount does not match revision 1');
     } else {
-      rec.revisions = [{ revision: 1, amount: p.amount, effective_at: p.created_at, eff: ns, recorded_at: p.created_at, rec: ns, reason: '', kseq: ++s.kseq }];
+      rec.revisions = [{ revision: 1, amount: p.amount, effective_at: p.created_at, eff: ns, recorded_at: p.created_at, rec: ns, reason: '', kseq: ++s.kseq, batch: null }];
     }
     s.paymentById.set(rec.payment_id, rec);
     insertOrdered(s.payments, rec);
@@ -163,6 +167,11 @@ export function importState(doc) {
   }
   for (const p of s.payments) {
     if (p.request_id !== null && !s.requestById.has(p.request_id)) throw bad('payment references an unknown request');
+    if (p.refund_of !== null) {
+      const target = s.paymentById.get(p.refund_of);
+      if (!target || target.refund_of !== null || target.from_user_id !== p.to_user_id || target.to_user_id !== p.from_user_id) throw bad('refund references an invalid payment');
+      target.refunded += p.revisions[0].amount;
+    }
   }
   if (version >= 2) {
     for (const raw of arr(st, 'authorizations')) {

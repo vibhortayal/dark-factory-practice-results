@@ -74,7 +74,7 @@ test('E: signup and login rules', async () => {
 test('G2-G9: payments', async () => {
   const ok = await c.post('/payments', { token: t.ada, key: k(), body: { to_handle: 'bob', amount: 1500, note: 'dinner' } });
   assert.equal(ok.status, 201);
-  assert.deepEqual(Object.keys(ok.json), ['payment_id', 'from_user_id', 'from_handle', 'to_user_id', 'to_handle', 'amount', 'currency', 'note', 'visibility', 'request_id', 'settlement_id', 'authorization_id', 'created_at']);
+  assert.deepEqual(Object.keys(ok.json), ['payment_id', 'from_user_id', 'from_handle', 'to_user_id', 'to_handle', 'amount', 'currency', 'note', 'visibility', 'request_id', 'settlement_id', 'authorization_id', 'refund_of', 'created_at']);
   assert.equal(ok.json.visibility, 'public');
   assert.equal(ok.json.request_id, null);
   assert.match(ok.json.created_at, RFC);

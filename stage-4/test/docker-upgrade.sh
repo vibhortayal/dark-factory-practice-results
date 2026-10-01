@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Upgrade proof with two REAL containers and no network: state is exported from the accepted stage-1 or
-# stage-2 image and imported into this stage-3 image.
-# Usage (from stage-3/): bash test/docker-upgrade.sh [1|2]     (default: both)
+# stage-2 or stage-3 image and imported into this stage-4 image.
+# Usage (from stage-4/): bash test/docker-upgrade.sh [1|2|3]     (default: all three)
 set -euo pipefail
-NEW=pocketful-stage-3:upgrade
-A=pf3-up-old; B=pf3-up-new
+NEW=pocketful-stage-4:upgrade
+A=pf4-up-old; B=pf4-up-new
 cleanup() { docker rm -f "$A" "$B" >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 docker build -q -t "$NEW" . >/dev/null
@@ -42,6 +42,7 @@ one() {
   call "$B" 9002 GET /statement '' "$TOK" | grep -q '"closing_balance":9750'
   local C; C=$(call "$B" 9002 POST "/payments/$PID/corrections" '{"expected_revision":1,"amount":200,"effective_at":"2026-01-01T00:00:00Z","reason":"upgrade"}' "$TOK" up-key-c); echo "correction: $C"; echo "$C" | grep -q '^201'
   call "$B" 9002 GET /me '' "$TOK" | grep -q '"balance":9800'
+  local RF; RF=$(call "$B" 9002 POST "/payments/$PID/refunds" '{"amount":100}' "$OP" up-key-r); echo "refund: $RF"; echo "$RF" | grep -q '^201.*"refund_of":"'"$PID"'"'
   echo "docker upgrade from stage $stage OK"
 }
-if [ "${1:-}" ]; then one "$1"; else one 1; one 2; fi
+if [ "${1:-}" ]; then one "$1"; else one 1; one 2; one 3; fi
