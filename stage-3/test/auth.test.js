@@ -37,7 +37,7 @@ test('T3/T8/T14: /me fields with seeded holds; seeded values returned verbatim',
   assert.equal(byId.a_cap.captured_amount, 9000);
   assert.equal(byId.a_void.expires_at, '2030-01-01T05:00:00+05:00');
   assert.equal(byId.a_1.remaining_amount, 2000); assert.deepEqual(byId.a_1.payment_ids, []);
-  assert.deepEqual(Object.keys(byId.a_1), ['authorization_id', 'from_user_id', 'from_handle', 'to_user_id', 'to_handle', 'amount', 'captured_amount', 'remaining_amount', 'currency', 'note', 'visibility', 'status', 'expires_at', 'payment_id', 'payment_ids', 'created_at']);
+  assert.deepEqual(Object.keys(byId.a_1), ['authorization_id', 'from_user_id', 'from_handle', 'to_user_id', 'to_handle', 'amount', 'captured_amount', 'remaining_amount', 'currency', 'note', 'visibility', 'status', 'expires_at', 'payment_id', 'payment_ids', 'created_at', 'closed_at']);
 });
 
 test('T1/T4/T5: fixture rules for ttl and authorizations', async () => {
@@ -76,7 +76,7 @@ test('U1-U3/T13: create', async () => {
   assert.equal(a.payment_id, null); assert.deepEqual(a.payment_ids, []); assert.equal(a.visibility, 'private'); assert.equal(a.currency, 'EUR');
   assert.match(a.created_at, RFC); assert.match(a.expires_at, RFC);
   assert.equal(Date.parse(a.expires_at) - Date.parse(a.created_at), 600000);
-  assert.deepEqual(Object.keys(a), ['authorization_id', 'from_user_id', 'from_handle', 'to_user_id', 'to_handle', 'amount', 'captured_amount', 'remaining_amount', 'currency', 'note', 'visibility', 'status', 'expires_at', 'payment_id', 'payment_ids', 'created_at']);
+  assert.deepEqual(Object.keys(a), ['authorization_id', 'from_user_id', 'from_handle', 'to_user_id', 'to_handle', 'amount', 'captured_amount', 'remaining_amount', 'currency', 'note', 'visibility', 'status', 'expires_at', 'payment_id', 'payment_ids', 'created_at', 'closed_at']);
   assert.deepEqual(await me(t.ada), { user_id: 'u_ada', display_name: 'Ada', handle: 'ada', balance: 10000, total: 10000, available: 8000, held: 2000, currency: 'EUR', minor_units: 2 });
   assert.equal((await me(t.bob)).available, 2500);
   assert.equal((await c.get('/activity', { token: t.ada })).json.payments.length, 0);
@@ -234,7 +234,7 @@ test('U12: void', async () => {
   await sleep(20);
   await c.post(`/authorizations/${a}/void`, { token: t.ada });
   assert.equal((await c.get('/_test/export')).json.state.authorizations.find((x) => x.authorization_id === a).voided_at, ex.voided_at, 'repeat void keeps the first instant');
-  assert.ok(!('voided_at' in r.json) && !('closed_at' in r.json));
+  assert.ok(!('voided_at' in r.json)); assert.equal(r.json.closed_at, ex.voided_at);
   assert.equal(await balanceSum(c, all()), 12500);
 });
 
@@ -374,7 +374,7 @@ test('U16/T12/T14: stage-2 export/import round trip', async () => {
   const fail = k();
   err(await create(t.ada, { to_handle: 'ghost', amount: 1 }, fail), 404, 'not_found');
   const e1 = (await c.get('/_test/export')).json;
-  assert.equal(e1.format_version, 1); assert.equal(e1.state.schema_version, 2); assert.equal(e1.state.authorization_ttl_seconds, 7);
+  assert.equal(e1.format_version, 1); assert.equal(e1.state.schema_version, 3); assert.equal(e1.state.authorization_ttl_seconds, 7);
   assert.equal((await c.reset(FX())).status, 204);
   assert.equal((await c.post('/_test/import', { body: e1 })).status, 204);
   assert.deepEqual((await c.get('/_test/export')).json, e1);
@@ -392,7 +392,7 @@ test('U16/T12/T14: stage-2 export/import round trip', async () => {
   const good = JSON.parse(JSON.stringify(e1));
   const mut = (f) => { const d = JSON.parse(JSON.stringify(good)); f(d); return d; };
   assert.equal((await c.post('/_test/import', { body: good })).status, 204);
-  for (const bad of [mut((d) => { d.state.authorizations[0].amount = 0; }), mut((d) => { d.state.authorizations[0].status = 'x'; }), mut((d) => { d.state.authorizations[0].from_user_id = 'ghost'; }), mut((d) => { d.state.authorizations[0].amount = 99999999; d.state.authorizations[0].captured_amount = 0; }), mut((d) => { d.state.authorization_ttl_seconds = 0; }), mut((d) => { d.state.schema_version = 3; }), mut((d) => { d.state.authorizations = 5; })]) {
+  for (const bad of [mut((d) => { d.state.authorizations[0].amount = 0; }), mut((d) => { d.state.authorizations[0].status = 'x'; }), mut((d) => { d.state.authorizations[0].from_user_id = 'ghost'; }), mut((d) => { d.state.authorizations[0].amount = 99999999; d.state.authorizations[0].captured_amount = 0; }), mut((d) => { d.state.authorization_ttl_seconds = 0; }), mut((d) => { d.state.schema_version = 4; }), mut((d) => { d.state.authorizations = 5; })]) {
     err(await c.post('/_test/import', { body: bad }), 422, 'validation_failed');
   }
   assert.deepEqual((await c.get('/_test/export')).json, good);

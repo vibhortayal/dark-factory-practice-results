@@ -11,6 +11,7 @@ import { buildState } from './fixture.js';
 import { exportState, importState, idemId } from './snapshot.js';
 import { paging, oneOf, page } from './validate.js';
 import * as ledger from './ledger.js';
+import * as queries from './queries.js';
 
 const EMAIL_RE = /^[^@\s]+@[^@\s]+$/;
 
@@ -58,7 +59,7 @@ async function signup(buf) {
   const password_hash = await hashPassword(b.password);
   check(); // another signup or a reset may have won while hashing
   const s = store.s;
-  const user = { id: newId(s, 'u', 'u', (x) => s.users.has(x)), email: b.email, display_name: b.display_name, handle, balance: 0, password_hash };
+  const user = { id: newId(s, 'u', 'u', (x) => s.users.has(x)), email: b.email, display_name: b.display_name, handle, balance: 0, opening: 0, password_hash };
   addUser(s, user);
   const token = newToken();
   s.tokens.set(token, user.id);
@@ -132,12 +133,18 @@ export async function handle(req, res) {
 
   if (path === '/me' && method === 'GET') {
     const u = authenticate(req);
-    const s = store.s;
-    const held = heldOf(s, u.id);
-    return sendJson(res, 200, {
-      user_id: u.id, display_name: u.display_name, handle: u.handle, balance: u.balance, total: u.balance,
-      available: u.balance - held, held, currency: s.currency, minor_units: s.minorUnits,
-    });
+    return sendJson(res, 200, queries.me(u, url.search));
+  }
+  if (path === '/statement' && method === 'GET') {
+    const u = authenticate(req);
+    return sendJson(res, 200, queries.statement(u, url.search));
+  }
+  if ((m = /^\/payments\/([^/]+)\/(corrections|revisions)$/.exec(path)) && (method === 'POST') === (m[2] === 'corrections')) {
+    let id;
+    try { id = decodeURIComponent(m[1]); } catch { throw notFound(); }
+    const u = authenticate(req);
+    if (m[2] === 'revisions') return sendJson(res, 200, ledger.listRevisions(u, id));
+    return idempotent(req, res, u, method, path, buf, (b) => ledger.correctPayment(u, id, b));
   }
   if (path === '/payments' && method === 'POST') {
     const u = authenticate(req);

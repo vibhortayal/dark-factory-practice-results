@@ -5,6 +5,7 @@ import { invalid } from './errors.js';
 import { isObject, has } from './json.js';
 import { hashPassword } from './passwords.js';
 import { parseStamp, parseInstant, nowStamp, stampAt } from './time.js';
+import { parseInstantNs, msToNs } from './instants.js';
 import { HANDLE_RE, MAX_AMOUNT } from './validate.js';
 
 const STATUSES = ['pending', 'paid', 'declined', 'cancelled'];
@@ -131,7 +132,19 @@ export async function buildState(raw) {
   const v = validateFixture(raw);
   const reset = nowStamp();
   // Stamps and amounts are checked before any hashing so errors stay cheap.
-  const payRecs = v.payments.map((p) => ({ p, stamp: stampOf(p, reset), amount: money(p.amount, 'payment amount', MAX_AMOUNT) }));
+  const resetNs = msToNs(reset.ms);
+  const payRecs = v.payments.map((p) => {
+    // A seeded created_at is the payment's original effective and recorded instant: exact, with an offset, never in the future.
+    let ns = resetNs;
+    let stamp = reset;
+    if (has(p, 'created_at') && p.created_at !== null) {
+      ns = parseInstantNs(p.created_at);
+      if (ns === null) throw bad('payment created_at must be an RFC 3339 instant with an offset');
+      if (ns > resetNs) throw bad('payment created_at must not be in the future');
+      stamp = { text: p.created_at, ms: Number(ns / 1000000n) };
+    }
+    return { p, stamp, ns, amount: money(p.amount, 'payment amount', MAX_AMOUNT) };
+  });
   const reqRecs = v.requests.map((r) => ({ r, stamp: stampOf(r, reset), amount: money(r.amount, 'request amount', MAX_AMOUNT) }));
   const authRecs = v.authorizations.map((a) => ({ a, stamp: stampOf(a.raw, nowStamp()) }));
   const hashes = await Promise.all(v.users.map((u) => hashPassword(u.password, SEED_COST)));
@@ -140,17 +153,22 @@ export async function buildState(raw) {
   s.currency = v.fx.currency;
   s.minorUnits = v.fx.minor_units;
   v.users.forEach((u, i) => addUser(s, {
-    id: u.id, email: u.email, display_name: u.display_name, handle: u.handle, balance: u.balance, password_hash: hashes[i],
+    id: u.id, email: u.email, display_name: u.display_name, handle: u.handle, balance: u.balance, opening: u.balance, password_hash: hashes[i],
   }));
-  for (const { p, stamp, amount } of payRecs) {
+  s.lastMs = Math.max(reset.ms, Date.now());
+  for (const { p, stamp, ns, amount } of payRecs) {
     const from = s.users.get(p.from_user_id), to = s.users.get(p.to_user_id);
     const rec = {
       payment_id: p.id, from_user_id: from.id, from_handle: from.handle, to_user_id: to.id, to_handle: to.handle,
       amount, currency: s.currency, note: has(p, 'note') ? p.note : '', visibility: has(p, 'visibility') ? p.visibility : 'public',
       request_id: has(p, 'request_id') ? p.request_id : null, settlement_id: null,
       authorization_id: has(p, 'authorization_id') && str(p.authorization_id) ? p.authorization_id : null,
-      created_at: stamp.text, ts: stamp.ms, seq: ++s.seq,
+      created_at: stamp.text, ts: ns, seq: ++s.seq,
     };
+    rec.revisions = [{ revision: 1, amount, effective_at: stamp.text, eff: ns, recorded_at: stamp.text, rec: ns, reason: '', kseq: ++s.kseq }];
+    // Opening balance: the seeded ending balance minus the net effect of the original seeded payments.
+    from.opening += amount;
+    to.opening -= amount;
     s.paymentById.set(rec.payment_id, rec);
     insertOrdered(s.payments, rec);
   }
@@ -174,8 +192,16 @@ export async function buildState(raw) {
       note: has(a.raw, 'note') ? a.raw.note : '', visibility: has(a.raw, 'visibility') ? a.raw.visibility : 'public',
       status: a.status, expires_at: expText ? expText.text : a.raw.expires_at,
       payment_id: a.paymentId, payment_ids: [...a.paymentIds],
-      created_at: stamp.text, ts: stamp.ms, seq: ++s.seq, exp: expText ? expText.ms : a.exp, voided_at: null,
+      created_at: stamp.text, ts: stamp.ms, seq: ++s.seq, voided_at: null,
+      closed_at: null, voidNs: null, voidKseq: null, kseq: ++s.kseq,
+      createdNs: parseInstantNs(stamp.text) ?? msToNs(stamp.ms),
+      expNs: parseInstantNs(expText ? expText.text : a.raw.expires_at) ?? msToNs(a.exp),
+      seededClosed: a.status !== 'open',
     };
+    const resolvable = rec.payment_ids.map((id) => s.paymentById.get(id)).filter(Boolean);
+    rec.initialCaptured = Math.max(0, rec.captured_amount - resolvable.reduce((sum, p) => sum + p.revisions[0].amount, 0));
+    if (rec.status === 'captured' || rec.status === 'voided') rec.closed_at = has(a.raw, 'closed_at') && str(a.raw.closed_at) ? a.raw.closed_at : reset.text;
+    else if (rec.status === 'expired') rec.closed_at = has(a.raw, 'closed_at') && str(a.raw.closed_at) ? a.raw.closed_at : rec.expires_at;
     s.authById.set(rec.authorization_id, rec);
     insertOrdered(s.authorizations, rec);
     if (rec.status === 'open') s.openAuths.add(rec);

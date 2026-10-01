@@ -1,7 +1,9 @@
 // Wallet/payment/request logic. Every function here runs synchronously against
 // store.s, so each call is atomic and serialisable by construction.
-import { store, insertOrdered, newId, publicPayment, publicRequest, publicAuthorization, availableOf, heldOf } from './state.js';
-import { nowStamp, stampAt } from './time.js';
+import { store, insertOrdered, newId, publicPayment, publicRequest, publicAuthorization, availableOf, heldOf, tickStamp, clockMs } from './state.js';
+import { stampAt } from './time.js';
+import { msToNs, parseInstantNs } from './instants.js';
+import { overdrawsHistory } from './history.js';
 import { equalShares } from '../public/assets/js/split.js';
 import { conflict, forbidden, invalid, malformed, notFound } from './errors.js';
 import {
@@ -26,9 +28,11 @@ function createPayment(s, from, to, amount, note, visibility, requestId, settlem
     settlement_id: settlementId,
     authorization_id: authorizationId,
     created_at: stamp.text,
-    ts: stamp.ms,
+    ts: msToNs(stamp.ms),
     seq: ++s.seq,
   };
+  // Revision 1: the amount as originally paid, effective and recorded when the money moved.
+  p.revisions = [{ revision: 1, amount, effective_at: stamp.text, eff: p.ts, recorded_at: stamp.text, rec: p.ts, reason: '', kseq: ++s.kseq }];
   s.paymentById.set(p.payment_id, p);
   insertOrdered(s.payments, p);
   return p;
@@ -66,7 +70,7 @@ export function sendPayment(user, body) {
   const to = s.byHandle.get(handle);
   if (!to) throw notFound('no user has that handle');
   if (availableOf(s, user) < amount) throw conflict('insufficient_funds', 'available balance is below amount');
-  return publicPayment(createPayment(s, user, to, amount, note, visibility, null, null, nowStamp()));
+  return publicPayment(createPayment(s, user, to, amount, note, visibility, null, null, tickStamp(s)));
 }
 
 export function invalid_self(code, message) {
@@ -84,7 +88,7 @@ export function openRequest(user, body) {
   if (handle === user.handle) throw invalid_self('self_request', 'cannot request money from yourself');
   const payer = s.byHandle.get(handle);
   if (!payer) throw notFound('no user has that handle');
-  return publicRequest(createRequest(s, user, payer, amount, note, nowStamp()));
+  return publicRequest(createRequest(s, user, payer, amount, note, tickStamp(s)));
 }
 
 export function payRequest(user, id, body) {
@@ -96,7 +100,7 @@ export function payRequest(user, id, body) {
   if (r.status !== 'pending') throw conflict('request_not_pending', 'request is not pending');
   if (availableOf(s, user) < r.amount) throw conflict('insufficient_funds', 'available balance is below amount');
   const requester = s.users.get(r.requester_id);
-  const p = createPayment(s, user, requester, r.amount, r.note, visibility, r.request_id, null, nowStamp());
+  const p = createPayment(s, user, requester, r.amount, r.note, visibility, r.request_id, null, tickStamp(s));
   r.status = 'paid';
   r.payment_id = p.payment_id;
   return publicPayment(p);
@@ -132,7 +136,7 @@ export function createSplit(user, body) {
   if (new Set(handles).size !== handles.length) throw invalid('participant_handles contains a duplicate');
   const users = handles.map((h) => s.byHandle.get(h));
   if (users.some((u) => !u)) throw notFound('no user has that handle');
-  const stamp = nowStamp();
+  const stamp = tickStamp(s);
   const amounts = equalShares(amount, handles.length);
   const requests = [];
   users.forEach((u, i) => {
@@ -188,7 +192,7 @@ export function createSettlement(user, body) {
     const w = s.users.get(id);
     if (w.balance + d - heldOf(s, id) < 0) throw conflict('insufficient_funds', 'settlement is not affordable');
   }
-  const stamp = nowStamp();
+  const stamp = tickStamp(s);
   const id = newId(s, 'st', 'st', (x) => s.settlements.some((y) => y.id === x));
   const payments = entries.map((e) => createPayment(s, e.from, e.to, e.amount, e.note, e.visibility, null, id, stamp));
   s.settlements.push({
@@ -216,7 +220,7 @@ export function createAuthorization(user, body) {
   const to = s.byHandle.get(handle);
   if (!to) throw notFound('no user has that handle');
   if (availableOf(s, user) < amount) throw conflict('insufficient_funds', 'available balance is below amount');
-  const created = nowStamp();
+  const created = tickStamp(s);
   const expires = stampAt(created.ms + s.authTtl * 1000);
   const a = {
     authorization_id: newId(s, 'a', 'a', (id) => s.authById.has(id)),
@@ -236,8 +240,15 @@ export function createAuthorization(user, body) {
     created_at: created.text,
     ts: created.ms,
     seq: ++s.seq,
-    exp: expires.ms,
-    voided_at: null, // internal bookkeeping only; never in a response
+    closed_at: null,
+    createdNs: msToNs(created.ms),
+    expNs: msToNs(expires.ms),
+    kseq: ++s.kseq,
+    initialCaptured: 0,
+    seededClosed: false,
+    voided_at: null, // internal bookkeeping; the instant is also kept as voidNs for the history
+    voidNs: null,
+    voidKseq: null,
   };
   s.authById.set(a.authorization_id, a);
   insertOrdered(s.authorizations, a);
@@ -262,12 +273,13 @@ export function captureAuthorization(user, id, body) {
   if (amount === undefined) amount = remaining;
   if (amount > remaining) throw invalid_self('capture_exceeds_authorization', 'amount exceeds the remaining authorization');
   const from = s.users.get(a.from_user_id);
-  const p = createPayment(s, from, user, amount, a.note, a.visibility, null, null, nowStamp(), a.authorization_id);
+  const p = createPayment(s, from, user, amount, a.note, a.visibility, null, null, tickStamp(s), a.authorization_id);
   a.captured_amount += amount;
   a.payment_id = p.payment_id;
   a.payment_ids.push(p.payment_id);
   if (body.final !== false || amount === remaining) {
     a.status = 'captured';
+    a.closed_at = p.created_at;
     s.openAuths.delete(a);
   }
   return publicPayment(p);
@@ -279,8 +291,67 @@ export function voidAuthorization(user, id) {
   if (a.from_user_id !== user.id) throw forbidden('only the payer may void');
   if (a.status === 'voided') return publicAuthorization(a);
   if (a.status !== 'open') throw conflict('authorization_not_open', 'authorization is not open');
+  const at = tickStamp(s);
   a.status = 'voided';
-  a.voided_at = nowStamp().text;
+  a.voided_at = at.text;
+  a.voidNs = msToNs(at.ms);
+  a.voidKseq = ++s.kseq;
+  a.closed_at = at.text;
   s.openAuths.delete(a);
   return publicAuthorization(a);
+}
+
+// ---- corrections (stage 3) ----
+
+export const publicRevision = (p, r) => ({
+  payment_id: p.payment_id,
+  revision: r.revision,
+  amount: r.amount,
+  effective_at: r.effective_at,
+  recorded_at: r.recorded_at,
+  reason: r.reason,
+});
+
+const isInt = (v) => typeof v === 'number' && Number.isInteger(v);
+
+export function correctPayment(user, id, body) {
+  const s = store.s;
+  // Field validation: every missing or invalid field, wrong JSON types included, is 422.
+  if (!has(body, 'expected_revision') || !isInt(body.expected_revision) || body.expected_revision < 1) throw invalid('expected_revision must be a positive integer');
+  if (!has(body, 'amount') || !isInt(body.amount) || body.amount < 0 || body.amount > 1000000000) throw invalid('amount must be an integer from 0 to 1000000000');
+  if (!has(body, 'reason') || typeof body.reason !== 'string' || [...body.reason].length < 1 || [...body.reason].length > 200) throw invalid('reason must be a string of 1 to 200 characters');
+  const effNs = has(body, 'effective_at') ? parseInstantNs(body.effective_at) : null;
+  if (effNs === null) throw invalid('effective_at must be an RFC 3339 instant with an offset');
+  if (effNs > msToNs(clockMs(s))) throw invalid('effective_at must not be in the future');
+  const p = s.paymentById.get(id);
+  if (!p) throw notFound('no such payment');
+  if (p.from_user_id !== user.id) throw forbidden('only the original sender may correct a payment');
+  if (p.settlement_id !== null || p.authorization_id !== null) throw invalid_self('linked_payment_immutable', 'settlement members and captures cannot be corrected');
+  const last = p.revisions[p.revisions.length - 1];
+  if (body.expected_revision !== last.revision) throw conflict('stale_revision', 'the payment has a newer revision');
+  const diff = body.amount - last.amount;
+  const sender = s.users.get(p.from_user_id);
+  const receiver = s.users.get(p.to_user_id);
+  // The difference moves between the same two wallets: more -> the sender pays it, less -> the receiver gives it back.
+  if (diff > 0 && availableOf(s, sender) < diff) throw conflict('insufficient_funds', 'available balance is below the difference');
+  if (diff < 0 && availableOf(s, receiver) < -diff) throw conflict('insufficient_funds', 'available balance is below the difference');
+  const proposal = { payment: p, revision: { amount: body.amount, eff: effNs } };
+  if (overdrawsHistory(s, sender, proposal) || overdrawsHistory(s, receiver, proposal)) {
+    throw conflict('historical_overdraft', 'the correction would overdraw a wallet at an earlier time');
+  }
+  const stamp = tickStamp(s); // strictly later than every earlier stamp, so recorded_at strictly increases
+  const rev = {
+    revision: last.revision + 1, amount: body.amount, effective_at: body.effective_at, eff: effNs,
+    recorded_at: stamp.text, rec: msToNs(stamp.ms), reason: body.reason, kseq: ++s.kseq,
+  };
+  p.revisions.push(rev);
+  sender.balance -= diff;
+  receiver.balance += diff;
+  return publicRevision(p, rev);
+}
+
+export function listRevisions(user, id) {
+  const p = store.s.paymentById.get(id);
+  if (!p || (p.from_user_id !== user.id && p.to_user_id !== user.id)) throw notFound('no such payment');
+  return { revisions: p.revisions.map((r) => publicRevision(p, r)) };
 }

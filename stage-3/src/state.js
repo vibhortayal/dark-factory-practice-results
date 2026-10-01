@@ -1,6 +1,9 @@
 // In-memory service state. One instance is live at a time (store.s); reset/import
 // build a complete replacement and swap it in one synchronous step.
-export const STATE_SCHEMA_VERSION = 2;
+import { stampAt } from './time.js';
+import { msToNs } from './instants.js';
+
+export const STATE_SCHEMA_VERSION = 3;
 
 export function emptyState() {
   return {
@@ -23,6 +26,9 @@ export function emptyState() {
     operators: new Set(),
     idem: new Map(), // "user\0method\0path\0key" -> {user_id,method,path,key,body,status,response}
     seq: 0,
+    kseq: 0, // knowledge position: bumped by every revision and authorization event
+    lastMs: 0, // latest stamp issued; stamps strictly increase so no two records share an instant
+    snapshots: new Map(), // statement snapshot token -> { user_id, from, to, known_at, kseq, ... }
     counters: { u: 0, p: 0, rq: 0, sp: 0, st: 0, a: 0 },
   };
 }
@@ -35,7 +41,7 @@ export function addUser(s, u) {
   s.byEmail.set(u.email, u);
 }
 
-const before = (a, b) => a.ts - b.ts || a.seq - b.seq;
+const before = (a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : a.seq - b.seq);
 
 // Keeps a list ordered by (ts, seq) ascending; the tail is the newest.
 export function insertOrdered(list, rec) {
@@ -44,11 +50,19 @@ export function insertOrdered(list, rec) {
   if (n > 1 && before(list[n - 2], rec) > 0) list.sort(before);
 }
 
+// Payment ids are fixed-width so that plain string order is also creation order.
 export function newId(s, kind, prefix, exists) {
   let id;
-  do id = `${prefix}_${++s.counters[kind]}`;
+  do id = `${prefix}_${kind === 'p' ? String(++s.counters[kind]).padStart(10, '0') : ++s.counters[kind]}`;
   while (exists(id));
   return id;
+}
+
+// The service clock never runs backwards and never issues the same millisecond twice.
+export const clockMs = (s) => Math.max(Date.now(), s.lastMs);
+export function tickStamp(s) {
+  s.lastMs = Math.max(Date.now(), s.lastMs + 1);
+  return stampAt(s.lastMs);
 }
 
 export const publicPayment = (p) => ({
@@ -98,14 +112,17 @@ export const publicAuthorization = (a) => ({
   payment_id: a.payment_id,
   payment_ids: [...a.payment_ids],
   created_at: a.created_at,
+  closed_at: a.closed_at,
 });
 
 // Expiry is derived from the clock, never from a timer: every request calls this first, so an
 // authorization whose expires_at is at or before now is 'expired' and holds nothing.
-export function sweep(s, nowMs = Date.now()) {
+export function sweep(s, nowMs = clockMs(s)) {
+  const nowNs = msToNs(nowMs);
   for (const a of s.openAuths) {
-    if (a.exp <= nowMs) {
+    if (a.expNs <= nowNs) {
       a.status = 'expired';
+      a.closed_at = a.expires_at;
       s.openAuths.delete(a);
     }
   }

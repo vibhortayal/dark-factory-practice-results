@@ -5,6 +5,7 @@ import path from 'node:path';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const stage1Dir = path.resolve(root, '..', 'stage-1');
+export const stage2Dir = path.resolve(root, '..', 'stage-2');
 
 function freePort() {
   return new Promise((resolve) => {

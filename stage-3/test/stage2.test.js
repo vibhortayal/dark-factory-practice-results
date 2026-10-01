@@ -83,15 +83,18 @@ test('K3: no external URL anywhere in the shipped UI', () => {
   }
 });
 
-test('K4: no stage-3 surface', async () => {
-  for (const p of ['/statement', '/statements', '/payments/p_1/corrections', '/payments/p_1/revisions', '/refunds', '/corrections', '/authorizations/x/close']) {
+test('AA3: no stage-4 surface', async () => {
+  for (const p of ['/payments/p_1/refunds', '/refunds', '/correction-batches', '/correction-batches/x']) {
     const r = await c.get(p, { token: t.ada }); assert.equal(r.status, 404, p);
+    assert.equal((await c.post(p, { token: t.ada, key: k(), body: {} })).status, 404, p);
   }
-  const ts = (await c.get('/authorizations?as_of=2020-01-01&known_at=2020-01-01', { token: t.ada }));
-  assert.equal(ts.status, 200, 'unknown query parameters are ignored');
-  const a = (await c.post('/authorizations', { token: t.ada, key: k(), body: { to_handle: 'bob', amount: 5 } })).json;
-  assert.ok(!('closed_at' in a));
-  assert.ok(!('voided_at' in a));
+  const pay = (await c.post('/payments', { token: t.ada, key: k(), body: { to_handle: 'bob', amount: 5 } })).json;
+  assert.ok(!('refund_of' in pay));
+  const cor = await c.post(`/payments/${pay.payment_id}/corrections`, { token: t.ada, key: k(), body: { expected_revision: 1, amount: 4, effective_at: pay.created_at, reason: 'r' } });
+  assert.equal(cor.status, 201);
+  assert.ok(!('correction_batch_id' in cor.json));
+  const revs = (await c.get(`/payments/${pay.payment_id}/revisions`, { token: t.ada })).json.revisions;
+  assert.ok(revs.every((r) => !('correction_batch_id' in r)));
 });
 
 // Needs the sibling ../stage-1 folder (a source checkout); skipped inside the image, where docker-upgrade.sh covers it.
