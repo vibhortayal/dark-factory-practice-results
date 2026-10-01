@@ -7,6 +7,8 @@ import os
 import re
 import secrets
 import sys
+import _thread
+from itertools import accumulate
 import threading
 import time
 import traceback
@@ -17,7 +19,9 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 MAX_AMOUNT = 1_000_000_000
 MAX_BALANCE = 2 ** 53
-MAX_BODY = 8 * 1024 * 1024
+MAX_BODY = 256 * 1024  # ordinary API endpoints
+MAX_CONTROL_BODY = 512 * 1024 * 1024  # /_test/reset and /_test/import (memory guard)
+CONTROL_PATHS = ("/_test/reset", "/_test/import")
 MAX_DEPTH = 128
 HANDLE_RE = re.compile(r"^[a-z0-9_]{1,20}$")
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+$")
@@ -60,60 +64,63 @@ def _parse_int(s):
     return int(s) if len(s) <= 4000 else Decimal(s)
 
 
-_TOKEN_RE = re.compile(rb'"[^"\\]*(?:\\.[^"\\]*)*"|[\[\]{}]', re.S)
+_STR_RE = re.compile(rb'"[^"\\]*(?:\\.[^"\\]*)*"', re.S)
+_DELTA = {91: 1, 123: 1, 93: -1, 125: -1}
+_NOT_BRACKET = bytes(set(range(256)) - set(b"[]{}"))
 
 
 def check_depth(raw):
-    """Iterative nesting scan (strings skipped); bodies deeper than MAX_DEPTH are rejected."""
+    """Reject bodies nested deeper than MAX_DEPTH. Strings are stripped, only brackets kept, and the
+    maximum running open-minus-close balance (= nesting depth) is taken with C-level iterators."""
     if raw.count(b"[") + raw.count(b"{") <= MAX_DEPTH:
         return
-    depth = 0
-    for m in _TOKEN_RE.finditer(raw):
-        c = m.group()
-        if c in (b"[", b"{"):
-            depth += 1
-            if depth > MAX_DEPTH:
-                raise malformed("body nested too deeply (limit %d)" % MAX_DEPTH)
-        elif c in (b"]", b"}"):
-            depth -= 1
+    br = _STR_RE.sub(b"", raw).translate(None, _NOT_BRACKET)
+    if max(accumulate(map(_DELTA.__getitem__, br), initial=0)) > MAX_DEPTH:
+        raise malformed("body nested too deeply (limit %d)" % MAX_DEPTH)
 
 
-def parse_json(raw):
-    check_depth(raw)
+def parse_json(raw, depth_check=True):
+    if depth_check:
+        check_depth(raw)
     try:
         text = raw.decode("utf-8")
-        return json.loads(text, parse_float=_parse_float, parse_int=_parse_int,
-                          parse_constant=_bad_constant)
+        try:
+            # fast path: C-speed ints; only floats go through the Decimal hook
+            return json.loads(text, parse_float=_parse_float, parse_constant=_bad_constant)
+        except json.JSONDecodeError:
+            raise
+        except ValueError:  # integer literal beyond the interpreter's digit limit
+            return json.loads(text, parse_float=_parse_float, parse_int=_parse_int,
+                              parse_constant=_bad_constant)
     except (ValueError, RecursionError, UnicodeDecodeError):
         raise malformed("body is not valid JSON")
 
 
+def _canon_default(d):
+    """Numbers parsed as Decimal: integral values canonicalise to the same text as ints."""
+    if not isinstance(d, Decimal):
+        raise TypeError("unserialisable")
+    if not d.is_finite():
+        return {"\ufdd0n": "inf"}
+    sign, digits, exp = d.as_tuple()
+    digits = list(digits)
+    while digits and digits[-1] == 0:
+        digits.pop()
+        exp += 1
+    if not digits:
+        return 0
+    if exp >= 0 and len(digits) + exp <= 4000:
+        n = int("".join(map(str, digits))) * 10 ** exp
+        return -n if sign else n
+    return {"\ufdd0n": "%s%se%d" % ("-" if sign else "", "".join(map(str, digits)), exp)}
+
+
 def canon(v):
-    """Canonical string of a parsed JSON value: structural equality, 1000 == 1000.0 == 1e3."""
-    if v is None:
-        return "null"
-    if v is True:
-        return "true"
-    if v is False:
-        return "false"
-    if isinstance(v, Decimal) and not v.is_finite():
-        return "ninf"
-    if isinstance(v, (int, Decimal)):
-        sign, digits, exp = (Decimal(v) if isinstance(v, int) else v).as_tuple()
-        digits = list(digits)
-        while digits and digits[-1] == 0:
-            digits.pop()
-            exp += 1
-        if not digits:
-            return "n0"
-        return "n%s%s e%d" % ("-" if sign else "", "".join(map(str, digits)), exp)
-    if isinstance(v, str):
-        return "s" + json.dumps(v)
-    if isinstance(v, list):
-        return "[" + ",".join(canon(x) for x in v) + "]"
-    if isinstance(v, dict):
-        return "{" + ",".join(sorted(json.dumps(k) + ":" + canon(x) for k, x in v.items())) + "}"
-    raise malformed()
+    """Canonical text of a parsed JSON value: key order irrelevant, 1000 == 1000.0 == 1e3."""
+    try:
+        return json.dumps(v, sort_keys=True, separators=(",", ":"), default=_canon_default)
+    except (RecursionError, ValueError):
+        raise malformed("body cannot be canonicalised")
 
 
 def to_int(v, lo, hi):
@@ -499,6 +506,8 @@ def build_from_export(doc):
 
 
 LOCK = threading.RLock()
+BIG_BODY = 32 * 1024
+BIG_SEM = threading.Semaphore(1)
 STATE = [State()]
 
 
@@ -509,11 +518,14 @@ class Ctx:
         self.method, self.path, self.query, self.headers, self.raw = method, path, query, headers, raw
         self.user_id = None
         self.params = ()
+        self.control = path in CONTROL_PATHS
+        self.need_operator = False
+        self.canon = None
 
     def body_object(self, allow_empty=False):
         if allow_empty and not self.raw.strip():
             return {}
-        v = parse_json(self.raw)
+        v = parse_json(self.raw, not self.control)
         if not isinstance(v, dict):
             raise malformed("body must be a JSON object")
         return v
@@ -563,21 +575,25 @@ def paginate(ctx):
 
 
 def idempotent(ctx, body, fn):
-    """Runs fn() (validate fully, then mutate) under the lock with idempotency handling."""
-    k = (ctx.user_id, ctx.method, ctx.path, ctx.key_value)
-    try:
-        c = canon(body)
-    except RecursionError:
-        raise malformed("body nested too deeply")
-    st = STATE[0]
-    rec = st.idem.get(k)
-    if rec is not None:
-        if rec["body"] == c:
-            return 200, rec["response"]
-        raise ApiError(409, "idempotency_key_reuse", "key already used with a different body")
-    resp = fn(st)
-    st.idem[k] = {"body": c, "status": 201, "response": resp}
-    return 201, resp
+    """Under one lock acquisition: re-authenticate, resolve a claimed key, validate, mutate.
+
+    The body was already parsed and canonicalised (ctx.canon) outside the lock."""
+    k_tail = (ctx.method, ctx.path, ctx.key_value)
+    with LOCK:
+        ctx.authenticate()
+        st = STATE[0]
+        if ctx.need_operator and ctx.user_id not in st.operators:
+            raise ApiError(403, "forbidden", "settlement operators only")
+        k = (ctx.user_id,) + k_tail
+        c = ctx.canon
+        rec = st.idem.get(k)
+        if rec is not None:
+            if rec["body"] == c:
+                return 200, rec["response"]
+            raise ApiError(409, "idempotency_key_reuse", "key already used with a different body")
+        resp = fn(st)
+        st.idem[k] = {"body": c, "status": 201, "response": resp}
+        return 201, resp
 
 
 # ---------------------------------------------------------------- handlers
@@ -595,10 +611,9 @@ def h_reset(ctx):
 
 
 def h_export(ctx):
-    with LOCK:
+    with LOCK:  # atomic snapshot of copies; serialised outside the lock
         doc = {"track": "pocketful", "format_version": 1, "state": STATE[0].export()}
-        raw = json.dumps(doc, ensure_ascii=True, separators=(",", ":")).encode("ascii")
-    return 200, raw
+    return 200, json.dumps(doc, ensure_ascii=True, separators=(",", ":")).encode("ascii")
 
 
 def h_import(ctx):
@@ -677,7 +692,9 @@ def h_me(ctx):
 def idem_entry(ctx, allow_empty=False):
     ctx.authenticate()
     ctx.key_value = ctx.key()
-    return ctx.body_object(allow_empty)
+    body = ctx.body_object(allow_empty)
+    ctx.canon = canon(body)
+    return body
 
 
 def h_payment(ctx):
@@ -869,8 +886,10 @@ def h_settlement(ctx):
     with LOCK:
         if ctx.user_id not in STATE[0].operators:
             raise ApiError(403, "forbidden", "settlement operators only")
+    ctx.need_operator = True
     ctx.key_value = ctx.key()
     body = ctx.body_object()
+    ctx.canon = canon(body)
 
     def run(st):
         ts_ = body.get("transfers", MISSING)
@@ -931,8 +950,7 @@ ROUTES = [
     ("GET", r"/activity", h_activity),
     ("POST", r"/settlements", h_settlement),
 ]
-LOCKED = {h_me, h_payment, h_request_create, h_pay, h_transition, h_requests_list,
-          h_activity, h_split, h_settlement}
+LOCKED = {h_me, h_transition, h_requests_list, h_activity}
 ROUTES = [(m, re.compile(p + "$"), h) for m, p, h in ROUTES]
 
 
@@ -994,7 +1012,7 @@ class Handler(BaseHTTPRequestHandler):
         except OSError:
             pass
 
-    def read_body(self):
+    def read_body(self, limit):
         te = (self.headers.get("Transfer-Encoding") or "").lower()
         if "chunked" in te:
             data = b""
@@ -1010,7 +1028,7 @@ class Handler(BaseHTTPRequestHandler):
                         if t in (b"\r\n", b"\n", b""):
                             break
                     return data
-                if len(data) + size > MAX_BODY:
+                if len(data) + size > limit:
                     self.close_connection = True
                     raise ApiError(413, "payload_too_large", "body too large")
                 data += self.rfile.read(size)
@@ -1022,9 +1040,9 @@ class Handler(BaseHTTPRequestHandler):
             self.close_connection = True
             raise malformed("bad Content-Length")
         n = int(cl)
-        if n > MAX_BODY:
+        if n > limit:
             self.close_connection = True
-            left = min(n, 64 * 1024 * 1024)
+            left = min(n, 64 * 1024 * 1024)  # drain at most 64 MiB
             while left > 0:  # discard (never buffer) so the client can read the 413
                 chunk = self.rfile.read(min(left, 65536))
                 if not chunk:
@@ -1036,11 +1054,12 @@ class Handler(BaseHTTPRequestHandler):
     def dispatch(self):
         method = self.command
         try:
-            raw = self.read_body()
             try:
                 parts = urlsplit(self.path)
             except ValueError:
+                self.close_connection = True
                 raise malformed("bad URL")
+            raw = self.read_body(MAX_CONTROL_BODY if parts.path in CONTROL_PATHS else MAX_BODY)
             path = parts.path
             query = {k: v[-1] for k, v in parse_qs(parts.query, keep_blank_values=True,
                                                    errors="replace").items()}
@@ -1053,6 +1072,9 @@ class Handler(BaseHTTPRequestHandler):
             ctx.params = groups
             if h in LOCKED:
                 with LOCK:
+                    status, payload = h(ctx)
+            elif len(raw) > BIG_BODY and not ctx.control:
+                with BIG_SEM:  # keep large-body CPU work from starving small requests
                     status, payload = h(ctx)
             else:
                 status, payload = h(ctx)
@@ -1077,11 +1099,18 @@ class Handler(BaseHTTPRequestHandler):
 
 class Server(ThreadingHTTPServer):
     daemon_threads = True
+
+    def process_request(self, request, client_address):
+        # start_new_thread does not wait for the new thread to be scheduled (Thread.start does),
+        # so the accept loop is never starved by CPU-heavy request threads.
+        _thread.start_new_thread(self.process_request_thread, (request, client_address))
+
     request_queue_size = 512
     allow_reuse_address = True
 
 
 def main():
+    sys.setswitchinterval(0.001)
     try:
         port = int(os.environ.get("PORT") or 8080)
     except ValueError:

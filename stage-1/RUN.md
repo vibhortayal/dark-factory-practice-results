@@ -22,6 +22,11 @@ BASE_URL=http://localhost:8080 python3 tests/test_stage1.py
 
 ## Implementation limits
 
-- Request bodies larger than 8 MiB are refused with 413 `payload_too_large`.
-- JSON bodies nested deeper than 128 levels of `[`/`{` are refused with 400 `malformed_request`
-  (checked by an iterative scan before parsing, so hostile nesting costs constant time).
+- Ordinary API endpoints refuse request bodies larger than 256 KiB with 413 `payload_too_large`
+  (the excess is drained, never buffered). `/_test/reset` and `/_test/import` accept up to 512 MiB
+  (a memory guard only), so any export this service produces can be imported again.
+- On ordinary endpoints, JSON bodies nested deeper than 128 levels of `[`/`{` are refused with 400
+  `malformed_request` (checked at C speed before parsing). Reset/import bodies are parsed by the
+  standard decoder; a body too deep for it is also 400.
+- Parsing, canonicalisation, validation and password hashing run outside the global lock; the lock
+  covers only the authenticate / replay-lookup / validate / mutate step and the state swap.

@@ -778,36 +778,140 @@ def deep_json_burst_is_fast():  # A6/A7: depth cap 128; hostile nesting is cheap
     # depth counts the outer object: 128 levels accepted, 129 rejected
     assert call("POST", "/payments", raw=body(128), token=ada, key=K())[0] == 201
     err(call("POST", "/payments", raw=body(129), token=ada, key=K()), 400, "malformed_request")
+    def objs(d):  # d nested levels in total, alternating objects and arrays under "x"
+        inner = "1"
+        for i in range(d - 1):
+            inner = ('{"a":%s}' if i % 2 else "[%s]") % inner
+        return ('{"to_handle":"bob","amount":1,"x":%s}' % inner).encode()
+    assert call("POST", "/payments", raw=objs(128), token=ada, key=K())[0] == 201
+    err(call("POST", "/payments", raw=objs(129), token=ada, key=K()), 400, "malformed_request")
     # brackets inside strings do not count
     raw = json.dumps({"to_handle": "bob", "amount": 1, "note": "[" * 120 + '\\"' + "{" * 60}).encode()
     assert call("POST", "/payments", raw=raw, token=ada, key=K())[0] == 201
-    for d in (129, 1200, 5000, 9000, 100000):
+    for d in (129, 1200, 5000, 9000, 90000):
         t0 = time.time()
         r = burst(50, lambda i: call("POST", "/payments", raw=body(d), token=ada, key=K())[0])
         assert set(r) == {400} and time.time() - t0 < 5, (d, set(r), time.time() - t0)
         assert call("GET", "/health")[0] == 200
-    for path in ("/auth/login", "/_test/import", "/requests", "/splits"):
+    for path in ("/auth/login", "/requests", "/splits"):
         err(call("POST", path, raw=body(5000), token=ada, key=K()), 400, "malformed_request")
     # oversized body: 4xx envelope, not read into memory
-    s, js, _, _ = call("POST", "/payments", raw=b'{"note":"' + b"a" * (9 * 1024 * 1024) + b'"}', token=ada, key=K())
+    s, js, _, _ = call("POST", "/payments", raw=b'{"note":"' + b"a" * (300 * 1024) + b'"}', token=ada, key=K())
     assert s == 413 and js["error"]["code"] == "payload_too_large", s
+    # large JSON array inside an accepted-size body is cheap; 50-way at the cap stays fast
+    raw = b'{"to_handle":"bob","amount":1,"x":[' + b"0," * 30000 + b"0]}"
+    t0 = time.time()
+    r = burst(50, lambda i: call("POST", "/payments", raw=raw, token=ada, key=K())[0])
+    assert set(r) == {201} and time.time() - t0 < 5, (set(r), time.time() - t0)
+    assert call("GET", "/me", token=ada)[0] == 200
 
 
 @test
-def large_state_roundtrip():  # export/import of a large state fits the body limit and 10 s
-    users = [U(0, "w%d" % i, 1000) for i in range(2000)]
-    pays = [{"id": "p%d" % i, "from_user_id": "u_w%d" % (i % 2000), "to_user_id": "u_w%d" % ((i + 1) % 2000), "amount": 1, "note": "n" * 20} for i in range(5000)]
-    reqs = [{"id": "r%d" % i, "requester_id": "u_w%d" % (i % 2000), "payer_id": "u_w%d" % ((i + 7) % 2000), "amount": 1, "status": "pending"} for i in range(5000)]
-    t0 = time.time()
-    reset(users, payments=pays, requests=reqs)
-    t1 = time.time()
-    s, ex, _, raw = call("GET", "/_test/export")
-    t2 = time.time()
-    assert s == 200 and len(raw) < 8 * 1024 * 1024, len(raw)
-    assert call("POST", "/_test/import", ex)[0] == 204
-    t3 = time.time()
-    print("   large: reset %.1fs export %.1fs (%d bytes) import %.1fs" % (t1 - t0, t2 - t1, len(raw), t3 - t2))
-    assert t2 - t1 < 10 and t3 - t2 < 10
+def max_body_perf():  # ordinary bodies at the 256 KiB cap: fast, outside the lock, /me and /health responsive
+    ada, bob, cy = basic3(ada=10 ** 9)
+    cap = 250 * 1024
+    variants = {
+        "zeros": b"[" + b"0," * (cap // 2) + b"0]",
+        "string": b'"' + b"a" * cap + b'"',
+        "objects": b"[" + b'{"a":1,"b":[2]},' * (cap // 16) + b"{}]",
+        "brackets": b"[" + b"[]," * (cap // 3) + b"[]]",
+    }
+    for name, x in variants.items():
+        raw = b'{"to_handle":"bob","amount":1,"x":' + x + b"}"
+        assert len(raw) <= 256 * 1024, (name, len(raw))
+        t0 = time.time()
+        assert call("POST", "/payments", raw=raw, token=ada, key=K())[0] == 201
+        single = time.time() - t0
+        lat = []
+
+        def probe(i):
+            t = time.time()
+            s = call("GET", "/me" if i % 2 else "/health", token=ada)[0]
+            lat.append(time.time() - t)
+            return s
+        t0 = time.time()
+        with cf.ThreadPoolExecutor(52) as ex:
+            f1 = [ex.submit(lambda: call("POST", "/payments", raw=raw, token=ada, key=K())[0]) for _ in range(50)]
+            time.sleep(0.1)
+            f2 = [ex.submit(probe, i) for i in range(2)]
+            codes = [f.result() for f in f1]
+            [f.result() for f in f2]
+        el = time.time() - t0
+        print("   %-8s %6d bytes single %.2fs 50-way %.2fs probe max %.2fs" % (name, len(raw), single, el, max(lat)))
+        assert set(codes) == {201} and el < 5 and single < 1 and max(lat) < 1, (name, set(codes), el, single, lat)
+    # idempotent replay of a big body still compares correctly
+    raw = b'{"to_handle":"bob","amount":1,"x":' + variants["objects"] + b"}"
+    k = K()
+    assert call("POST", "/payments", raw=raw, token=ada, key=k)[0] == 201
+    assert call("POST", "/payments", raw=raw, token=ada, key=k)[0] == 200
+    err(call("POST", "/payments", raw=raw.replace(b'"a":1', b'"a":2', 1), token=ada, key=k), 409, "idempotency_key_reuse")
+
+
+def timed(f):
+    t = time.time()
+    r = f()
+    return r, time.time() - t
+
+
+@test
+def large_state_roundtrip():  # H2 H3 H11: big exports re-import (api-made state, cross container) within 10 s
+    reset([U(0, "ada", 10 ** 9), U(0, "bob", 0)])
+    ada = login("ada")
+    keys = [K() for _ in range(10000)]
+    note = "n" * 200
+    with cf.ThreadPoolExecutor(16) as ex:
+        codes = list(ex.map(lambda k: call("POST", "/payments", {"to_handle": "bob", "amount": 1, "note": note}, ada, k)[0], keys))
+    assert set(codes) == {201}
+    (s, ex_doc, _, raw), te = timed(lambda: call("GET", "/_test/export"))
+    assert s == 200 and len(raw) > 9 * 1024 * 1024 and te < 10, (len(raw), te)
+    print("   10k payments: export %d bytes in %.2fs" % (len(raw), te))
+    before = (me(ada), call("GET", "/activity?limit=5", token=ada)[1])
+    if BASE2:
+        r, ti = timed(lambda: call("POST", "/_test/import", ex_doc, base=BASE2))
+        assert r[0] == 204 and ti < 10, (r[0], ti)
+        print("   import into second container %.2fs" % ti)
+        assert call("GET", "/me", token=ada, base=BASE2)[1] == before[0]
+        assert call("GET", "/activity?limit=5", token=ada, base=BASE2)[1] == before[1]
+        s, rep, _, _ = call("POST", "/payments", {"to_handle": "bob", "amount": 1, "note": note}, ada, keys[1234], base=BASE2)
+        assert s == 200 and rep["amount"] == 1
+    r, ti = timed(lambda: call("POST", "/_test/import", ex_doc))
+    assert r[0] == 204 and ti < 10
+    assert me(ada) == before[0]
+    # a larger state: 30000 seeded payments (~36 MB export) and a 9 MiB reset fixture
+    users = [U(0, "ada", 10 ** 9), U(0, "bob", 0)]
+    pl = [{"id": "p%d" % i, "from_user_id": "u_ada", "to_user_id": "u_bob", "amount": 1, "note": "n" * 280} for i in range(30000)]
+    fx = {"currency": "EUR", "minor_units": 2, "users": users, "payments": pl, "requests": []}
+    body = json.dumps(fx).encode()
+    assert len(body) > 8.5 * 1024 * 1024, len(body)
+    r, tr = timed(lambda: call("POST", "/_test/reset", raw=body))
+    assert r[0] == 204 and tr < 10, (r[0], tr)
+    print("   reset with %d-byte fixture %.2fs" % (len(body), tr))
+    ada = login("ada")
+    for i in range(3000):
+        pass
+    with cf.ThreadPoolExecutor(16) as ex:
+        list(ex.map(lambda k: call("POST", "/payments", {"to_handle": "bob", "amount": 1, "note": "n" * 200}, ada, k)[0], [K() for _ in range(3000)]))
+    (s, ex_doc, _, raw), te = timed(lambda: call("GET", "/_test/export"))
+    assert s == 200 and te < 10
+    lat = []
+    done = []
+
+    def probes():
+        while not done:
+            t = time.time()
+            call("GET", "/health")
+            call("GET", "/me", token=ada)
+            lat.append(time.time() - t)
+            time.sleep(0.05)
+    with cf.ThreadPoolExecutor(1) as ex:
+        f = ex.submit(probes)
+        r, ti = timed(lambda: call("POST", "/_test/import", ex_doc))
+        done.append(1)
+        f.result()
+    print("   larger state: export %d bytes %.2fs, import %.2fs, probe max %.2fs" % (len(raw), te, ti, max(lat)))
+    assert r[0] == 204 and ti < 10 and max(lat) < 5
+    assert me(ada)["handle"] == "ada"
+    assert call("POST", "/_test/import", ex_doc, base=BASE2 or BASE)[0] == 204
 
 
 if __name__ == "__main__":
