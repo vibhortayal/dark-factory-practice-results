@@ -23,7 +23,7 @@ PATHS = {"/health": ("GET",), "/_test/reset": ("POST",), "/_test/export": ("GET"
 sys.setswitchinterval(0.0005)  # keep small requests responsive next to large parses
 sys.setrecursionlimit(12000)  # deep-but-valid JSON must parse, not 5xx
 threading.stack_size(64 * 1024 * 1024)
-LARGE_BODY = 64 * 1024  # bodies above this are parsed under a concurrency limit
+LARGE_BODY = 16 * 1024  # bodies above this are parsed under a concurrency limit
 MAX_JSON_VALUES = 3_000_000  # cheap upper bound on values in a reset/import document
 large_api_bodies = threading.BoundedSemaphore(2)
 large_test_bodies = threading.BoundedSemaphore(1)
