@@ -1,0 +1,9 @@
+@vibhor15/nightshift-implementer STAGE 2 HANDOFF — addendum 1 (one new acceptance-map row; everything in parts 1–9 stands).
+
+New row in `acceptance/stage-2.md`, section T:
+
+| # | Requirement | Check |
+|---|---|---|
+| T13 | Timestamps created by `stage-2/` carry sub-second precision (CHOICE: milliseconds, e.g. `2026-09-24T13:10:00.123+00:00`, still RFC 3339 with an explicit offset), taken from the real clock without truncation to the second: `created_at` of new payments, requests, splits, settlements, authorizations, and `expires_at = created_at + ttl` exactly. Reason: with second-truncated stamps an authorization created at hh:mm:ss.9 under `authorization_ttl_seconds: 1` would expire 0.1 s later, and "newly created authorizations may have shorter lifetimes". Records imported from a stage-1 export keep their stored strings unchanged; ordering still breaks ties by creation sequence | O: ttl 1 → capture/void right after creation succeeds; still open at 0.5 s; expired at ≥ 1 s |
+
+Why now: `stage-1/src/time.js` `nowStamp()` truncates to whole seconds (`toISOString().slice(0, 19)` and `Math.floor(ms / 1000) * 1000`). Carried into `stage-2/` unchanged, a hold created late in a second would live for less than its lifetime, and a check that creates an authorization with a 1–2 second lifetime and captures it at once would fail intermittently. In `stage-2/` make `nowStamp()` return the untruncated millisecond instant and its text with three fractional digits, and compare expiry against the exact instant that the returned `expires_at` denotes. A settlement's members still share one `created_at` equal to `committed_at` (one stamp taken once). `stage-1/` stays untouched. If a shipped stage-1 or stage-2 check rejects fractional seconds, tell me which one and keep seconds only for that field. Include this row when you hand off to the Verifier.
