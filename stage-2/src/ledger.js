@@ -1,7 +1,7 @@
 // Wallet/payment/request logic. Every function here runs synchronously against
 // store.s, so each call is atomic and serialisable by construction.
 import { store, insertOrdered, newId, publicPayment, publicRequest, publicAuthorization, availableOf, heldOf } from './state.js';
-import { nowStamp, nowStampMs, stampAt } from './time.js';
+import { nowStamp, stampAt } from './time.js';
 import { equalShares } from '../public/assets/js/split.js';
 import { conflict, forbidden, invalid, malformed, notFound } from './errors.js';
 import {
@@ -216,7 +216,7 @@ export function createAuthorization(user, body) {
   const to = s.byHandle.get(handle);
   if (!to) throw notFound('no user has that handle');
   if (availableOf(s, user) < amount) throw conflict('insufficient_funds', 'available balance is below amount');
-  const created = nowStampMs();
+  const created = nowStamp();
   const expires = stampAt(created.ms + s.authTtl * 1000);
   const a = {
     authorization_id: newId(s, 'a', 'a', (id) => s.authById.has(id)),
@@ -237,6 +237,7 @@ export function createAuthorization(user, body) {
     ts: created.ms,
     seq: ++s.seq,
     exp: expires.ms,
+    voided_at: null, // internal bookkeeping only; never in a response
   };
   s.authById.set(a.authorization_id, a);
   insertOrdered(s.authorizations, a);
@@ -279,6 +280,7 @@ export function voidAuthorization(user, id) {
   if (a.status === 'voided') return publicAuthorization(a);
   if (a.status !== 'open') throw conflict('authorization_not_open', 'authorization is not open');
   a.status = 'voided';
+  a.voided_at = nowStamp().text;
   s.openAuths.delete(a);
   return publicAuthorization(a);
 }

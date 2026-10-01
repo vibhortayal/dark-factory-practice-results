@@ -1,59 +1,79 @@
-# Pocketful — stage 1 (payments and settlements)
+# Pocketful — stage 2 (wallet screens and payment authorizations)
 
-A single-process HTTP service. State is held in memory only and does not survive a restart.
-No runtime dependencies and no outbound network access are needed.
+One process, state in memory only (it does not survive a restart), no runtime dependencies and no
+outbound network access. It serves the JSON API **and** the browser UI (static files read from
+`public/` at start-up; no CDN, web fonts or external URLs).
 
 ## Build and start (one command)
 
-From this folder (`stage-1/`):
+From this folder (`stage-2/`):
 
 ```sh
-docker build -t pocketful-stage-1 . && docker run --rm -p 8080:8080 -e PORT=8080 pocketful-stage-1
+docker build -t pocketful-stage-2 . && docker run --rm -p 8080:8080 -e PORT=8080 pocketful-stage-2
 ```
 
-The service listens on `0.0.0.0:$PORT` (default `8080`) and answers `GET /health` with
-`{"status":"ok"}` within a second of start. Seed or clear state with `POST /_test/reset`.
+Then open <http://localhost:8080/>. The service listens on `0.0.0.0:$PORT` (default `8080`);
+`GET /health` answers `{"status":"ok"}`. Seed or clear state with `POST /_test/reset`.
+
+Screens: `/` (balance, pay / request / hold forms, activity feed), `/requests`, `/split`,
+`/authorizations`, `/signup`, `/login`. `/requests` and `/authorizations` are shared with the API:
+`Accept: text/html` gets the screen, anything else gets JSON.
 
 ## Tests
 
-Node.js 18+ is enough (no `npm install` is needed; there are no dependencies):
+API, unit and module tests (Node.js 18+, no `npm install` needed; no dependencies):
 
 ```sh
-npm test            # unit + HTTP tests, starts its own server on a free port
+npm test            # starts its own server on a free port
 ```
 
 Inside the image, without Node on the host:
 
 ```sh
-docker run --rm --entrypoint node pocketful-stage-1 --test test/*.test.js
+docker run --rm --entrypoint node pocketful-stage-2 --test test/*.test.js
 ```
 
-Two containers with no network, moving state with export/import:
+Browser tests (Python Playwright; the kickoff virtualenv already has it). Start the image detached, run
+the tests against it, and stop it:
 
 ```sh
-bash test/docker-smoke.sh
+docker run -d --name pf2 -p 18080:8080 pocketful-stage-2
+cd test/ui && BASE_URL=http://127.0.0.1:18080 <kickoff>/.venv/bin/python -m pytest -q
+docker rm -f pf2
+# screenshots of every screen at 375 px and 1280 px:
+BASE_URL=http://127.0.0.1:18080 <kickoff>/.venv/bin/python shots.py /tmp/pocketful-shots
 ```
 
-Point the tests at an already running instance with `TEST_BASE_URL=http://127.0.0.1:8080`
-(the tests reset state, so use a scratch instance).
+The upgrade tests start a real stage-1 service from `../stage-1` with `node`. Two containers, no
+network, state moved by export/import:
+
+```sh
+bash test/docker-smoke.sh      # stage 2 -> stage 2
+bash test/docker-upgrade.sh    # stage-1 image -> stage-2 image
+```
 
 ## Layout
 
 | Path | Role |
 |---|---|
-| `src/server.js` | routing and request pipeline (auth, idempotency, error envelope) |
-| `src/ledger.js` | payments, requests, splits, settlements (synchronous, single writer) |
-| `src/state.js` | in-memory state and public record shapes |
-| `src/validate.js`, `src/json.js` | field validation, strict JSON parsing, canonical bodies |
-| `src/fixture.js` | `POST /_test/reset` validation and state construction |
-| `src/snapshot.js` | `GET /_test/export` / `POST /_test/import` (state has its own `schema_version`) |
-| `src/passwords.js` | scrypt hashing on the thread pool |
+| `src/server.js` | routing, auth, idempotency pipeline, content negotiation |
+| `src/ledger.js` | payments, requests, splits, settlements, authorizations (synchronous, single writer) |
+| `src/state.js` | in-memory state, holds (`heldOf`/`availableOf`), clock-derived expiry (`sweep`) |
+| `src/fixture.js`, `src/snapshot.js` | reset validation; export/import (state `schema_version` 2; accepts stage-1's version 1) |
+| `src/json.js` | strict parsing; amount literals judged on their exact decimal value |
+| `src/ui.js` | serves `public/` |
+| `public/assets/js/money.js`, `split.js` | decimal parse/format and the equal-split rule; `split.js` is imported by the server too |
+| `public/assets/js/views/*`, `lib/*` | one module per screen; API client, retry identity, feedback |
+| `public/assets/style.css` | the design system (tokens, components) |
 
 ## Design notes
 
-- All money movement happens in one synchronous step on a single thread, so every request is
-  serialisable, balances are never transiently negative, and concurrent identical requests
-  produce exactly one `201` without locks.
-- Password hashing (scrypt) is asynchronous and never blocks the event loop.
-- Idempotency records are keyed by user + method + path + key and store the canonical request
-  body and the original response text; they are part of the exported state.
+- Money moves in one synchronous step on a single thread, so every request is serialisable and
+  `available = total − held` can never be observed negative.
+- Expiry is derived from the clock on every request (`sweep`), never from a timer.
+- A hold's remaining amount is `amount − captured_amount` while it is open; `held` is the sum of
+  those for the payer's open holds. Every `insufficient_funds` test uses `available`.
+- Timestamps created by this service carry millisecond precision (`…:03.123+00:00`).
+- The pay forms' idempotency key follows the form content (`lib/retry.js`); a response that is a 4xx
+  envelope is a refusal, anything else that is not a clean 2xx is "uncertain" and keeps the form retryable.
+- Every refresh carries a sequence number; a late response never overwrites a later one.

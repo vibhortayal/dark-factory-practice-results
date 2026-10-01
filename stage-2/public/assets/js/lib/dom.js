@@ -42,20 +42,9 @@ export function select({ id, label, testid, options, value }) {
 let uid = 0;
 export const nextId = (prefix) => `${prefix}-${++uid}`;
 
+// A static icon (no user data), built by the HTML parser so no namespace URL is needed.
 export function lockIcon() {
-  const ns = 'http://www.w3.org/2000/svg';
-  const svg = document.createElementNS(ns, 'svg');
-  svg.setAttribute('viewBox', '0 0 16 16');
-  svg.setAttribute('width', '12');
-  svg.setAttribute('height', '12');
-  svg.setAttribute('aria-hidden', 'true');
-  const body = document.createElementNS(ns, 'rect');
-  for (const [k, v] of Object.entries({ x: 3, y: 7, width: 10, height: 7, rx: 1.5, fill: 'currentColor' })) body.setAttribute(k, v);
-  const shackle = document.createElementNS(ns, 'path');
-  shackle.setAttribute('d', 'M5 7V5a3 3 0 016 0v2');
-  shackle.setAttribute('fill', 'none');
-  shackle.setAttribute('stroke', 'currentColor');
-  shackle.setAttribute('stroke-width', '1.6');
-  svg.append(shackle, body);
-  return svg;
+  const tpl = document.createElement('template');
+  tpl.innerHTML = '<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M5 7V5a3 3 0 016 0v2" fill="none" stroke="currentColor" stroke-width="1.6"/><rect x="3" y="7" width="10" height="7" rx="1.5" fill="currentColor"/></svg>';
+  return tpl.content.firstElementChild;
 }

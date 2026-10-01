@@ -4,7 +4,7 @@ import { emptyState, addUser, insertOrdered, sweep } from './state.js';
 import { invalid } from './errors.js';
 import { isObject, has } from './json.js';
 import { hashPassword } from './passwords.js';
-import { parseStamp, parseInstant, nowStamp, nowStampMs, stampAt } from './time.js';
+import { parseStamp, parseInstant, nowStamp, stampAt } from './time.js';
 import { HANDLE_RE, MAX_AMOUNT } from './validate.js';
 
 const STATUSES = ['pending', 'paid', 'declined', 'cancelled'];
@@ -133,7 +133,7 @@ export async function buildState(raw) {
   // Stamps and amounts are checked before any hashing so errors stay cheap.
   const payRecs = v.payments.map((p) => ({ p, stamp: stampOf(p, reset), amount: money(p.amount, 'payment amount', MAX_AMOUNT) }));
   const reqRecs = v.requests.map((r) => ({ r, stamp: stampOf(r, reset), amount: money(r.amount, 'request amount', MAX_AMOUNT) }));
-  const authRecs = v.authorizations.map((a) => ({ a, stamp: stampOf(a.raw, nowStampMs()) }));
+  const authRecs = v.authorizations.map((a) => ({ a, stamp: stampOf(a.raw, nowStamp()) }));
   const hashes = await Promise.all(v.users.map((u) => hashPassword(u.password, SEED_COST)));
 
   const s = emptyState();
@@ -174,7 +174,7 @@ export async function buildState(raw) {
       note: has(a.raw, 'note') ? a.raw.note : '', visibility: has(a.raw, 'visibility') ? a.raw.visibility : 'public',
       status: a.status, expires_at: expText ? expText.text : a.raw.expires_at,
       payment_id: a.paymentId, payment_ids: [...a.paymentIds],
-      created_at: stamp.text, ts: stamp.ms, seq: ++s.seq, exp: expText ? expText.ms : a.exp,
+      created_at: stamp.text, ts: stamp.ms, seq: ++s.seq, exp: expText ? expText.ms : a.exp, voided_at: null,
     };
     s.authById.set(rec.authorization_id, rec);
     insertOrdered(s.authorizations, rec);

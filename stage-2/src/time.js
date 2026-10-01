@@ -1,9 +1,9 @@
 // RFC 3339 helpers. Timestamps are emitted with an explicit numeric offset.
 const RFC3339 = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
 
+// The real clock, untruncated: millisecond precision with three fractional digits.
 export function nowStamp() {
-  const d = new Date();
-  return { text: d.toISOString().slice(0, 19) + '+00:00', ms: Math.floor(d.getTime() / 1000) * 1000 };
+  return stampAt(Date.now());
 }
 
 // Returns epoch ms for a valid RFC 3339 timestamp, otherwise null.
@@ -17,7 +17,6 @@ export function parseStamp(s) {
   return Number.isNaN(ms) ? null : ms;
 }
 
-const pad = (n, w = 2) => String(n).padStart(w, '0');
 
 // Millisecond-precision stamp, used for authorizations so a short ttl is judged
 // against the exact instant that is returned.
@@ -25,7 +24,6 @@ export function stampAt(ms) {
   const d = new Date(ms);
   return { text: d.toISOString().slice(0, 23) + '+00:00', ms };
 }
-export const nowStampMs = () => stampAt(Date.now());
 
 // Exact instant (epoch ms, may carry sub-millisecond digits) of a valid RFC 3339 timestamp, else null.
 export function parseInstant(s) {
@@ -34,4 +32,3 @@ export function parseInstant(s) {
   const frac = /\.(\d+)/.exec(s);
   return whole + (frac ? Number('0.' + frac[1]) * 1000 : 0);
 }
-export { pad };

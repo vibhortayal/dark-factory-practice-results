@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Builds the image, runs two containers with NO network, and moves state from A to B
-# through export/import. Usage: bash test/docker-smoke.sh   (run from stage-1/)
+# through export/import. Usage: bash test/docker-smoke.sh   (run from stage-2/)
 set -euo pipefail
-IMG=pocketful-stage-1:smoke
-A=pf-smoke-a; B=pf-smoke-b
+IMG=pocketful-stage-2:smoke
+A=pf2-smoke-a; B=pf2-smoke-b
 cleanup() { docker rm -f "$A" "$B" >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 cleanup
@@ -33,4 +33,9 @@ R2=$(call "$B" 9002 POST /payments '{"to_handle":"b","amount":250}' "$TOK" smoke
 echo "B replay: $R2"; echo "$R2" | grep -q '^200'
 [ "${R1#201 }" = "${R2#200 }" ]
 ME=$(call "$B" 9002 GET /me '' "$TOK"); echo "B /me: $ME"; echo "$ME" | grep -q '"balance":750'
+# the UI is served from the same image, and holds work end to end
+HTML=$(docker exec "$B" node -e 'fetch("http://127.0.0.1:9002/",{headers:{accept:"text/html"}}).then(async r=>console.log(r.status+" "+r.headers.get("content-type")+" "+(await r.text()).includes("id=\"app\"")))')
+echo "B UI: $HTML"; echo "$HTML" | grep -q '^200 text/html.* true'
+AUTH=$(call "$B" 9002 POST /authorizations '{"to_handle":"b","amount":100}' "$TOK" smoke-auth-1); echo "B hold: $AUTH"; echo "$AUTH" | grep -q '^201'
+ME=$(call "$B" 9002 GET /me '' "$TOK"); echo "B /me: $ME"; echo "$ME" | grep -q '"available":'
 echo "docker smoke OK"

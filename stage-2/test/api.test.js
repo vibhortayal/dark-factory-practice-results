@@ -24,7 +24,7 @@ test('B: health, headers, unknown route', async () => {
 
 test('C14/C18/G1: seeded data, /me shape, seeded balances not replayed', async () => {
   const me = await c.get('/me', { token: t.ada });
-  assert.deepEqual(me.json, { user_id: 'u_ada', display_name: 'Ada', handle: 'ada', balance: 10000, currency: 'EUR', minor_units: 2 });
+  assert.deepEqual(me.json, { user_id: 'u_ada', display_name: 'Ada', handle: 'ada', balance: 10000, total: 10000, available: 10000, held: 0, currency: 'EUR', minor_units: 2 });
   const act = await c.get('/activity', { token: t.cy });
   assert.equal(act.json.payments.length, 1);
   assert.equal(act.json.payments[0].payment_id, 'p_1');
@@ -74,7 +74,7 @@ test('E: signup and login rules', async () => {
 test('G2-G9: payments', async () => {
   const ok = await c.post('/payments', { token: t.ada, key: k(), body: { to_handle: 'bob', amount: 1500, note: 'dinner' } });
   assert.equal(ok.status, 201);
-  assert.deepEqual(Object.keys(ok.json), ['payment_id', 'from_user_id', 'from_handle', 'to_user_id', 'to_handle', 'amount', 'currency', 'note', 'visibility', 'request_id', 'settlement_id', 'created_at']);
+  assert.deepEqual(Object.keys(ok.json), ['payment_id', 'from_user_id', 'from_handle', 'to_user_id', 'to_handle', 'amount', 'currency', 'note', 'visibility', 'request_id', 'settlement_id', 'authorization_id', 'created_at']);
   assert.equal(ok.json.visibility, 'public');
   assert.equal(ok.json.request_id, null);
   assert.match(ok.json.created_at, RFC);
@@ -262,7 +262,7 @@ test('B3/B7/C1/C16/C17: reset behaviour', async () => {
   const jpy = { currency: 'JPY', minor_units: 0, users: [{ id: 'a', email: 'a@x.io', password: 'password1', display_name: 'A', handle: 'a', balance: 1000 }] };
   assert.equal((await c.reset(jpy)).status, 204);
   const tk = (await c.post('/auth/login', { body: { email: 'a@x.io', password: 'password1' } })).json.token;
-  assert.deepEqual((await c.get('/me', { token: tk })).json, { user_id: 'a', display_name: 'A', handle: 'a', balance: 1000, currency: 'JPY', minor_units: 0 });
+  assert.deepEqual((await c.get('/me', { token: tk })).json, { user_id: 'a', display_name: 'A', handle: 'a', balance: 1000, total: 1000, available: 1000, held: 0, currency: 'JPY', minor_units: 0 });
   // after reset: old token 401, old idempotency key is a first use
   err(await c.get('/me', { token: tok }), 401, 'unauthenticated');
   assert.equal((await c.reset(FX())).status, 204);

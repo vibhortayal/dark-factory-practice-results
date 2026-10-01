@@ -8,7 +8,7 @@ import { HANDLE_RE } from './validate.js';
 import { validHashFormat } from './passwords.js';
 
 const PAYMENT_KEYS = ['payment_id', 'from_user_id', 'from_handle', 'to_user_id', 'to_handle', 'amount', 'currency', 'note', 'visibility', 'request_id', 'settlement_id', 'authorization_id', 'created_at'];
-const AUTH_KEYS = ['authorization_id', 'from_user_id', 'from_handle', 'to_user_id', 'to_handle', 'amount', 'captured_amount', 'currency', 'note', 'visibility', 'status', 'expires_at', 'payment_id', 'payment_ids', 'created_at'];
+const AUTH_KEYS = ['authorization_id', 'from_user_id', 'from_handle', 'to_user_id', 'to_handle', 'amount', 'captured_amount', 'currency', 'note', 'visibility', 'status', 'expires_at', 'payment_id', 'payment_ids', 'created_at', 'voided_at'];
 const REQUEST_KEYS = ['request_id', 'requester_id', 'requester_handle', 'payer_id', 'payer_handle', 'amount', 'currency', 'note', 'status', 'payment_id', 'created_at'];
 const pick = (o, keys) => Object.fromEntries(keys.map((k) => [k, o[k]]));
 
@@ -141,7 +141,8 @@ export function importState(doc) {
       if (exp === null || created === null) throw bad('authorization timestamps are invalid');
       if (a.payment_id !== null && !id64(a.payment_id)) throw bad('authorization payment_id is invalid');
       if (!Array.isArray(a.payment_ids) || !a.payment_ids.every(id64)) throw bad('authorization payment_ids is invalid');
-      const rec = { ...pick(a, AUTH_KEYS), payment_ids: [...a.payment_ids], ts: created, seq: ++s.seq, exp };
+      if (a.voided_at !== undefined && a.voided_at !== null && parseInstant(a.voided_at) === null) throw bad('authorization voided_at is invalid');
+      const rec = { ...pick(a, AUTH_KEYS), voided_at: a.voided_at ?? null, payment_ids: [...a.payment_ids], ts: created, seq: ++s.seq, exp };
       s.authById.set(rec.authorization_id, rec);
       insertOrdered(s.authorizations, rec);
       if (rec.status === 'open') s.openAuths.add(rec);

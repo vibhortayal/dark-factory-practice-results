@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+export const stage1Dir = path.resolve(root, '..', 'stage-1');
 
 function freePort() {
   return new Promise((resolve) => {
@@ -15,10 +16,10 @@ function freePort() {
 }
 
 // Starts the service (or targets TEST_BASE_URL) and returns a tiny client.
-export async function startServer(env = {}) {
+export async function startServer(env = {}, dir = root) {
   if (process.env.TEST_BASE_URL) return client(process.env.TEST_BASE_URL, null);
   const port = await freePort();
-  const child = spawn(process.execPath, ['src/index.js'], { cwd: root, env: { ...process.env, PORT: String(port), ...env }, stdio: 'ignore' });
+  const child = spawn(process.execPath, ['src/index.js'], { cwd: dir, env: { ...process.env, PORT: String(port), ...env }, stdio: 'ignore' });
   const base = `http://127.0.0.1:${port}`;
   for (let i = 0; i < 100; i++) {
     try { if ((await fetch(base + '/health')).ok) break; } catch { /* retry */ }
