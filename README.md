@@ -8,7 +8,7 @@ Private archival evidence. This is not the submission repository and does not ce
 | R2 | practice-r2-2026-09-29 | run2 | fa201f49880987f92e391d12db0db26dfb617291 | Intervened development evidence |
 | R3 | practice-r3-2026-09-29 | run3 | ab8b9bbfbea9d2d8ba075e7ce1f2ec30b2fab03c | Blocked preflight evidence |
 
-These are the September 28-29 practice runs. They are not the later "Run 2" and "Run 3" on Claude Code seats, which live in their own result repositories. The dated branches for R2 and R3 point at the same commits as `run2` and `run3`; both names exist.
+These are the September 28-29 practice runs. They are not the later "Run 2" and "Run 3" on Claude Code seats, which live in their own result repositories. R2 and R3 were first archived under the branch names `run2` and `run3`. Those names were removed on 2026-10-01 (UTC) on Vibhor's word in BAND Bridge 54830dd7-3477-48a5-8f6f-a9fc340e83bb; the commits are unchanged under the dated names. The source repository `nightshift-practice-r1` was archived read-only at the same time.
 
 R1's own `PRACTICE-LEARNINGS.md` catalogues its development interventions. R2 includes outside operator intervention, and its shipped-check pass does not prove clean autonomy or hidden-check coverage. R3 stopped at blocked preflight and was not rescued or reused. The run branches preserve their original histories; this main branch is an index only.
 
