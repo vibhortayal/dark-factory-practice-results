@@ -9,6 +9,7 @@ import copy
 import hashlib
 import hmac
 import json
+import math
 import os
 import secrets
 import threading
@@ -18,13 +19,14 @@ from datetime import datetime, timezone
 
 from .validation import (HANDLE_RE, EMAIL_RE, STATUSES, ApiError, amount_of,
                          canon, handle_field, int_param, invalid, malformed,
-                         note_of, text_field, visibility_of)
+                         note_of, text_field, to_int, visibility_of)
 
 SCRYPT_N = 2 ** 11
 SCRYPT_R = 8
 SCRYPT_P = 1
 TRACK = "pocketful"
 FORMAT_VERSION = 1
+MAX_SAFE = 2 ** 53
 HANDLE_CHARS = frozenset("abcdefghijklmnopqrstuvwxyz0123456789_")
 
 
@@ -102,14 +104,13 @@ def build_state_from_fixture(fx):
             raise fixture_error("bad user id")
         if not HANDLE_RE.fullmatch(u["handle"]):
             raise fixture_error("bad handle")
-        bal = u.get("balance", 0)
-        if not is_int(bal):
-            if isinstance(bal, float) and bal == int(bal):
-                bal = int(bal)
-            else:
-                raise fixture_error("balance must be an integer")
+        bal = to_int(u.get("balance", 0))
+        if bal is None:
+            raise fixture_error("balance must be an integer")
         if bal < 0:
             raise fixture_error("balance must not be negative")
+        if bal > MAX_SAFE:
+            raise fixture_error("balance beyond 2^53")
         email = u["email"].lower()
         if u["id"] in users or u["handle"] in handles or email in emails:
             raise fixture_error("duplicate user id, handle or email")
@@ -138,10 +139,8 @@ def build_state_from_fixture(fx):
         ids.add(pid)
         if p.get("from_user_id") not in users or p.get("to_user_id") not in users:
             raise fixture_error("payment references an unknown user")
-        amount = p.get("amount")
-        if isinstance(amount, float) and amount == int(amount):
-            amount = int(amount)
-        if not is_int(amount) or amount < 0:
+        amount = to_int(p.get("amount"))
+        if amount is None or not 0 <= amount <= MAX_SAFE:
             raise fixture_error("payment amount")
         note = p.get("note", "")
         vis = p.get("visibility", "public")
@@ -164,10 +163,8 @@ def build_state_from_fixture(fx):
         ids.add(rid)
         if r.get("requester_id") not in users or r.get("payer_id") not in users:
             raise fixture_error("request references an unknown user")
-        amount = r.get("amount")
-        if isinstance(amount, float) and amount == int(amount):
-            amount = int(amount)
-        if not is_int(amount) or amount < 0:
+        amount = to_int(r.get("amount"))
+        if amount is None or not 0 <= amount <= MAX_SAFE:
             raise fixture_error("request amount")
         note = r.get("note", "")
         status = r.get("status", "pending")
@@ -244,7 +241,7 @@ def validate_state(st):
         _need(p.get("from") in st["users"] and p.get("to") in st["users"])
         _need(is_int(p.get("amount")) and isinstance(p.get("note"), str)
               and p.get("visibility") in ("public", "private")
-              and isinstance(p.get("created_at"), str) and isinstance(p.get("ts"), (int, float))
+              and isinstance(p.get("created_at"), str) and isinstance(p.get("ts"), (int, float)) and math.isfinite(p["ts"])
               and is_int(p.get("seq")))
         for k in ("request_id", "settlement_id"):
             _need(k in p and (p[k] is None or isinstance(p[k], str)))
@@ -254,7 +251,7 @@ def validate_state(st):
         _need(r.get("requester_id") in st["users"] and r.get("payer_id") in st["users"])
         _need(is_int(r.get("amount")) and isinstance(r.get("note"), str)
               and r.get("status") in STATUSES
-              and isinstance(r.get("created_at"), str) and isinstance(r.get("ts"), (int, float))
+              and isinstance(r.get("created_at"), str) and isinstance(r.get("ts"), (int, float)) and math.isfinite(r["ts"])
               and is_int(r.get("seq")))
         _need("payment_id" in r and (r["payment_id"] is None or isinstance(r["payment_id"], str)))
     for s in st["splits"]:

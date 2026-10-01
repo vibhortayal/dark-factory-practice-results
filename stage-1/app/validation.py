@@ -2,7 +2,6 @@
 import json
 import math
 import re
-from decimal import Decimal
 
 HANDLE_RE = re.compile(r"^[a-z0-9_]{1,20}$")
 DIGITS_RE = re.compile(r"^[0-9]+$")
@@ -32,45 +31,80 @@ def _reject_constant(name):
     raise ValueError("non-finite constant " + name)
 
 
-class BigNumber:
-    """A JSON number too large (or too tiny) for int/float, kept as an exact value.
+NUMBER_RE = re.compile(r"^(-?)([0-9]+)(?:\.([0-9]+))?(?:[eE]([+-]?[0-9]+))?$")
+EXPAND_LIMIT = 4000  # integral values up to this many digits compare as plain integers
 
-    Never a valid amount; compares (via canon) equal only to the same number.
+
+def num_canon(text):
+    """Exact canonical form of a JSON number literal, computed symbolically.
+
+    10, 10.0, 1e1 and 1.0e+1 give the same form; -0, 0 and 0e5 give the same
+    form; any two literals with different values differ. Exponents are never
+    expanded beyond EXPAND_LIMIT digits, so 1e999999999 is cheap.
     """
+    m = NUMBER_RE.match(text)
+    if not m:
+        return "x" + text
+    sign, whole, frac, exp_text = m.groups()
+    frac = frac or ""
+    if exp_text and len(exp_text.lstrip("+-0")) > 4000:
+        return "x" + text  # exponent with thousands of digits: keep the literal
+    exp = int(exp_text) if exp_text else 0
+    digits = (whole + frac).lstrip("0")
+    exp -= len(frac)
+    if not digits:
+        return "n0"
+    stripped = digits.rstrip("0")
+    exp += len(digits) - len(stripped)
+    digits = stripped
+    if exp >= 0 and len(digits) + exp <= EXPAND_LIMIT:
+        return "n" + sign + digits + "0" * exp
+    return "b" + sign + digits + "e" + str(exp)
+
+
+class BigNumber:
+    """An integer literal too long to convert to int; kept as its exact text."""
     __slots__ = ("text",)
 
     def __init__(self, literal):
-        try:
-            t = Decimal(literal).as_tuple()
-        except ArithmeticError:  # exponent beyond Decimal's range: keep the literal
-            self.text = "x" + literal
-            return
-        digits = list(t.digits)
-        exp = t.exponent
-        while len(digits) > 1 and digits[-1] == 0:
-            digits.pop()
-            exp += 1
-        self.text = "%s%se%d" % ("-" if t.sign else "", "".join(map(str, digits)), exp)
+        self.text = literal
+
+
+class ExactNumber(float):
+    """A JSON number with a fraction or exponent: the double for convenience,
+    plus the literal text so comparisons and validation use the exact value."""
+
+    def __new__(cls, text):
+        obj = super().__new__(cls, text)
+        obj.text = text if isinstance(text, str) else repr(float(text))
+        return obj
+
+
+def to_int(value):
+    """The exact integer value of a parsed JSON number, or None if it is not one."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, ExactNumber):
+        canon_text = num_canon(value.text)
+        return int(canon_text[1:]) if canon_text.startswith("n") else None
+    if isinstance(value, float):
+        return int(value) if math.isfinite(value) and value == int(value) else None
+    return None
 
 
 def _parse_int(text):
-    if len(text) > 4000:
+    if len(text) > EXPAND_LIMIT:
         return BigNumber(text)
     return int(text)
-
-
-def _parse_float(text):
-    f = float(text)
-    if math.isfinite(f) and f != 0.0:
-        return f
-    return BigNumber(text) if (f == 0.0 and Decimal(text) != 0) or not math.isfinite(f) else f
 
 
 def parse_json(raw):
     """Parse a request body; raises malformed() when it is not valid JSON."""
     try:
         return json.loads(raw.decode("utf-8"), parse_constant=_reject_constant,
-                          parse_int=_parse_int, parse_float=_parse_float)
+                          parse_int=_parse_int, parse_float=ExactNumber)
     except Exception:
         raise malformed("body is not valid JSON")
 
@@ -89,12 +123,12 @@ def _scalar(v):
         return "true" if v else "false"
     if isinstance(v, int):
         return "n" + str(v)
-    if isinstance(v, float):
-        if math.isfinite(v) and v == int(v):
-            return "n" + str(int(v))
-        return "f" + repr(v)
+    if isinstance(v, ExactNumber):
+        return num_canon(v.text)
     if isinstance(v, BigNumber):
-        return "b" + v.text
+        return num_canon(v.text)
+    if isinstance(v, float):
+        return num_canon(repr(v))
     return json.dumps(v, ensure_ascii=True)
 
 
@@ -137,10 +171,9 @@ def amount_of(value, present=True):
         raise invalid("amount is required")
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise invalid("amount must be an integer")
-    if isinstance(value, float):
-        if not math.isfinite(value) or value != int(value):
-            raise invalid("amount must be an integer")
-        value = int(value)
+    value = to_int(value)
+    if value is None:
+        raise invalid("amount must be an integer")
     if value < 1 or value > MAX_AMOUNT:
         raise invalid("amount out of range")
     return value

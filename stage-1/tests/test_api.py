@@ -1084,6 +1084,52 @@ class TestRegressions(Base):
         finally:
             svc_mod.verify_password = real
 
+    def test_numbers_compare_by_exact_value_for_idempotency(self):
+        zeros = lambda d, n: d + b"0" * n
+        cases = [(zeros(b"1", 4300), zeros(b"2", 4300), False), (b"1" * 4001, b"1" * 4002, False),
+                 (b"1e400", b"1e500", False), (zeros(b"1", 4300), b"1e4300", True),
+                 (b"9007199254740993", b"9007199254740993.0", True), (b"1" * 3999, b"1" * 3998 + b"2", False),
+                 (b"10", b"1e1", True), (b"true", b"1", False), (b"-0", b"0", True), (b"0e5", b"-0.0", True),
+                 (b"0.1", b"0.1000000000000000055511151231257827", False), (b"1", b"1.0000000000000001", False),
+                 (b"1e1", b"10.0", True), (b"1.0e+1", b"10", True),
+                 (b"1e999999999", b"1e999999998", False), (b"1e999999999", b"10e999999998", True),
+                 (b"1e999999999999999999999999999", b"1e999999999999999999999999998", False),
+                 (b"-1e999", b"1e999", False), (b"1e-400", b"2e-400", False), (b"[1.0]", b"[1]", True)]
+        for i, (a, b, same) in enumerate(cases):
+            key = "n%d" % i
+            raw = lambda x: b'{"to_handle":"bob","amount":1,"x":' + x + b"}"
+            t0 = time.time()
+            self.assertEqual(self.req("POST", "/payments", raw=raw(a), token=self.ada, key=key).status, 201, a[:20])
+            r = self.req("POST", "/payments", raw=raw(b), token=self.ada, key=key)
+            if same:
+                self.assertEqual(r.status, 200, (a[:20], b[:20]))
+            else:
+                self.err(r, 409, "idempotency_key_reuse")
+            self.assertLess(time.time() - t0, 2)
+        big = b"1" + b"7" * 400000 + b".5"  # huge literal stays fast
+        t0 = time.time()
+        self.assertEqual(self.req("POST", "/payments", raw=b'{"to_handle":"bob","amount":1,"x":' + big + b"}",
+                                  token=self.ada, key="huge").status, 201)
+        self.assertLess(time.time() - t0, 3)
+        self.assertEqual(self.req("POST", "/_test/import", raw=self.req("GET", "/_test/export").raw).status, 204)
+
+    def test_amount_is_valid_iff_exact_integer_in_range(self):
+        self.reset(fixture(users=[user("ada", 5 * 10 ** 9), user("bob", 0)]))
+        ada = self.login("ada")
+        for lit, ok in ((b"0.9999999999999999999999", False), (b"1000000000.0", True), (b"1e3", True),
+                        (b"1000.0", True), (b"10.5", False), (b"1e400", False), (b"1.0000000000000000001", False),
+                        (b"1000000000.0000000000000001", False), (b"1000000001.0", False), (b"0.0", False),
+                        (b"100e-2", True), (b"1e-0", True)):
+            r = self.req("POST", "/payments", raw=b'{"to_handle":"bob","amount":' + lit + b"}", token=ada,
+                         key=uuid.uuid4().hex)
+            self.assertEqual(r.status, 201 if ok else 422, lit)
+        fx = fixture(users=[user("ada", 10000.0), user("bob", 1e3)])
+        raw = json.dumps(fx)
+        self.assertEqual(self.req("POST", "/_test/reset", raw=raw.encode()).status, 204)
+        self.assertEqual(self.bal(self.login("ada")), 10000)
+        self.err(self.req("POST", "/_test/reset", raw=json.dumps(fixture(users=[user("a", 1.5)])).encode()),
+                 422, "validation_failed")
+
     def test_deep_nesting_unknown_field(self):
         for depth in (10, 950, 1000, 5000):
             raw = b'{"to_handle":"bob","amount":1,"x":' + b"[" * depth + b"]" * depth + b"}"
