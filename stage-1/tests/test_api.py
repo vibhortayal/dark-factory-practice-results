@@ -1106,7 +1106,7 @@ class TestRegressions(Base):
             else:
                 self.err(r, 409, "idempotency_key_reuse")
             self.assertLess(time.time() - t0, 2)
-        big = b"1" + b"7" * 400000 + b".5"  # huge literal stays fast
+        big = b"1" + b"7" * 100000 + b".5"  # long literal stays fast
         t0 = time.time()
         self.assertEqual(self.req("POST", "/payments", raw=b'{"to_handle":"bob","amount":1,"x":' + big + b"}",
                                   token=self.ada, key="huge").status, 201)
@@ -1130,16 +1130,16 @@ class TestRegressions(Base):
         self.err(self.req("POST", "/_test/reset", raw=json.dumps(fixture(users=[user("a", 1.5)])).encode()),
                  422, "validation_failed")
 
-    MiB = 1024 * 1024
+    MiB = 128 * 1024  # the API body cap
 
     def shapes(self):
         base = b'{"to_handle":"bob","amount":1,"x":'
         n = self.MiB - len(base) - 1 - 16
-        return {"one number of ~1M digits": base + b"9" * n + b"}",
-                "500k small numbers": base + b"[" + b"1," * (n // 2 - 2) + b"1]}",
-                "350k empty arrays": base + b"[" + b"[]," * (n // 3 - 2) + b"[]]}",
+        return {"one number of ~128K digits": base + b"9" * n + b"}",
+                "60k small numbers": base + b"[" + b"1," * (n // 2 - 2) + b"1]}",
+                "40k empty arrays": base + b"[" + b"[]," * (n // 3 - 2) + b"[]]}",
                 "nesting to depth 9000": base + b"[" * 9000 + b"]" * 9000 + b"}",
-                "1 MiB string": base + b'"' + b"z" * (n - 2) + b'"}'}
+                "128 KiB string": base + b'"' + b"z" * (n - 2) + b'"}'}
 
     def test_one_mib_bodies_answer_fast_and_never_block_others(self):
         shapes = self.shapes()
@@ -1168,8 +1168,23 @@ class TestRegressions(Base):
             stop.append(1)
             watcher.result()
         self.assertTrue(all(r.status == 201 for r in results))
-        print("worst GET /me latency during 8 concurrent 1 MiB bodies: %.3fs" % worst[0])
+        print("worst GET /me latency during 8 concurrent 128 KiB bodies: %.3fs" % worst[0])
         self.assertLess(worst[0], 0.5)
+
+    def test_fifty_concurrent_worst_case_bodies_finish_within_five_seconds(self):
+        base = b'{"to_handle":"bob","amount":1,"x":'
+        n = self.MiB - len(base) - 20
+        raws = [base + b"[" + b"1.5," * (n // 4 - 2) + b"1.5]}", base + b"[" + b"[]," * (n // 3 - 2) + b"[]]}",
+                base + b"[" + b"1," * (n // 2 - 2) + b"1]}", base + b"[" + b"{}," * (n // 3 - 2) + b"{}]}"]
+        for shape, raw in enumerate(raws):
+            self.assertLessEqual(len(raw), self.MiB)
+            t0 = time.time()
+            with ThreadPoolExecutor(50) as ex:
+                rs = list(ex.map(lambda i: (time.time(), self.req("POST", "/payments", raw=raw, token=self.ada,
+                                                                  key="f50-%d-%d" % (shape, i))), range(50)))
+            total = time.time() - t0
+            self.assertEqual({r.status for _, r in rs}, {201}, rs[0][1].raw[:200])
+            self.assertLess(total, 5.0, raw[:60])
 
     def test_oversize_bodies_get_413(self):
         base = b'{"to_handle":"bob","amount":1,"x":'

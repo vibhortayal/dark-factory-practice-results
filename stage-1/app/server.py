@@ -12,7 +12,7 @@ from .service import Service
 from .validation import ApiError, canon, malformed, parse_json, parse_object, invalid
 
 MAX_BODY = 64 * 1024 * 1024  # /_test/* fixtures and exports
-MAX_API_BODY = 1024 * 1024  # every other endpoint
+MAX_API_BODY = 128 * 1024  # every other endpoint: ample for any valid request (a 1000-handle split is ~10 KB)
 REQUEST_ACTION = re.compile(r"^/requests/([^/]+)/(pay|decline|cancel)$")
 PATHS = {"/health": ("GET",), "/_test/reset": ("POST",), "/_test/export": ("GET",),
          "/_test/import": ("POST",), "/auth/signup": ("POST",), "/auth/login": ("POST",),
