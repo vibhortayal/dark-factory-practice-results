@@ -584,3 +584,32 @@ test('AC12: service stamps are real-clock microsecond stamps; only recorded_at i
   const before = await stmt(t.ada, `?known_at=${enc(recs[29])}`);
   assert.equal(before.entries.find((e) => e.payment.payment_id === p.payment_id).revision, 30);
 });
+
+// A client instant read from its own clock at microsecond precision (Python's datetime.now().isoformat()) must
+// never be refused as "in the future" when it reaches the service within the same millisecond.
+const nowMicro = () => {
+  const ms = Date.now();
+  const us = Number(process.hrtime.bigint() % 1000n);
+  return new Date(ms).toISOString().slice(0, 23) + String(us).padStart(3, '0') + '+00:00';
+};
+
+test('the present instant, at microsecond precision, is "not later than now"', async () => {
+  await fresh();
+  const p = await pay(t.ada, 'bob', 100);
+  let rev = 1;
+  for (let i = 0; i < 100; i++) {
+    const r = await correct(t.ada, p.payment_id, goodBody({ expected_revision: rev, amount: 100 - (i % 2), effective_at: nowMicro(), reason: 'now' }));
+    assert.equal(r.status, 201, r.text);
+    rev += 1;
+  }
+  for (let i = 0; i < 100; i++) {
+    const at0 = nowMicro();
+    const rs = await c.reset(FX({ payments: [{ id: 'p_now', from_user_id: 'u_ada', to_user_id: 'u_bob', amount: 5, created_at: at0 }] }));
+    assert.equal(rs.status, 204, `${at0}: ${rs.text}`);
+  }
+  await fresh();
+  // an instant a whole millisecond or more in the future is still refused
+  const p2 = await pay(t.ada, 'bob', 100);
+  err(await correct(t.ada, p2.payment_id, goodBody({ effective_at: new Date(Date.now() + 5).toISOString().replace('Z', '+00:00') })), 422, 'validation_failed');
+  err(await c.reset(FX({ payments: [{ id: 'p_f', from_user_id: 'u_ada', to_user_id: 'u_bob', amount: 5, created_at: new Date(Date.now() + 50).toISOString() }] })), 422, 'validation_failed');
+});

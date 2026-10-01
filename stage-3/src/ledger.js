@@ -322,7 +322,8 @@ export function correctPayment(user, id, body) {
   if (!has(body, 'reason') || typeof body.reason !== 'string' || [...body.reason].length < 1 || [...body.reason].length > 200) throw invalid('reason must be a string of 1 to 200 characters');
   const effNs = has(body, 'effective_at') ? parseInstantNs(body.effective_at) : null;
   if (effNs === null) throw invalid('effective_at must be an RFC 3339 instant with an offset');
-  if (effNs > msToNs(clockMs(s))) throw invalid('effective_at must not be in the future');
+  // "Not later than now": the service clock reads whole milliseconds, so allow up to the end of the current millisecond.
+  if (effNs > msToNs(clockMs(s)) + 999999n) throw invalid('effective_at must not be in the future');
   const p = s.paymentById.get(id);
   if (!p) throw notFound('no such payment');
   if (p.from_user_id !== user.id) throw forbidden('only the original sender may correct a payment');

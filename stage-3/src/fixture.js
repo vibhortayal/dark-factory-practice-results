@@ -140,7 +140,7 @@ export async function buildState(raw) {
     if (has(p, 'created_at') && p.created_at !== null) {
       ns = parseInstantNs(p.created_at);
       if (ns === null) throw bad('payment created_at must be an RFC 3339 instant with an offset');
-      if (ns > resetNs) throw bad('payment created_at must not be in the future');
+      if (ns > resetNs + 999999n) throw bad('payment created_at must not be in the future'); // end of the current millisecond
       stamp = { text: p.created_at, ms: Number(ns / 1000000n) };
     }
     return { p, stamp, ns, amount: money(p.amount, 'payment amount', MAX_AMOUNT) };
