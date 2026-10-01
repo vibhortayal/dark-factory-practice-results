@@ -209,7 +209,20 @@ def main():
     print("== E5: password hashing")
     for n_users in (3000, 20000):
         print("reset %d users, one password: %s" % (n_users, reset([user(i) for i in range(n_users)])))
-    print("reset 500 users, 500 distinct passwords: %s" % (reset([user(i, "pw-%d" % i) for i in range(500)]),))
+    for distinct in (1, 150, 350, 800, 1000, 2800, 4000, 5000, 10000):
+        t0 = time.time()
+        status, took = reset([user(i, "pw-%d" % i) for i in range(distinct)])
+        print("reset %5d users, %5d distinct passwords: %s in %.2fs" % (distinct, distinct, status, took), flush=True)
+    reset([user(i, "pw-%d" % i) for i in range(500)])
+    conn = http.client.HTTPConnection(URL.hostname, URL.port, timeout=30)
+    tok0 = login(0, "pw-0")
+    conn.request("GET", "/me", headers={"Authorization": "Bearer " + tok0})
+    conn.getresponse().read()
+    t0 = time.time()
+    for _ in range(200):
+        conn.request("GET", "/me", headers={"Authorization": "Bearer " + tok0})
+        conn.getresponse().read()
+    print("keep-alive: %.2f ms per request over 200 sequential requests" % ((time.time() - t0) / 200 * 1000), flush=True)
     t0 = time.time()
     call("POST", "/auth/login", {"email": "e1@x.io", "password": "pw-1"})
     print("single login %.3fs" % (time.time() - t0))

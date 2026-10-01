@@ -17,7 +17,9 @@ from .validation import (HANDLE_RE, EMAIL_RE, STATUSES, ApiError, amount_of,
                          handle_field, int_param, invalid, malformed,
                          note_of, text_field, to_int, visibility_of)
 from .validation import BigNumber
-from .passwords import (ALG, MAX_DISTINCT_PASSWORDS, SCRYPT_N, SCRYPT_P, SCRYPT_R, hash_many,
+from . import capacity
+from .capacity import json_len
+from .passwords import (ALG, ALLOWED_N, MAX_DISTINCT_PASSWORDS, SCRYPT_P, SCRYPT_R, hash_many,
                         hash_password, verify_password)
 
 TRACK = "pocketful"
@@ -26,24 +28,6 @@ MAX_SAFE = 2 ** 53
 HANDLE_CHARS = frozenset("abcdefghijklmnopqrstuvwxyz0123456789_")
 # Upper bound on the serialised size of the whole state (see RUN.md "Operating envelope").
 STATE_BUDGET = int(os.environ.get("POCKETFUL_STATE_BUDGET") or 40 * 1024 * 1024)
-
-
-def json_len(text):
-    """Serialised length of a string field (escapes included)."""
-    return len(json.dumps(text, ensure_ascii=True))
-
-
-def payment_cost(frm, to, note, key):
-    """Upper bound of what one payment adds: record + receipt view + idempotency entry.
-
-    Every client-controlled string is counted by its JSON-escaped length (an emoji is 12 bytes
-    in the ensure_ascii export), never by its character count.
-    """
-    return 800 + 3 * (json_len(frm) + json_len(to)) + 2 * json_len(note) + json_len(key)
-
-
-def request_cost(requester, payer, note, key):
-    return 800 + 3 * (json_len(requester) + json_len(payer)) + 2 * json_len(note) + json_len(key)
 
 
 def iso(ts):
@@ -191,6 +175,12 @@ def hash_fixture_passwords(users):
         u["pw"] = record
 
 
+def state_size(serialised_len, state):
+    """Accounted size of a loaded state: its real export length plus headroom for the later
+    status/payment_id changes of its requests (a few bytes each)."""
+    return serialised_len + 24 * len(state["requests"])
+
+
 def new_state(currency, minor_units, total):
     return {"currency": currency, "minor_units": minor_units, "seeded_total": total,
             "users": {}, "tokens": {}, "payments": [], "requests": [], "splits": [],
@@ -302,8 +292,9 @@ def validate_state(st):
         _need(0 <= bal <= MAX_SAFE)
         pw = u["pw"]
         _keys(pw, ("alg", "n", "r", "p", "load_salt", "user_salt", "hash"))
-        _need(pw["alg"] == ALG and (pw["n"], pw["r"], pw["p"]) == (SCRYPT_N, SCRYPT_R, SCRYPT_P)
-              and type(pw["n"]) is int and type(pw["r"]) is int and type(pw["p"]) is int)
+        _need(pw["alg"] == ALG and type(pw["n"]) is int and pw["n"] in ALLOWED_N
+              and (pw["r"], pw["p"]) == (SCRYPT_R, SCRYPT_P)
+              and type(pw["r"]) is int and type(pw["p"]) is int)
         email = _str(u["email"])
         _need(u["handle"] not in handles and email.lower() not in emails)
         handles.add(u["handle"])
@@ -415,7 +406,7 @@ class Service:
             raise
         except (TypeError, ValueError, KeyError, AttributeError, OverflowError, RecursionError):
             raise fixture_error("structurally invalid")
-        size = len(json.dumps(state, ensure_ascii=True, allow_nan=False))
+        size = state_size(len(json.dumps(state, ensure_ascii=True, allow_nan=False)), state)
         if size > STATE_BUDGET:
             raise fixture_error("state exceeds the %d byte capacity budget" % STATE_BUDGET)
         self.install(state, size)
@@ -443,14 +434,15 @@ class Service:
             # trial run of the real export serialisation before anything is swapped in
             blob = json.dumps({"track": TRACK, "format_version": FORMAT_VERSION, "state": state},
                               ensure_ascii=True, allow_nan=False)
-            if len(blob) > STATE_BUDGET:
+            size = state_size(len(blob), state)
+            if size > STATE_BUDGET:
                 raise invalid("state exceeds the %d byte capacity budget" % STATE_BUDGET)
             json.loads(blob)
         except ApiError:
             raise
         except (TypeError, ValueError, KeyError, AttributeError, OverflowError, RecursionError):
             raise invalid("state: invalid")
-        self.install(state, len(blob))
+        self.install(state, size)
 
     def next_id(self, kind, prefix, taken):
         c = self.state["counters"]
@@ -468,7 +460,7 @@ class Service:
 
     def issue_token(self, uid, reserved=False):
         if not reserved:
-            self._reserve(120 + json_len(uid))
+            self._reserve(capacity.token_cost(uid))
         tok = secrets.token_urlsafe(24)
         self.state["tokens"][tok] = uid
         return tok
@@ -489,7 +481,7 @@ class Service:
                 raise ApiError(409, "email_taken", "email already registered")
             if handle in self.by_handle:
                 raise ApiError(409, "handle_taken", "derived handle already taken")
-            self._reserve(1300 + 2 * json_len(email) + json_len(display_name) + 40)
+            self._reserve(capacity.signup_cost(email, display_name))
             uid = self.next_id("user", "u", self.state["users"])
             self.state["users"][uid] = {"id": uid, "email": email,
                                         "display_name": display_name, "handle": handle,
@@ -627,7 +619,7 @@ class Service:
             to = self._lookup(to_handle)
             if me["balance"] < amount:
                 raise ApiError(409, "insufficient_funds", "balance too low")
-            self._reserve(payment_cost(uid, to, note, self._cur_key))
+            self._reserve(capacity.payment_cost(uid, to, note, self._cur_key))
             return self.payment_view(self._move(uid, to, amount, note, vis))
 
     def _new_request(self, requester, payer, amount, note, split_id=None):
@@ -648,7 +640,7 @@ class Service:
             if payer_handle == self.state["users"][uid]["handle"]:
                 raise ApiError(422, "self_request", "cannot request from yourself")
             payer = self._lookup(payer_handle)
-            self._reserve(request_cost(uid, payer, note, self._cur_key))
+            self._reserve(capacity.request_cost(uid, payer, note, self._cur_key))
             return self.request_view(self._new_request(uid, payer, amount, note))
 
     def pay_request(self, uid, rid, body):
@@ -661,8 +653,7 @@ class Service:
                 raise ApiError(409, "request_not_pending", "request is not pending")
             if self.state["users"][uid]["balance"] < r["amount"]:
                 raise ApiError(409, "insufficient_funds", "balance too low")
-            self._reserve(payment_cost(uid, r["requester_id"], r["note"], self._cur_key)
-                          + 2 * json_len(rid))  # the request id appears in the payment and the key path
+            self._reserve(capacity.payment_cost(uid, r["requester_id"], r["note"], self._cur_key, rid))
             p = self._move(uid, r["requester_id"], r["amount"], r["note"], vis,
                            request_id=rid)
             r["status"] = "paid"
@@ -745,9 +736,8 @@ class Service:
             ids = [self.by_handle.get(h) for h in handles]
             if any(i is None for i in ids):
                 raise ApiError(404, "not_found", "unknown participant handle")
-            self._reserve(900 + json_len(self._cur_key) + 2 * json_len(note) + sum(
-                80 + len(h) for h in handles) + sum(
-                request_cost(uid, pid, note, "") + 60 for pid in ids if pid != uid))
+            self._reserve(capacity.split_cost(uid, note, self._cur_key,
+                                              [pid for pid in ids if pid != uid], len(handles)))
             sid = self.next_id("split", "sp", {s["id"] for s in self.state["splits"]})
             reqs = [self._new_request(uid, pid, share, note, sid)
                     for pid, share in zip(ids, shares) if pid != uid]
@@ -786,8 +776,8 @@ class Service:
             users = self.state["users"]
             if any(users[w]["balance"] + d < 0 for w, d in net.items()):
                 raise ApiError(409, "insufficient_funds", "settlement is not affordable")
-            self._reserve(700 + json_len(self._cur_key) + sum(
-                payment_cost(frm, to, note, "") + 60 for frm, to, _, note, _ in checked))
+            self._reserve(capacity.settlement_cost(
+                uid, self._cur_key, [(frm, to, note) for frm, to, _, note, _ in checked]))
             ts = time.time()
             sid = self.next_id("settlement", "st", {s["id"] for s in self.state["settlements"]})
             made = [self._move(frm, to, amount, note, vis, settlement_id=sid, created=ts)

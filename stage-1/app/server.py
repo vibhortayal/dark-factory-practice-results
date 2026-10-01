@@ -51,6 +51,7 @@ def dumps(obj):
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     timeout = 120
+    disable_nagle_algorithm = True  # TCP_NODELAY on accepted sockets
 
     def log_message(self, *args):
         pass
@@ -114,9 +115,15 @@ class Handler(BaseHTTPRequestHandler):
             if status != 204:
                 self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(payload)))
-            self.end_headers()
-            if self.command != "HEAD" and payload:
-                self.wfile.write(payload)
+            self._headers_buffer.append(b"\r\n")  # what end_headers() does, minus its own write
+            head = b"".join(self._headers_buffer)
+            self._headers_buffer = []
+            body = payload if self.command != "HEAD" else b""
+            if len(body) <= 256 * 1024:  # one write: no Nagle/delayed-ACK stall on keep-alive
+                self.wfile.write(head + body)
+            else:
+                self.wfile.write(head)
+                self.wfile.write(body)
         except (BrokenPipeError, ConnectionResetError):
             self.close_connection = True
 

@@ -1568,46 +1568,6 @@ class TestEnvelope(Base):
         finally:
             svc_mod.STATE_BUDGET = old
 
-    def test_estimate_is_an_upper_bound_for_escaped_strings(self):
-        """Emoji take 12 bytes each in the export: keys, notes, ids, emails must be counted escaped."""
-        e = "\U0001F600"
-        uid_a, uid_b = e * 60 + "a", e * 60 + "b"
-        users = [dict(user("ann", 10 ** 9), id=uid_a), dict(user("ben", 10 ** 9), id=uid_b)]
-        self.reset({"currency": "EUR", "minor_units": 2, "users": users, "settlement_operator_ids": [uid_a],
-                    "requests": [{"id": e * 60 + "r%d" % i, "requester_id": uid_b, "payer_id": uid_a, "amount": 1,
-                                  "note": "", "status": "pending"} for i in range(40)]})
-        ann = self.login("ann")
-        refused = 0
-        for i in range(4000):
-            key = e * 249 + "%06d" % i
-            note = e * 100
-            kind = i % 5
-            if kind == 0:
-                r = self.post("/payments", {"to_handle": "ben", "amount": 1, "note": note}, ann, key=key)
-            elif kind == 1:
-                r = self.post("/requests", {"payer_handle": "ben", "amount": 1, "note": note}, ann, key=key)
-            elif kind == 2:
-                r = self.post("/splits", {"amount": 10, "participant_handles": ["ann", "ben"], "note": note}, ann, key=key)
-            elif kind == 3:
-                r = self.post("/settlements", {"transfers": [{"from_handle": "ann", "to_handle": "ben", "amount": 1,
-                                                              "note": note}] * 3}, ann, key=key)
-            elif i // 5 < 40:
-                r = self.post("/requests/%s/pay" % quote(e * 60 + "r%d" % (i // 5)), {}, ann, key=key)
-            else:
-                r = self.req("POST", "/auth/signup", {"email": e * 30 + "%d@example.com" % i, "password": "12345678",
-                                                      "display_name": e * 50})
-            if r.status == 429:
-                refused += 1
-                if refused > 3:
-                    break
-            else:
-                self.assertIn(r.status, (200, 201), r.raw[:200])
-        self.assertGreater(refused, 0, "budget never reached")
-        exp = self.req("GET", "/_test/export").raw
-        self.assertLessEqual(len(exp), self.BUDGET)  # the estimate is an upper bound of the real size
-        self.assertEqual(self.req("POST", "/_test/import", raw=exp).status, 204)
-        self.assertEqual(self.req("GET", "/_test/export").raw, exp)
-
     def test_currency_is_bounded(self):
         for cur in ("", "€€€", "X" * 17):
             self.err(self.req("POST", "/_test/reset", dict(fixture(), currency=cur)), 422, "validation_failed")
@@ -1693,8 +1653,195 @@ class TestEnvelope(Base):
         self.err(self.req("POST", "/_test/import", doc), 422, "validation_failed")
 
 
+class TestCapacityBound(unittest.TestCase):
+    """The capacity estimate is an upper bound of the real export, for adversarial strings too."""
+    E = "\U0001F600"
+
+    def setUp(self):
+        sys.path.insert(0, ROOT)
+        from app import service as svc_mod
+        from app.validation import parse_plain
+        self.m = svc_mod
+        self.parse_plain = parse_plain
+        self.old_budget = svc_mod.STATE_BUDGET
+
+    def tearDown(self):
+        self.m.STATE_BUDGET = self.old_budget
+
+    def service(self, budget, n_extra_users=0, ids=("u_ann", "u_ben")):
+        self.m.STATE_BUDGET = budget
+        svc = self.m.Service()
+        users = [dict(user("ann", 10 ** 9), id=ids[0]), dict(user("ben", 10 ** 9), id=ids[1])]
+        users += [dict(user("x%d" % i, 10 ** 6), id="u_x%d" % i) for i in range(n_extra_users)]
+        svc.reset({"currency": "EUR", "minor_units": 2, "users": users, "settlement_operator_ids": [ids[0]]})
+        return svc, ids
+
+    def run_op(self, svc, uid, path, key, fn):
+        try:
+            return svc.idempotent(uid, "POST", path, key, "s" * 64, fn)
+        except self.m.ApiError as e:
+            self.assertEqual((e.status, e.code), (429, "capacity_exceeded"))
+            return None
+
+    def check_fill(self, svc, op, limit=100000):
+        """Run op(i) until the budget refuses; the export must fit the budget and re-import identically."""
+        refused = 0
+        for i in range(limit):
+            if op(i) is None:
+                refused += 1
+                if refused > 3:
+                    break
+        self.assertGreater(refused, 0, "budget never reached")
+        blob = svc.export()
+        self.assertLessEqual(len(blob), self.m.STATE_BUDGET)
+        self.assertLessEqual(len(blob), svc.size + 100)  # accounted size is an upper bound
+        other = self.m.Service()
+        other.import_(self.parse_plain(blob))
+        self.assertEqual(other.export(), blob)
+        return blob
+
+    def test_emoji_keys_until_429_export_imports_byte_identically(self):
+        svc, (ann, ben) = self.service(2_000_000)
+        key = lambda i: self.E * 249 + "%06d" % i
+        self.check_fill(svc, lambda i: self.run_op(svc, ann, "/payments", key(i), lambda: svc.create_payment(
+            ann, {"to_handle": "ben", "amount": 1})))
+
+    def test_adversarial_notes_ids_and_keys_on_every_creating_path(self):
+        e = self.E
+        shapes = {"200 emoji": e * 200, "200 control chars": "\u0001" * 200, "quotes and slashes": '"\\' * 100}
+        for name, note in shapes.items():
+            ids = (e * 30 + "ann", "\u0001" * 30 + "ben")
+            svc, (ann, ben) = self.service(1_500_000, ids=ids)
+            n = [0]
+
+            def op(i, svc=svc, ann=ann, ben=ben, note=note):
+                kind = i % 4
+                key = e * 100 + "%06d" % i
+                if kind == 0:
+                    return self.run_op(svc, ann, "/payments", key, lambda: svc.create_payment(
+                        ann, {"to_handle": "ben", "amount": 1, "note": note}))
+                if kind == 1:
+                    return self.run_op(svc, ann, "/requests", key, lambda: svc.create_request(
+                        ann, {"payer_handle": "ben", "amount": 1, "note": note}))
+                if kind == 2:
+                    return self.run_op(svc, ann, "/splits", key, lambda: svc.create_split(
+                        ann, {"amount": 10, "participant_handles": ["ann", "ben"], "note": note}))
+                return self.run_op(svc, ann, "/settlements", key, lambda: svc.create_settlement(ann, {"transfers": [
+                    {"from_handle": "ann", "to_handle": "ben", "amount": 1, "note": note}] * 5}))
+            self.check_fill(svc, op)
+
+    def test_huge_emails_and_display_names_at_signup(self):
+        svc, _ = self.service(3_000_000)
+        e = self.E
+
+        def op(i):
+            email = "user%06d" % i + e * 100 + "@example.com"  # ~1.2 KB escaped, handle from the ASCII prefix
+            try:
+                svc.signup({"email": email, "password": "12345678", "display_name": e * 8000})
+                return True
+            except self.m.ApiError as err:
+                self.assertEqual((err.status, err.code), (429, "capacity_exceeded"))
+                return None
+        self.check_fill(svc, op, limit=2000)
+        svc2, _ = self.service(3_000_000)
+        big_email = "bigmail" + "\u0001" * 20000 + "@example.com"  # 100 KiB-class client strings
+        svc2.signup({"email": big_email, "password": "12345678", "display_name": "d" * 100000})
+        self.assertLessEqual(len(svc2.export()), svc2.size + 100)
+
+    def test_3000_participant_splits_and_32_member_settlements(self):
+        svc, (ann, ben) = self.service(12_000_000, n_extra_users=3000)
+        handles = ["ann", "ben"] + ["x%d" % i for i in range(2998)]
+
+        def op(i):
+            return self.run_op(svc, ann, "/splits", "big%d" % i, lambda: svc.create_split(
+                ann, {"amount": 10 ** 6, "participant_handles": handles, "note": self.E * 200}))
+        self.check_fill(svc, op, limit=50)
+        svc, (ann, ben) = self.service(2_000_000)
+        transfers = [{"from_handle": "ann", "to_handle": "ben", "amount": 1, "note": "\u0001" * 200}] * 32
+        self.check_fill(svc, lambda i: self.run_op(svc, ann, "/settlements", self.E * 255 if False else "st%d" % i,
+                                                   lambda: svc.create_settlement(ann, {"transfers": transfers})))
+
+    def test_property_random_adversarial_workload(self):
+        import random
+        rng = random.Random(7)
+        pool = ["", "a", "caf\u00e9", self.E * 3, "\u0001\u001f", '"', "\\", "/", "x" * 50, "\u2028", self.E * 100,
+                "\u0000"]
+        for seed in range(3):
+            rng.seed(seed)
+            ids = (rng.choice(pool) + "ann%d" % seed, rng.choice(pool) + "ben%d" % seed)
+            svc, (ann, ben) = self.service(10_000_000, ids=ids)
+            rids = []
+            for i in range(300):
+                note = (rng.choice(pool) * rng.randint(1, 20))[:200]
+                key = (rng.choice(pool) * rng.randint(1, 60) + str(i))[-255:] or str(i)
+                kind = rng.randrange(7)
+                try:
+                    if kind == 0:
+                        svc.idempotent(ann, "POST", "/payments", key, "s" * 64, lambda: svc.create_payment(
+                            ann, {"to_handle": "ben", "amount": 1, "note": note}))
+                    elif kind == 1:
+                        r = svc.idempotent(ann, "POST", "/requests", key, "s" * 64, lambda: svc.create_request(
+                            ben, {"payer_handle": "ann", "amount": 1, "note": note}) if False else svc.create_request(
+                            ann, {"payer_handle": "ben", "amount": 1, "note": note}))[1]
+                        rids.append(r["request_id"])
+                    elif kind == 2:
+                        svc.idempotent(ann, "POST", "/splits", key, "s" * 64, lambda: svc.create_split(
+                            ann, {"amount": 10, "participant_handles": ["ann", "ben"], "note": note}))
+                    elif kind == 3:
+                        svc.idempotent(ann, "POST", "/settlements", key, "s" * 64, lambda: svc.create_settlement(
+                            ann, {"transfers": [{"from_handle": "ann", "to_handle": "ben", "amount": 1,
+                                                 "note": note}] * rng.randint(1, 6)}))
+                    elif kind == 4:
+                        svc.signup({"email": "u%d%s@example.com" % (i, rng.choice(pool)[:20].replace("@", "")),
+                                    "password": "12345678", "display_name": rng.choice(pool) * 50})
+                    elif kind == 5 and rids:
+                        rid = rids.pop()
+                        svc.idempotent(ben, "POST", "/requests/%s/pay" % rid, key, "s" * 64,
+                                       lambda: svc.pay_request(ben, rid, {}))
+                    else:
+                        svc.login({"email": "ann@example.com", "password": "correct horse"})
+                except self.m.ApiError:
+                    pass
+                if i % 25 == 0:
+                    self.assertLessEqual(len(svc.export()), svc.size + 100, (seed, i))
+            self.assertLessEqual(len(svc.export()), svc.size + 100)
+
+
 class TestScale(Base):
     """Default budget: reset speed, password hashing at scale."""
+
+    def test_keep_alive_requests_are_fast(self):
+        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+        h = {"Authorization": "Bearer " + self.ada}
+        conn.request("GET", "/me", headers=h)
+        conn.getresponse().read()
+        t0 = time.time()
+        for _ in range(200):
+            conn.request("GET", "/me", headers=h)
+            r = conn.getresponse()
+            self.assertEqual(r.status, 200)
+            r.read()
+        per_request = (time.time() - t0) / 200
+        conn.close()
+        print("keep-alive: %.2f ms per request" % (per_request * 1000))
+        self.assertLess(per_request, 0.005)
+
+    def test_work_factor_steps_down_with_distinct_passwords(self):
+        sys.path.insert(0, ROOT)
+        from app import passwords
+        got = {d: passwords.work_factor(d) for d in (1, 150, 151, 350, 351, 700, 701, 1400, 1401, 2800, 2801, 4000)}
+        self.assertEqual(got, {1: 2 ** 14, 150: 2 ** 14, 151: 2 ** 13, 350: 2 ** 13, 351: 2 ** 12, 700: 2 ** 12,
+                               701: 2 ** 11, 1400: 2 ** 11, 1401: 2 ** 10, 2800: 2 ** 10, 2801: 2 ** 10,
+                               4000: 2 ** 10})
+        for distinct, n in ((1, 2 ** 14), (200, 2 ** 13), (500, 2 ** 12)):
+            users = [dict(user("v%d" % i, 1), password="pw-%d" % i) for i in range(distinct)]
+            self.assertEqual(self.req("POST", "/_test/reset", fixture(users=users)).status, 204)
+            exp = json.loads(self.req("GET", "/_test/export").raw)
+            self.assertEqual({u["pw"]["n"] for u in exp["state"]["users"].values()}, {n})
+            self.assertEqual(self.bal(self.login("v%d" % (distinct - 1), "pw-%d" % (distinct - 1))), 1)
+        s = self.req("POST", "/auth/signup", {"email": "sg@example.com", "password": "12345678", "display_name": "S"})
+        exp = json.loads(self.req("GET", "/_test/export").raw)
+        self.assertIn(2 ** 14, {u["pw"]["n"] for u in exp["state"]["users"].values()})
 
     def test_reset_hashes_many_users_quickly_and_bounds_distinct_passwords(self):
         users = [user("w%d" % i, 1) for i in range(3000)]
@@ -1702,7 +1849,7 @@ class TestScale(Base):
         self.assertEqual(self.req("POST", "/_test/reset", fixture(users=users)).status, 204)
         self.assertLess(time.time() - t0, 2.0)
         self.assertEqual(self.bal(self.login("w2999")), 1)
-        many = [dict(user("d%d" % i, 1), password="pw-%d" % i) for i in range(801)]
+        many = [dict(user("d%d" % i, 1), password="pw-%d" % i) for i in range(4001)]
         self.err(self.req("POST", "/_test/reset", fixture(users=many)), 422, "validation_failed")
         t0 = time.time()
         some = [dict(user("d%d" % i, 1), password="pw-%d" % i) for i in range(500)]
