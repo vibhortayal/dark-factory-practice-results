@@ -140,6 +140,7 @@ def _slow_canon(value):
     out = []
     app = out.append
     dumps = json.dumps
+    memo = {}  # literal -> text, for this body only (nothing outlives the call)
     stack = []
     it, closer, first = iter((value,)), "", True
     while True:
@@ -152,7 +153,9 @@ def _slow_canon(value):
                 app(":")
                 item = item[1]
             kind = type(item)
-            if kind is list:
+            if kind is int:
+                app(str(item))
+            elif kind is list:
                 stack.append((it, closer, first))
                 app("[")
                 it, closer, first = iter(item), "]", True
@@ -163,8 +166,11 @@ def _slow_canon(value):
                 it, closer, first = iter(sorted(item.items())), "}", True
                 break
             elif kind is BigNumber:
-                c = num_canon(item.text)
-                app(c[1:] if c.startswith("n") else "~" + c + "~")
+                text = memo.get(item.text)
+                if text is None:
+                    c = num_canon(item.text)
+                    text = memo[item.text] = c[1:] if c.startswith("n") else "~" + c + "~"
+                app(text)
             else:  # int, str, bool, None
                 app(dumps(item, ensure_ascii=True))
         else:

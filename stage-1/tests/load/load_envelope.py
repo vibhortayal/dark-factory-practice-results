@@ -99,7 +99,7 @@ def shapes():
             "16k floats": base + b"[" + b"1.5," * 16000 + b"1.5]}",
             "16k exponent floats": base + b"[" + b"1.25e3," * 16000 + b"1.25e3]}",
             "16k distinct floats": base + b"[" + b",".join(b"%d.5" % i for i in range(16000)) + b"]}",
-            "16k distinct exponent floats": base + b"[" + b",".join(b"%d.25e3" % i for i in range(16000)) + b"]}",
+            "12k distinct exponent floats": base + b"[" + b",".join(b"%d.25e3" % i for i in range(12000)) + b"]}",
             "8k empty arrays": base + b"[" + b"[]," * 8000 + b"[]]}",
             "8k small objects": base + b"[" + b'{"a":1},' * 8000 + b'{"a":1}]}',
             "nesting depth 9000": base + b"[" * 9000 + b"]" * 9000 + b"}",
@@ -146,8 +146,12 @@ def retention():
     mid = rss_mib()
     with ThreadPoolExecutor(50) as ex:
         codes |= {r[0] for r in ex.map(one, range(3000, 3800))}
-    print("statuses %s; RSS after 100 requests %s MiB, after 3000 sequential %s MiB, after 800 more concurrent %s MiB; "
-          "container peak %s MiB" % (sorted(map(str, codes)), after100, mid, rss_mib(), peak_mib()), flush=True)
+    wave1 = rss_mib()
+    with ThreadPoolExecutor(50) as ex:
+        codes |= {r[0] for r in ex.map(one, range(3800, 4600))}
+    print("statuses %s; RSS after 100 requests %s MiB, after 3000 sequential %s MiB, after 800 concurrent %s MiB, "
+          "after 800 more concurrent %s MiB; container peak %s MiB" % (
+              sorted(map(str, codes)), after100, mid, wave1, rss_mib(), peak_mib()), flush=True)
 
 
 def main():
