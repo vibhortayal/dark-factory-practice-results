@@ -5,47 +5,41 @@ single lock. Every write happens inside `with self.lock`, which is the one
 serialisation point: balances, request state, idempotency records and export
 snapshots are therefore trivially consistent.
 """
-import hashlib
-import hmac
 import json
 import math
 import os
 import secrets
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
 from .validation import (HANDLE_RE, EMAIL_RE, STATUSES, ApiError, amount_of,
                          handle_field, int_param, invalid, malformed,
                          note_of, text_field, to_int, visibility_of)
 from .validation import BigNumber
+from .passwords import (ALG, MAX_DISTINCT_PASSWORDS, SCRYPT_N, SCRYPT_P, SCRYPT_R, hash_many,
+                        hash_password, verify_password)
 
-SCRYPT_N = 2 ** 11
-SCRYPT_R = 8
-SCRYPT_P = 1
 TRACK = "pocketful"
 FORMAT_VERSION = 1
 MAX_SAFE = 2 ** 53
 HANDLE_CHARS = frozenset("abcdefghijklmnopqrstuvwxyz0123456789_")
+# Upper bound on the serialised size of the whole state (see RUN.md "Operating envelope").
+STATE_BUDGET = int(os.environ.get("POCKETFUL_STATE_BUDGET") or 40 * 1024 * 1024)
 
 
-def hash_password(password, salt=None):
-    salt = salt or os.urandom(16)
-    digest = hashlib.scrypt(password.encode("utf-8", "surrogatepass"), salt=salt,
-                            n=SCRYPT_N, r=SCRYPT_R, p=SCRYPT_P, dklen=32)
-    return {"alg": "scrypt", "n": SCRYPT_N, "r": SCRYPT_R, "p": SCRYPT_P,
-            "salt": salt.hex(), "hash": digest.hex()}
+def json_len(text):
+    """Serialised length of a string field (escapes included)."""
+    return len(json.dumps(text, ensure_ascii=True))
 
 
-def verify_password(password, record):
-    try:
-        digest = hashlib.scrypt(password.encode("utf-8", "surrogatepass"),
-                                salt=bytes.fromhex(record["salt"]),
-                                n=record["n"], r=record["r"], p=record["p"], dklen=32)
-    except Exception:
-        return False
-    return hmac.compare_digest(digest.hex(), record["hash"])
+def payment_cost(frm, to, note, key):
+    """Upper bound of what one payment adds: record + receipt view + idempotency entry."""
+    return 800 + 3 * (len(frm) + len(to)) + 2 * json_len(note) + len(key)
+
+
+def request_cost(requester, payer, note, key):
+    return 800 + 3 * (len(requester) + len(payer)) + 2 * json_len(note) + len(key)
 
 
 def iso(ts):
@@ -182,15 +176,15 @@ def build_state_from_fixture(fx):
 
 
 def hash_fixture_passwords(users):
-    """Replace each seeded plaintext password with its (per-user salted) scrypt record.
+    """Replace each seeded plaintext password with its hash record (see passwords.py).
 
-    Hashing runs on two threads (scrypt releases the GIL) and happens after the
-    whole fixture has been validated, before the state is swapped in.
+    Runs after the whole fixture has validated and before the state is swapped in.
     """
     members = list(users.values())
-    with ThreadPoolExecutor(2) as pool:
-        for u, record in zip(members, pool.map(hash_password, [u["pw"] for u in members])):
-            u["pw"] = record
+    if len({u["pw"] for u in members}) > MAX_DISTINCT_PASSWORDS:
+        raise fixture_error("more than %d distinct passwords" % MAX_DISTINCT_PASSWORDS)
+    for u, record in zip(members, hash_many([u["pw"] for u in members])):
+        u["pw"] = record
 
 
 def new_state(currency, minor_units, total):
@@ -302,8 +296,9 @@ def validate_state(st):
         bal = _int(u["balance"])
         _need(0 <= bal <= MAX_SAFE)
         pw = u["pw"]
-        _keys(pw, ("alg", "n", "r", "p", "salt", "hash"))
-        _need(pw["alg"] == "scrypt")
+        _keys(pw, ("alg", "n", "r", "p", "load_salt", "user_salt", "hash"))
+        _need(pw["alg"] == ALG and (pw["n"], pw["r"], pw["p"]) == (SCRYPT_N, SCRYPT_R, SCRYPT_P)
+              and type(pw["n"]) is int and type(pw["r"]) is int and type(pw["p"]) is int)
         email = _str(u["email"])
         _need(u["handle"] not in handles and email.lower() not in emails)
         handles.add(u["handle"])
@@ -311,10 +306,11 @@ def validate_state(st):
         total += bal
         out["users"][uid] = {"id": uid, "email": email, "display_name": _str(u["display_name"]),
                              "handle": u["handle"], "balance": bal,
-                             "pw": {"alg": "scrypt", "n": _int(pw["n"]), "r": _int(pw["r"]),
-                                    "p": _int(pw["p"]), "salt": _str(pw["salt"]),
-                                    "hash": _str(pw["hash"])}}
-        bytes.fromhex(pw["salt"])
+                             "pw": {"alg": ALG, "n": pw["n"], "r": pw["r"], "p": pw["p"],
+                                    "load_salt": _str(pw["load_salt"]),
+                                    "user_salt": _str(pw["user_salt"]), "hash": _str(pw["hash"])}}
+        bytes.fromhex(pw["load_salt"])
+        bytes.fromhex(pw["user_salt"])
         bytes.fromhex(pw["hash"])
     _need(total == out["seeded_total"])
     for tok, uid in st["tokens"].items():
@@ -375,12 +371,29 @@ def validate_state(st):
 class Service:
     def __init__(self):
         self.lock = threading.RLock()
-        self.install(new_state("EUR", 2, 0))
+        self.size = 0  # running upper-bound estimate of the serialised state size
+        self.version = 0  # bumped by every mutation; keys the export cache
+        self._export_cache = None
+        self._cur_key = ""
+        self.install(new_state("EUR", 2, 0), 0)
 
     # ---- state management -------------------------------------------------
 
-    def install(self, state):
+    def _reserve(self, nbytes):
+        """Account for a write before making any change; 429 when over the budget."""
+        if self.size + nbytes > STATE_BUDGET:
+            raise ApiError(429, "capacity_exceeded", "state capacity budget reached")
+        self.size += nbytes
+        self.touch()
+
+    def touch(self):
+        self.version += 1
+        self._export_cache = None
+
+    def install(self, state, size):
         with self.lock:
+            self.size = size
+            self.touch()
             self.state = state
             self.by_handle = {u["handle"]: uid for uid, u in state["users"].items()}
             self.by_email = {u["email"].lower(): uid for uid, u in state["users"].items()}
@@ -397,13 +410,22 @@ class Service:
             raise
         except (TypeError, ValueError, KeyError, AttributeError, OverflowError, RecursionError):
             raise fixture_error("structurally invalid")
-        self.install(state)
+        size = len(json.dumps(state, ensure_ascii=True, allow_nan=False))
+        if size > STATE_BUDGET:
+            raise fixture_error("state exceeds the %d byte capacity budget" % STATE_BUDGET)
+        self.install(state, size)
 
     def export(self):
+        """Atomic read-only snapshot; unchanged states reuse the serialised bytes."""
         with self.lock:
+            cached = self._export_cache
+            if cached is not None and cached[0] == self.version:
+                return cached[1]
             blob = json.dumps({"track": TRACK, "format_version": FORMAT_VERSION,
-                               "state": self.state}, ensure_ascii=True, allow_nan=False)
-        return blob.encode("ascii")
+                               "state": self.state}, ensure_ascii=True,
+                              allow_nan=False).encode("ascii")
+            self._export_cache = (self.version, blob)
+            return blob
 
     def import_(self, doc):
         if not isinstance(doc, dict):
@@ -414,13 +436,16 @@ class Service:
         try:
             state = validate_state(doc["state"])
             # trial run of the real export serialisation before anything is swapped in
-            json.loads(json.dumps({"track": TRACK, "format_version": FORMAT_VERSION, "state": state},
-                                  ensure_ascii=True, allow_nan=False))
+            blob = json.dumps({"track": TRACK, "format_version": FORMAT_VERSION, "state": state},
+                              ensure_ascii=True, allow_nan=False)
+            if len(blob) > STATE_BUDGET:
+                raise invalid("state exceeds the %d byte capacity budget" % STATE_BUDGET)
+            json.loads(blob)
         except ApiError:
             raise
         except (TypeError, ValueError, KeyError, AttributeError, OverflowError, RecursionError):
             raise invalid("state: invalid")
-        self.install(state)
+        self.install(state, len(blob))
 
     def next_id(self, kind, prefix, taken):
         c = self.state["counters"]
@@ -436,7 +461,9 @@ class Service:
 
     # ---- auth ---------------------------------------------------------------
 
-    def issue_token(self, uid):
+    def issue_token(self, uid, reserved=False):
+        if not reserved:
+            self._reserve(120 + len(uid))
         tok = secrets.token_urlsafe(24)
         self.state["tokens"][tok] = uid
         return tok
@@ -451,19 +478,21 @@ class Service:
             raise invalid("password too short")
         local = email.split("@", 1)[0].lower()
         handle = "".join(c if c in HANDLE_CHARS else "_" for c in local)[:20]
-        pw = hash_password(password)
+        pw = hash_password(password)  # outside the lock
         with self.lock:
             if email.lower() in self.by_email:
                 raise ApiError(409, "email_taken", "email already registered")
             if handle in self.by_handle:
                 raise ApiError(409, "handle_taken", "derived handle already taken")
+            self._reserve(1300 + len(email) + json_len(display_name) + 40)
             uid = self.next_id("user", "u", self.state["users"])
             self.state["users"][uid] = {"id": uid, "email": email,
                                         "display_name": display_name, "handle": handle,
                                         "balance": 0, "pw": pw}
             self.by_handle[handle] = uid
             self.by_email[email.lower()] = uid
-            return {"user_id": uid, "display_name": display_name, "token": self.issue_token(uid)}
+            return {"user_id": uid, "display_name": display_name,
+                    "token": self.issue_token(uid, reserved=True)}
 
     def login(self, body):
         email = text_field(body, "email")
@@ -549,6 +578,7 @@ class Service:
                     return 200, entry["response"]
                 raise ApiError(409, "idempotency_key_reuse",
                                "idempotency key used with a different body")
+            self._cur_key = key
             response = operation()
             entry = {"user": uid, "method": method, "path": path, "key": key,
                      "body": sig, "response": response}
@@ -592,6 +622,7 @@ class Service:
             to = self._lookup(to_handle)
             if me["balance"] < amount:
                 raise ApiError(409, "insufficient_funds", "balance too low")
+            self._reserve(payment_cost(uid, to, note, self._cur_key))
             return self.payment_view(self._move(uid, to, amount, note, vis))
 
     def _new_request(self, requester, payer, amount, note, split_id=None):
@@ -612,6 +643,7 @@ class Service:
             if payer_handle == self.state["users"][uid]["handle"]:
                 raise ApiError(422, "self_request", "cannot request from yourself")
             payer = self._lookup(payer_handle)
+            self._reserve(request_cost(uid, payer, note, self._cur_key))
             return self.request_view(self._new_request(uid, payer, amount, note))
 
     def pay_request(self, uid, rid, body):
@@ -624,6 +656,7 @@ class Service:
                 raise ApiError(409, "request_not_pending", "request is not pending")
             if self.state["users"][uid]["balance"] < r["amount"]:
                 raise ApiError(409, "insufficient_funds", "balance too low")
+            self._reserve(payment_cost(uid, r["requester_id"], r["note"], self._cur_key))
             p = self._move(uid, r["requester_id"], r["amount"], r["note"], vis,
                            request_id=rid)
             r["status"] = "paid"
@@ -642,6 +675,7 @@ class Service:
             if r[party] != uid:
                 raise ApiError(403, "forbidden", "not permitted for this request")
             if r["status"] == "pending":
+                self.touch()
                 r["status"] = target
             elif r["status"] != target:
                 raise ApiError(409, "request_not_pending", "request is not pending")
@@ -705,6 +739,9 @@ class Service:
             ids = [self.by_handle.get(h) for h in handles]
             if any(i is None for i in ids):
                 raise ApiError(404, "not_found", "unknown participant handle")
+            self._reserve(900 + len(self._cur_key) + 2 * json_len(note) + sum(
+                80 + len(h) for h in handles) + sum(
+                request_cost(uid, pid, note, "") + 60 for pid in ids if pid != uid))
             sid = self.next_id("split", "sp", {s["id"] for s in self.state["splits"]})
             reqs = [self._new_request(uid, pid, share, note, sid)
                     for pid, share in zip(ids, shares) if pid != uid]
@@ -743,6 +780,8 @@ class Service:
             users = self.state["users"]
             if any(users[w]["balance"] + d < 0 for w, d in net.items()):
                 raise ApiError(409, "insufficient_funds", "settlement is not affordable")
+            self._reserve(700 + len(self._cur_key) + sum(
+                payment_cost(frm, to, note, "") + 60 for frm, to, _, note, _ in checked))
             ts = time.time()
             sid = self.next_id("settlement", "st", {s["id"] for s in self.state["settlements"]})
             made = [self._move(frm, to, amount, note, vis, settlement_id=sid, created=ts)

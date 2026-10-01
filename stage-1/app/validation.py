@@ -119,6 +119,18 @@ def parse_json(raw):
         raise malformed("body is not valid JSON")
 
 
+def parse_plain(raw):
+    """Plain C parse for our own export format (imports): ordinary floats, no hooks."""
+    try:
+        return json.loads(raw.decode("utf-8"), parse_constant=_reject_constant)
+    except json.JSONDecodeError:
+        raise malformed("body is not valid JSON")
+    except RecursionError:
+        raise malformed("body is nested too deeply")
+    except ValueError:  # includes undecodable bytes and integers beyond the conversion limit
+        raise invalid("document contains an unsupported value")
+
+
 def parse_object(raw):
     value = parse_json(raw)
     if not isinstance(value, dict):

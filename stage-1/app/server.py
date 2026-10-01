@@ -9,9 +9,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qsl, unquote, urlsplit
 
 from .service import Service
-from .validation import ApiError, canon, malformed, parse_json, parse_object, invalid
+from .validation import ApiError, canon, malformed, parse_json, parse_object, parse_plain, invalid
 
 MAX_BODY = 64 * 1024 * 1024  # /_test/* fixtures and exports
+MAX_API_VALUES = 16384  # commas + brackets + braces in an API body (a 1000-handle split has ~1000)
 MAX_API_BODY = 128 * 1024  # every other endpoint: ample for any valid request (a 1000-handle split is ~10 KB)
 REQUEST_ACTION = re.compile(r"^/requests/([^/]+)/(pay|decline|cancel)$")
 PATHS = {"/health": ("GET",), "/_test/reset": ("POST",), "/_test/export": ("GET",),
@@ -65,6 +66,13 @@ class Handler(BaseHTTPRequestHandler):
         self.close_connection = True  # the unread body would corrupt the next request
         return ApiError(413, "payload_too_large", "request body too large")
 
+    def check_api_values(self):
+        """Cheap C-speed bound on the number of JSON values in an API body, before parsing."""
+        raw = self.raw
+        if not self.path.startswith("/_test/") and len(raw) > 4096 and \
+                raw.count(b",") + raw.count(b"[") + raw.count(b"{") > MAX_API_VALUES:
+            raise ApiError(413, "payload_too_large", "request body has too many values")
+
     def read_body(self):
         limit = MAX_BODY if self.path.startswith("/_test/") else MAX_API_BODY
         if "chunked" in (self.headers.get("Transfer-Encoding") or "").lower():
@@ -116,6 +124,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             try:
                 self.raw = self.read_body()
+                self.check_api_values()
                 status, body, raw = self.route()
             except ApiError as e:
                 status, body, raw = e.status, {"error": {"code": e.code, "message": e.message}}, None
@@ -159,7 +168,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/_test/export":
             return 200, None, svc.export()
         if path == "/_test/import":
-            svc.import_(parse_limited(self.raw, large_test_bodies, parse_json))
+            svc.import_(parse_limited(self.raw, large_test_bodies, parse_plain))
             return 204, None, None
         if path == "/auth/signup":
             return 201, svc.signup(parse_object(self.raw)), None

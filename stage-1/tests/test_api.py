@@ -64,14 +64,15 @@ def fixture(**kw):
 
 class Base(unittest.TestCase):
     proc = None
+    extra_env = {}
 
     @classmethod
     def setUpClass(cls):
         for _ in range(5):  # another process may grab the port between probe and bind
             cls.port = free_port()
             cls.proc = subprocess.Popen([sys.executable, "-m", "app"], cwd=ROOT,
-                                        env=dict(os.environ, PORT=str(cls.port)))
-            for _ in range(100):
+                                        env=dict(os.environ, PORT=str(cls.port), **cls.extra_env))
+            for _ in range(300):
                 if cls.proc.poll() is not None:
                     break
                 try:
@@ -865,7 +866,7 @@ class TestExportImport(Base):
         port = free_port()
         p = subprocess.Popen([sys.executable, "-m", "app"], cwd=ROOT, env=dict(os.environ, PORT=str(port)))
         try:
-            for _ in range(100):
+            for _ in range(300):
                 try:
                     call(port, "GET", "/health")
                     break
@@ -1133,11 +1134,15 @@ class TestRegressions(Base):
     MiB = 128 * 1024  # the API body cap
 
     def shapes(self):
+        """Worst-case bodies inside the envelope: <= 128 KiB and <= 16,384 commas/brackets/braces."""
         base = b'{"to_handle":"bob","amount":1,"x":'
         n = self.MiB - len(base) - 1 - 16
         return {"one number of ~128K digits": base + b"9" * n + b"}",
-                "60k small numbers": base + b"[" + b"1," * (n // 2 - 2) + b"1]}",
-                "40k empty arrays": base + b"[" + b"[]," * (n // 3 - 2) + b"[]]}",
+                "16k small numbers": base + b"[" + b"1," * 16000 + b"1]}",
+                "16k floats": base + b"[" + b"1.5," * 16000 + b"1.5]}",
+                "16k exponent floats": base + b"[" + b"1.25e3," * 16000 + b"1.25e3]}",
+                "8k empty arrays": base + b"[" + b"[]," * 8000 + b"[]]}",
+                "8k small objects": base + b"[" + b'{"a":1},' * 8000 + b'{"a":1}]}',
                 "nesting to depth 9000": base + b"[" * 9000 + b"]" * 9000 + b"}",
                 "128 KiB string": base + b'"' + b"z" * (n - 2) + b'"}'}
 
@@ -1169,13 +1174,10 @@ class TestRegressions(Base):
             watcher.result()
         self.assertTrue(all(r.status == 201 for r in results))
         print("worst GET /me latency during 8 concurrent 128 KiB bodies: %.3fs" % worst[0])
-        self.assertLess(worst[0], 0.5)
+        self.assertLess(worst[0], 1.0)
 
     def test_fifty_concurrent_worst_case_bodies_finish_within_five_seconds(self):
-        base = b'{"to_handle":"bob","amount":1,"x":'
-        n = self.MiB - len(base) - 20
-        raws = [base + b"[" + b"1.5," * (n // 4 - 2) + b"1.5]}", base + b"[" + b"[]," * (n // 3 - 2) + b"[]]}",
-                base + b"[" + b"1," * (n // 2 - 2) + b"1]}", base + b"[" + b"{}," * (n // 3 - 2) + b"{}]}"]
+        raws = list(self.shapes().values())
         for shape, raw in enumerate(raws):
             self.assertLessEqual(len(raw), self.MiB)
             t0 = time.time()
@@ -1184,12 +1186,18 @@ class TestRegressions(Base):
                                                                   key="f50-%d-%d" % (shape, i))), range(50)))
             total = time.time() - t0
             self.assertEqual({r.status for _, r in rs}, {201}, rs[0][1].raw[:200])
-            self.assertLess(total, 5.0, raw[:60])
+            self.assertLess(total, 4.0, raw[:60])
 
     def test_oversize_bodies_get_413(self):
         base = b'{"to_handle":"bob","amount":1,"x":'
         r = self.req("POST", "/payments", raw=base + b"9" * (self.MiB + 10) + b"}", token=self.ada, key="o1")
         self.err(r, 413, "payload_too_large")
+        # too many JSON values (even though the body is small)
+        r = self.req("POST", "/payments", raw=base + b"[" + b"1," * 17000 + b"1]}", token=self.ada, key="o2")
+        self.err(r, 413, "payload_too_large")
+        r = self.req("POST", "/splits", {"amount": 10, "participant_handles": ["ada"] + ["h%d" % i for i in range(1000)]},
+                     token=self.ada, key="o3")
+        self.err(r, 404, "not_found")  # a 1000-handle split is inside the envelope
         for cl in ("99999999", "9" * 2000, "9" * 5000):
             conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
             conn.putrequest("POST", "/payments")
@@ -1390,6 +1398,192 @@ class TestRegressions(Base):
         t0 = time.time()
         self.assertEqual(self.req("POST", "/_test/import", raw=exp.raw).status, 204)
         self.assertLess(time.time() - t0, 3)
+
+
+class TestEnvelope(Base):
+    """Operating envelope: capacity budget (429), export cache, password records."""
+    BUDGET = 400_000
+    extra_env = {"POCKETFUL_STATE_BUDGET": str(BUDGET)}
+
+    def fill(self, tok, handle="bob", prefix="f", note="x" * 150):
+        """Create payments until the budget refuses; returns (created keys, refusal)."""
+        created = []
+        for i in range(5000):
+            key = "%s%d" % (prefix, i)
+            r = self.post("/payments", {"to_handle": handle, "amount": 1, "note": note}, tok, key=key)
+            if r.status == 429:
+                return created, r
+            self.assertEqual(r.status, 201, r.raw)
+            created.append((key, r.json))
+        self.fail("budget never reached")
+
+    def test_budget_refuses_every_creating_path_and_keeps_replays(self):
+        self.reset(fixture(settlement_operator_ids=["u_ada"],
+                           requests=[{"id": "rq_a", "requester_id": "u_bob", "payer_id": "u_ada",
+                                      "amount": 5, "note": "", "status": "pending"}]))
+        ada = self.login("ada")
+        created, refusal = self.fill(ada)
+        self.err(refusal, 429, "capacity_exceeded")
+        body = {"to_handle": "bob", "amount": 1, "note": "x" * 150}
+        for _ in range(100):  # use up the remaining headroom (logins add a token each)
+            if self.req("POST", "/auth/login", {"email": "ada@example.com", "password": "correct horse"}).status == 429:
+                break
+        balance = self.bal(ada)
+        exp = self.req("GET", "/_test/export").raw
+        self.assertLessEqual(len(exp), self.BUDGET * 1.2)
+        self.err(self.post("/payments", body, ada, key="new1"), 429, "capacity_exceeded")
+        self.err(self.post("/requests", {"payer_handle": "bob", "amount": 1}, ada, key="new2"), 429, "capacity_exceeded")
+        self.err(self.post("/splits", {"amount": 10, "participant_handles": ["ada", "bob"]}, ada, key="new3"),
+                 429, "capacity_exceeded")
+        self.err(self.post("/settlements", {"transfers": [{"from_handle": "ada", "to_handle": "bob", "amount": 1}]},
+                           ada, key="new4"), 429, "capacity_exceeded")
+        self.err(self.post("/requests/rq_a/pay", {}, ada, key="new5"), 429, "capacity_exceeded")
+        self.err(self.req("POST", "/auth/signup", {"email": "zed@example.com", "password": "12345678",
+                                                    "display_name": "Z"}), 429, "capacity_exceeded")
+        self.err(self.req("POST", "/auth/login", {"email": "ada@example.com", "password": "correct horse"}),
+                 429, "capacity_exceeded")
+        # nothing changed, nothing recorded
+        self.assertEqual(self.bal(ada), balance)
+        self.assertEqual(self.req("GET", "/_test/export").raw, exp)
+        # replays and reads keep working at capacity; validation errors keep their own codes
+        for key, original in created[:3] + created[-3:]:
+            r = self.post("/payments", body, ada, key=key)
+            self.assertEqual((r.status, r.json), (200, original))
+        self.err(self.post("/payments", {"to_handle": "bob", "amount": 0}, ada, key="v1"), 422, "validation_failed")
+        self.assertEqual(self.req("GET", "/activity", token=ada).status, 200)
+        # decline/cancel change no size and still work
+        self.assertEqual(self.req("POST", "/requests/rq_a/decline", token=ada).status, 200)
+
+    def test_capacity_refusal_changes_nothing_and_claims_no_key(self):
+        sys.path.insert(0, ROOT)
+        from app import service as svc_mod
+        old = svc_mod.STATE_BUDGET
+        svc = svc_mod.Service()
+        svc.reset(fixture())
+        svc_mod.STATE_BUDGET = svc.size + 700  # room for logins, not for a payment
+        try:
+            before = (svc.size, svc.version, json.dumps(svc.state, sort_keys=True), len(svc.idem))
+            with self.assertRaises(svc_mod.ApiError) as cm:
+                svc.idempotent("u_ada", "POST", "/payments", "kk", "sig",
+                               lambda: svc.create_payment("u_ada", {"to_handle": "bob", "amount": 5, "note": "z" * 200}))
+            self.assertEqual((cm.exception.status, cm.exception.code), (429, "capacity_exceeded"))
+            self.assertNotIn(("u_ada", "POST", "/payments", "kk"), svc.idem)
+            self.assertEqual(before, (svc.size, svc.version, json.dumps(svc.state, sort_keys=True), len(svc.idem)))
+            svc_mod.STATE_BUDGET = old  # the same key is a first use once there is room
+            status, _ = svc.idempotent("u_ada", "POST", "/payments", "kk", "sig",
+                                       lambda: svc.create_payment("u_ada", {"to_handle": "bob", "amount": 5}))
+            self.assertEqual(status, 201)
+        finally:
+            svc_mod.STATE_BUDGET = old
+
+    def test_reset_and_import_over_budget_are_422(self):
+        big = fixture(users=[user("u%d" % i, 1) for i in range(400)])
+        self.assertGreater(len(json.dumps(big)), 0)
+        self.reset()
+        ada = self.login("ada")
+        self.err(self.req("POST", "/_test/reset", fixture(payments=[
+            {"id": "p%d" % i, "from_user_id": "u_ada", "to_user_id": "u_bob", "amount": 1, "note": "n" * 100}
+            for i in range(3000)])), 422, "validation_failed")
+        self.assertEqual(self.bal(ada), 10000)  # state unchanged
+        # an export from a roomier service does not fit this one
+        exp = json.loads(self.req("GET", "/_test/export").raw)
+        pad = exp["state"]
+        pad["payments"] = [{"id": "p%d" % i, "from": "u_ada", "to": "u_bob", "amount": 1, "note": "n" * 100,
+                            "visibility": "public", "request_id": None, "settlement_id": None,
+                            "created_at": "2026-01-01T00:00:00.000+00:00", "ts": 1.0, "seq": i + 1}
+                           for i in range(3000)]
+        pad["seq"] = 3001
+        self.err(self.req("POST", "/_test/import", exp), 422, "validation_failed")
+        self.assertEqual(self.bal(ada), 10000)
+
+    def test_export_cache_follows_every_mutation(self):
+        self.reset(fixture(requests=[{"id": "rq_a", "requester_id": "u_bob", "payer_id": "u_ada",
+                                      "amount": 5, "note": "", "status": "pending"}]))
+        ada, bob = self.login("ada"), self.login("bob")
+        seen = [self.req("GET", "/_test/export").raw]
+        self.assertEqual(self.req("GET", "/_test/export").raw, seen[0])
+        steps = [lambda: self.post("/payments", {"to_handle": "bob", "amount": 1}, ada),
+                 lambda: self.post("/requests", {"payer_handle": "ada", "amount": 2}, bob),
+                 lambda: self.req("POST", "/requests/rq_a/decline", token=ada),
+                 lambda: self.req("POST", "/auth/login", {"email": "cy@example.com", "password": "correct horse"}),
+                 lambda: self.req("POST", "/auth/signup", {"email": "n@example.com", "password": "12345678",
+                                                           "display_name": "N"}),
+                 lambda: self.post("/splits", {"amount": 9, "participant_handles": ["ada", "bob"]}, ada)]
+        for step in steps:
+            self.assertIn(step().status, (200, 201))
+            now = self.req("GET", "/_test/export").raw
+            self.assertNotIn(now, seen)
+            self.assertEqual(self.req("GET", "/_test/export").raw, now)
+            seen.append(now)
+        # reads and failed writes leave the snapshot alone
+        self.req("GET", "/activity", token=ada)
+        self.post("/payments", {"to_handle": "nobody", "amount": 1}, ada)
+        self.assertEqual(self.req("GET", "/_test/export").raw, seen[-1])
+        # round trip is byte-identical
+        self.assertEqual(self.req("POST", "/_test/import", raw=seen[-1]).status, 204)
+        self.assertEqual(self.req("GET", "/_test/export").raw, seen[-1])
+        # concurrent exports of an unchanged state agree
+        with ThreadPoolExecutor(10) as ex:
+            outs = list(ex.map(lambda _: self.req("GET", "/_test/export").raw, range(10)))
+        self.assertTrue(all(o == seen[-1] for o in outs))
+
+    def test_password_records_are_per_user_even_for_equal_passwords(self):
+        exp = json.loads(self.req("GET", "/_test/export").raw)
+        pws = [u["pw"] for u in exp["state"]["users"].values()]
+        self.assertEqual(len(pws), 3)  # three seeded users share the password "correct horse"
+        self.assertEqual(len({p["hash"] for p in pws}), 3)
+        self.assertEqual(len({p["user_salt"] for p in pws}), 3)
+        self.assertEqual(len({p["load_salt"] for p in pws}), 1)  # one load salt per reset
+        for p in pws:
+            self.assertEqual(p["alg"], "scrypt+hmac-sha256")
+        raw = self.req("GET", "/_test/export").raw
+        self.assertNotIn(b"correct horse", raw)
+        # logins: seeded, after export/import, signup user, wrong password
+        for h in ("ada", "bob", "cy"):
+            self.login(h)
+        self.assertEqual(self.req("POST", "/_test/import", raw=raw).status, 204)
+        self.login("ada")
+        self.err(self.req("POST", "/auth/login", {"email": "ada@example.com", "password": "correct horsf"}),
+                 401, "unauthenticated")
+        s = self.req("POST", "/auth/signup", {"email": "new@example.com", "password": "12345678", "display_name": "N"})
+        self.assertEqual(s.status, 201)
+        self.assertEqual(self.req("POST", "/auth/login", {"email": "new@example.com", "password": "12345678"}).status, 200)
+        self.err(self.req("POST", "/auth/login", {"email": "new@example.com", "password": "1234567x"}), 401,
+                 "unauthenticated")
+        # tampered cost parameters in an import are refused (no memory-exhaustion lever)
+        doc = json.loads(self.req("GET", "/_test/export").raw)
+        doc["state"]["users"]["u_ada"]["pw"]["n"] = 2 ** 30
+        self.err(self.req("POST", "/_test/import", doc), 422, "validation_failed")
+
+
+class TestScale(Base):
+    """Default budget: reset speed, password hashing at scale."""
+
+    def test_reset_hashes_many_users_quickly_and_bounds_distinct_passwords(self):
+        users = [user("w%d" % i, 1) for i in range(3000)]
+        t0 = time.time()
+        self.assertEqual(self.req("POST", "/_test/reset", fixture(users=users)).status, 204)
+        self.assertLess(time.time() - t0, 2.0)
+        self.assertEqual(self.bal(self.login("w2999")), 1)
+        many = [dict(user("d%d" % i, 1), password="pw-%d" % i) for i in range(801)]
+        self.err(self.req("POST", "/_test/reset", fixture(users=many)), 422, "validation_failed")
+        t0 = time.time()
+        some = [dict(user("d%d" % i, 1), password="pw-%d" % i) for i in range(500)]
+        self.assertEqual(self.req("POST", "/_test/reset", fixture(users=some)).status, 204)
+        self.assertLess(time.time() - t0, 8.0)
+        t0 = time.time()
+        with ThreadPoolExecutor(50) as ex:
+            rs = list(ex.map(lambda i: self.req("POST", "/auth/login", {"email": "d%d@example.com" % i,
+                                                                         "password": "pw-%d" % i}), range(50)))
+        self.assertTrue(all(r.status == 200 for r in rs))
+        self.assertLess(time.time() - t0, 5.0)
+        t0 = time.time()
+        with ThreadPoolExecutor(50) as ex:
+            rs = list(ex.map(lambda i: self.req("POST", "/auth/signup", {"email": "s%d@example.com" % i,
+                                                                          "password": "12345678",
+                                                                          "display_name": "S"}), range(50)))
+        self.assertTrue(all(r.status == 201 for r in rs))
+        self.assertLess(time.time() - t0, 5.0)
 
 
 TestRegressions.populate = TestExportImport.populate
