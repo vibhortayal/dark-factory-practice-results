@@ -20,7 +20,8 @@ const optArray = (fx, k) => {
 
 function bad(m) { return invalid(`fixture: ${m}`); }
 
-function money(v, what, max = Number.MAX_SAFE_INTEGER) {
+const MAX_BALANCE = 2 ** 53; // spec: no balance outside +-2^53
+function money(v, what, max = MAX_BALANCE) {
   if (typeof v !== 'number' || !Number.isInteger(v)) throw bad(`${what} must be an integer`);
   if (v < 0) throw bad(`${what} must not be negative`);
   if (v > max) throw bad(`${what} is too large`);
@@ -40,7 +41,6 @@ export function validateFixture(fx) {
   if (![0, 2, 3].includes(fx.minor_units)) throw bad('minor_units must be 0, 2 or 3');
   if (!Array.isArray(fx.users)) throw bad('users must be an array');
   const ids = new Set(), handles = new Set(), emails = new Set();
-  let total = 0;
   const users = fx.users.map((u) => {
     if (!isObject(u)) throw bad('user must be an object');
     if (!id64(u.id)) throw bad('user id must be a string of 1 to 64 characters');
@@ -49,8 +49,6 @@ export function validateFixture(fx) {
     if (!str(u.handle) || !HANDLE_RE.test(u.handle)) throw bad('user handle is invalid');
     if (has(u, 'display_name') && !str(u.display_name)) throw bad('display_name must be a string');
     const balance = has(u, 'balance') ? money(u.balance, 'balance') : 0;
-    total += balance;
-    if (total > Number.MAX_SAFE_INTEGER) throw bad('total balance is too large');
     if (ids.has(u.id)) throw bad('duplicate user id');
     if (handles.has(u.handle)) throw bad('duplicate handle');
     if (emails.has(u.email)) throw bad('duplicate email');

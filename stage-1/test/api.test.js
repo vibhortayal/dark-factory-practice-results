@@ -274,4 +274,12 @@ test('B3/B7/C1/C16/C17: reset behaviour', async () => {
   const tb = (await c.post('/auth/login', { body: { email: 'a@x.io', password: 'password1' } })).json.token;
   for (let i = 0; i < 3; i++) assert.equal((await c.post('/payments', { token: tb, key: k(), body: { to_handle: 'b', amount: 1000000000 } })).status, 201);
   assert.equal((await c.get('/me', { token: tb })).json.balance, 9007199254740000 - 3000000000);
+  // F1: large balances next to other non-empty wallets, up to 2^53 inclusive
+  const mk = (x, y) => ({ currency: 'EUR', minor_units: 2, users: [{ id: 'a', email: 'a@x.io', password: 'password1', display_name: 'A', handle: 'a', balance: x }, { id: 'b', email: 'b@x.io', password: 'password1', display_name: 'B', handle: 'b', balance: y }] });
+  for (const [x, y] of [[9007199254740991, 2500], [9007199254740000, 9007199254740000], [9007199254740992, 0]]) {
+    assert.equal((await c.reset(mk(x, y))).status, 204, `${x} ${y}`);
+    const e = await c.get('/_test/export');
+    assert.equal((await c.post('/_test/import', { body: e.json })).status, 204);
+  }
+  err(await c.reset(mk(9007199254740994, 0)), 422, 'validation_failed');
 });

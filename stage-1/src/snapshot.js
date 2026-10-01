@@ -64,7 +64,7 @@ export function importState(doc) {
   for (const raw of arr(st, 'users')) {
     const u = obj(raw, 'user');
     if (!id64(u.id) || !str(u.email) || !str(u.display_name) || !str(u.handle) || !HANDLE_RE.test(u.handle)) throw bad('user is invalid');
-    if (!int(u.balance) || u.balance < 0) throw bad('user balance is invalid');
+    if (typeof u.balance !== 'number' || !Number.isInteger(u.balance) || u.balance < 0 || u.balance > 2 ** 53) throw bad('user balance is invalid');
     if (!validHashFormat(u.password_hash)) throw bad('user password_hash is invalid');
     if (s.users.has(u.id) || s.byHandle.has(u.handle) || s.byEmail.has(u.email)) throw bad('duplicate user');
     addUser(s, pick(u, ['id', 'email', 'display_name', 'handle', 'balance', 'password_hash']));
