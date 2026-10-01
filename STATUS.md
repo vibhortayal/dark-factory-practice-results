@@ -7,8 +7,8 @@ Check output: `/home/ubuntu/nightshift-claude-run-2/band-work/checks/`.
 |---|---|---|---|---|
 | stage-1 | DONE | `3e764a06d469734a17ac70f0eb70c47341859a1b` | 02:08Z → 02:35Z verdict (≈27 min); recorded 03:15Z | Verifier PASS on head; isolated harness 147/147 (`checks/s1-ver-iso-02`), stage-2 probe fails, claimed stage 1. First revision `e088cca` BLOCKed (F1: reset rejected large balances), fixed in `3e764a0`. Open advisory F2 (amount literals non-integral beyond double precision) is carried into stage 2 as map row K6 |
 | stage-2 | DONE | `95f1446015263a7fb1bd5983adf3a627a97ab219` | 03:15Z → 04:23Z (≈68 min) | Verifier PASS on head (`checks/verdicts/stage-2-95f1446….md`); isolated harness stage 1 147/147, stage 2 35/35 (`checks/s2-ver-iso-02`), stage-3 probe fails, claimed stage 2. First revision `2ca222e` also PASSed but with three advisory observations (wallet vs stage-1 `/me`, retry identity on parsed body, list refresh discarding typed input); the Architect required fixes before acceptance (rows R13, N8, V10) |
-| stage-3 | BUILDING | — | started 04:25Z | handed to Implementer (handoffs/stage-3, 13 parts). Revision `b97e12f` BLOCKed 04:57Z (F1: service clock runs ahead under load); routed back with row AC12. Revision `1c4e50a` BLOCKed 05:14Z (F1 fixed; F2: client-now instants refused as future); routed back with row AC13 |
-| stage-4 | PLANNED | — | — | |
+| stage-3 | DONE | `e1c0b553e15978b78259c734bf9c1dcf7fdad931` | 04:25Z → 05:29Z (≈64 min) | Verifier PASS on head (`checks/verdicts/stage-3-e1c0b55….md`); isolated harness stages 1–3 pass: 147/147, 35/35, 6/6 (`checks/s3-ver-iso-03`), stage-4 probe fails, claimed stage 3. Two BLOCKs first: `b97e12f` F1 (service clock ran ahead of real time under load; row AC12) and `1c4e50a` F2 (client-now instants with microseconds refused as future; row AC13) |
+| stage-4 | BUILDING | — | started 05:31Z | handed to Implementer (handoffs/stage-4) |
 
 ## Decisions
 
@@ -37,3 +37,8 @@ Check output: `/home/ubuntu/nightshift-claude-run-2/band-work/checks/`.
   by a sequence number rather than clock comparison; statement snapshots are stored parameters
   recomputed through the same function. Reason: frozen results cannot drift, constant memory per
   token, tokens exportable for the stage-4 upgrade.
+- Stage 3 clock decisions after two Verifier BLOCKs: issued stamps are plain real-clock readings
+  (microsecond text), order among same-instant records comes from sequence numbers, and "not
+  later than now" is judged against the end of the current millisecond. Reason: the shipped
+  checks send `datetime.now().isoformat()` instants; a clock that runs ahead or a truncated
+  "now" makes present-time reads and present-time corrections fail intermittently.
