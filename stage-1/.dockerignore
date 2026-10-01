@@ -1,0 +1,4 @@
+tests
+RUN.md
+*.pyc
+__pycache__
