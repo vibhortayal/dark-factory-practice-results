@@ -30,10 +30,29 @@ function cpLen(s) {
   return n;
 }
 
+class Lit { constructor(s) { this.s = s; } }
+// Iterative so a deeply nested unknown field cannot overflow the stack.
 function canon(v) {
-  if (Array.isArray(v)) return '[' + v.map(canon).join(',') + ']';
-  if (isObj(v)) return '{' + Object.keys(v).sort().map((k) => JSON.stringify(k) + ':' + canon(v[k])).join(',') + '}';
-  return JSON.stringify(v);
+  const out = [];
+  const stack = [v];
+  while (stack.length) {
+    const x = stack.pop();
+    if (x instanceof Lit) out.push(x.s);
+    else if (Array.isArray(x)) {
+      stack.push(new Lit(']'));
+      for (let i = x.length - 1; i >= 0; i--) { stack.push(x[i]); if (i > 0) stack.push(new Lit(',')); }
+      stack.push(new Lit('['));
+    } else if (isObj(x)) {
+      const keys = Object.keys(x).sort();
+      stack.push(new Lit('}'));
+      for (let i = keys.length - 1; i >= 0; i--) {
+        stack.push(x[keys[i]]); stack.push(new Lit(JSON.stringify(keys[i]) + ':'));
+        if (i > 0) stack.push(new Lit(','));
+      }
+      stack.push(new Lit('{'));
+    } else out.push(JSON.stringify(x));
+  }
+  return out.join('');
 }
 
 const SCRYPT = { N: 1024, r: 8, p: 1 };
@@ -464,7 +483,7 @@ function signup(body) {
   if (!EMAIL_OK(email)) throw bad('email');
   if (cpLen(password) < 8) throw bad('password too short');
   if (S.emails.has(email)) throw E(409, 'email_taken', 'email already registered');
-  const handle = email.slice(0, email.indexOf('@')).toLowerCase().replace(/[^a-z0-9_]/g, '_').slice(0, 20);
+  const handle = Array.from(email.slice(0, email.indexOf('@')).toLowerCase()).map((c) => (/^[a-z0-9_]$/.test(c) ? c : '_')).slice(0, 20).join('');
   if (S.handles.has(handle)) throw E(409, 'handle_taken', 'handle already taken');
   const id = newId('u', (i) => S.users.has(i));
   const user = { id, email, display_name: body.display_name, handle, balance: 0, pw: hashPw(password) };
@@ -589,7 +608,7 @@ function send(res, status, text) {
 const errText = (code, message) => JSON.stringify({ error: { code, message } });
 
 const decoder = new TextDecoder('utf-8', { fatal: true });
-const server = http.createServer((req, res) => {
+const server = http.createServer({ maxHeaderSize: 4 * 1024 * 1024 }, (req, res) => {
   const chunks = [];
   let size = 0, dead = false;
   req.on('data', (c) => {
@@ -603,7 +622,8 @@ const server = http.createServer((req, res) => {
     try {
       let raw;
       try { raw = decoder.decode(Buffer.concat(chunks)); } catch (e) { raw = null; }
-      const url = new URL(req.url, 'http://localhost');
+      const qi = req.url.indexOf('?');
+      const url = { pathname: qi < 0 ? req.url : req.url.slice(0, qi), searchParams: new URLSearchParams(qi < 0 ? '' : req.url.slice(qi + 1)) };
       if (raw === null) {
         // Undecodable bodies are malformed; routes that take no body never look.
         raw = '\u0000not-utf8';
@@ -616,6 +636,12 @@ const server = http.createServer((req, res) => {
       else { console.error(e); send(res, 500, errText('internal_error', 'internal error')); }
     }
   });
+});
+server.on('clientError', (err, sock) => {
+  if (sock.writable) {
+    const b = errText('malformed_request', 'bad request');
+    sock.end('HTTP/1.1 400 Bad Request\r\nContent-Type: ' + JSON_CT + '\r\nContent-Length: ' + Buffer.byteLength(b) + '\r\nConnection: close\r\n\r\n' + b);
+  } else sock.destroy();
 });
 server.keepAliveTimeout = 65000;
 server.headersTimeout = 66000;

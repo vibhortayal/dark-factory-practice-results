@@ -168,3 +168,20 @@ test('auth rules and reset errors', async () => {
   assert.equal(bad.status, 422);
   assert.equal(await bal(t.ada), 10000);
 });
+
+test('deep unknown fields, odd paths, huge headers, unicode handles never 5xx', async () => {
+  const t = await world();
+  const n = 100000;
+  const raw = '{"to_handle":"bob","amount":1,"meta":' + '['.repeat(n) + ']'.repeat(n) + '}';
+  const r = await call('POST', '/payments', { token: t.ada, k: key(), raw });
+  assert.ok(r.status < 500);
+  const deep = '{"to_handle":"bob","amount":1,"meta":' + '['.repeat(8000) + ']'.repeat(8000) + '}';
+  assert.equal((await call('POST', '/payments', { token: t.ada, k: key(), raw: deep })).status, 201);
+  const http = require('node:http');
+  const get = (p, headers = {}) => new Promise((res) => http.get({ host: '127.0.0.1', port: PORT, path: p, headers }, (x) => { x.resume(); res(x.statusCode); }));
+  for (const p of ['//', '///', '/\\']) assert.equal(await get(p), 404);
+  assert.equal(await get('/me', { authorization: 'Bearer ' + 'x'.repeat(20000) }), 401);
+  assert.equal((await call('POST', '/payments', { token: t.ada, k: 'k'.repeat(17000), body: { to_handle: 'bob', amount: 1 } })).status, 422);
+  const su = await call('POST', '/auth/signup', { body: { email: 'a😀b@x.y', password: '12345678', display_name: 'E' } });
+  assert.equal((await call('GET', '/me', { token: su.json.token })).json.handle, 'a_b');
+});
