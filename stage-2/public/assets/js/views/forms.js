@@ -38,7 +38,8 @@ export function transferForm(ctx, cfg) {
     if (!parsed.ok) return { error: parsed.error };
     const body = { [cfg.handleField]: to, amount: parsed.minor, note: note.input.value };
     if (visibility) body.visibility = visibility.input.value;
-    return { body };
+    // The retry identity is judged on the raw field values exactly as typed ("16" and "16.00" differ).
+    return { body, raw: JSON.stringify([handle.input.value, amount.input.value, note.input.value, visibility ? visibility.input.value : null]) };
   }
 
   form.addEventListener('submit', async (event) => {
@@ -46,7 +47,7 @@ export function transferForm(ctx, cfg) {
     if (retry.busy) return;
     const built = build();
     if (built.error) { fb.error(built.error); return; }
-    const key = retry.keyFor(JSON.stringify(built.body));
+    const key = retry.keyFor(built.raw);
     retry.busy = true;
     button.disabled = true;
     button.setAttribute('aria-busy', 'true');

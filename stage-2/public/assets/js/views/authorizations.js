@@ -5,6 +5,7 @@ import { RetryIdentity } from '../lib/retry.js';
 import { refusalText, UNCERTAIN_TEXT } from '../lib/feedback.js';
 import { parseAmount, formatPlain } from '../money.js';
 import { walletPanel } from './wallet.js';
+import { rememberFocus, restoreFocus } from '../lib/focus.js';
 import { transferForm, authorizeFormConfig } from './forms.js';
 
 const STATUS_LABEL = { open: 'Open', captured: 'Captured', voided: 'Voided', expired: 'Expired' };
@@ -18,6 +19,9 @@ export function mountAuthorizations(main, ctx) {
   const status = h('div', { class: 'form-status', 'aria-live': 'polite' });
   const holder = h('div', { class: 'list-holder' }, h('p', { class: 'muted skeleton' }, 'Loading holds…'));
   const identities = new Map(); // authorization id -> RetryIdentity
+  // What the user has typed into a capture row survives a list refresh (while the hold stays actionable).
+  const edits = new Map(); // authorization id -> { amount?: string, keep?: boolean }
+  const edit = (id) => { if (!edits.has(id)) edits.set(id, {}); return edits.get(id); };
 
   let started = 0;
   let rendered = 0;
@@ -48,6 +52,9 @@ export function mountAuthorizations(main, ctx) {
   const effective = (a) => (a.status === 'open' && Date.parse(a.expires_at) <= Date.now() ? 'expired' : a.status);
 
   function render(list) {
+    const focus = rememberFocus();
+    const actionable = new Set(list.filter((a) => effective(a) === 'open' && a.to_user_id === ctx.me.user_id).map((a) => a.authorization_id));
+    for (const id of [...edits.keys()]) if (!actionable.has(id)) edits.delete(id);
     const rows = list.map(item);
     holder.replaceChildren(...[
       h('ul', { class: 'rows', testid: 'authorization-list' }, rows),
@@ -57,6 +64,7 @@ export function mountAuthorizations(main, ctx) {
           h('p', { class: 'muted' }, 'Place a hold to reserve money for someone, or wait for one to be placed for you.'))
         : null,
     ].filter(Boolean));
+    restoreFocus(focus);
   }
 
   function item(a) {
@@ -89,8 +97,12 @@ export function mountAuthorizations(main, ctx) {
 
   function captureControls(a) {
     const id = a.authorization_id;
-    const amount = field({ id: `capture-amount-${id}`, label: 'Capture amount', testid: `authorization-capture-amount-${id}`, inputmode: 'decimal', autocomplete: 'off', value: formatPlain(a.remaining_amount, ctx.cfg.minor_units) });
+    const saved = edits.get(id) || {};
+    const amount = field({ id: `capture-amount-${id}`, label: 'Capture amount', testid: `authorization-capture-amount-${id}`, inputmode: 'decimal', autocomplete: 'off', value: saved.amount ?? formatPlain(a.remaining_amount, ctx.cfg.minor_units) });
     const rest = h('input', { type: 'checkbox', id: `capture-rest-${id}`, testid: `authorization-keep-${id}` });
+    rest.checked = saved.keep === true;
+    amount.input.addEventListener('input', () => { edit(id).amount = amount.input.value; });
+    rest.addEventListener('change', () => { edit(id).keep = rest.checked; });
     const button = h('button', { type: 'button', class: 'btn btn-primary', testid: `authorization-capture-${id}` }, 'Capture');
     button.addEventListener('click', async () => {
       if (!identities.has(id)) identities.set(id, new RetryIdentity());
@@ -100,7 +112,7 @@ export function mountAuthorizations(main, ctx) {
       if (!parsed.ok) { show('error', parsed.error); return; }
       const body = { amount: parsed.minor };
       if (rest.checked) body.final = false;
-      const key = identity.keyFor(JSON.stringify(body));
+      const key = identity.keyFor(JSON.stringify([amount.input.value, rest.checked]));
       identity.busy = true;
       button.disabled = true;
       button.setAttribute('aria-busy', 'true');
@@ -108,6 +120,7 @@ export function mountAuthorizations(main, ctx) {
       const res = await call('POST', `/authorizations/${encodeURIComponent(id)}/capture`, { body, key });
       identity.busy = false;
       if (button.isConnected) { button.disabled = false; button.removeAttribute('aria-busy'); button.textContent = 'Capture'; }
+      if (res.kind === 'ok' || res.kind === 'refused') edits.delete(id); // the row is re-rendered from fresh data
       await settle(res);
     });
     return h('div', { class: 'action-row' }, amount.wrap,

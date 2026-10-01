@@ -54,7 +54,7 @@ export function mountSplit(main, ctx) {
     const s = inspect();
     if (s.error) { fb.error(s.error); return; }
     const body = { amount: s.minor, participant_handles: s.list, note: note.input.value };
-    const key = retry.keyFor(JSON.stringify(body));
+    const key = retry.keyFor(JSON.stringify([amount.input.value, handles.input.value, note.input.value]));
     retry.busy = true;
     button.disabled = true;
     button.setAttribute('aria-busy', 'true');

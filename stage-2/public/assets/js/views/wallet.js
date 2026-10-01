@@ -10,7 +10,11 @@ export function walletPanel(ctx, { withRefresh = false, onRefresh = () => {} } =
     h('div', { class: 'wallet-head' }, h('h2', { class: 'card-title' }, 'Available to spend'), refreshButton),
     body);
 
-  function apply(me) {
+  function apply(raw) {
+    // A stage-1 service answers /me without total/available/held: fall back to the balance.
+    const total = raw.total ?? raw.balance;
+    const held = raw.held ?? 0;
+    const me = { total, held, available: raw.available ?? total - held };
     const amountEl = (testid, minor, cls) => h('span', { testid, class: cls, 'data-amount': String(minor) }, ctx.fmt(minor));
     const children = [
       h('p', { class: 'wallet-available' }, amountEl('wallet-available', me.available, 'amount-xl')),

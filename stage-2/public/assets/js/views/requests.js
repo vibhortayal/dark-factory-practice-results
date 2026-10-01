@@ -3,6 +3,7 @@ import { h, select } from '../lib/dom.js';
 import { call } from '../lib/api.js';
 import { RetryIdentity } from '../lib/retry.js';
 import { refusalText, UNCERTAIN_TEXT } from '../lib/feedback.js';
+import { rememberFocus, restoreFocus } from '../lib/focus.js';
 
 function when(iso) {
   const d = new Date(iso);
@@ -25,6 +26,7 @@ export function mountRequests(main, ctx) {
     status.replaceChildren(text ? h('p', { class: `alert alert-${kind}`, testid: `request-${kind}`, role: 'alert' }, text) : '');
   };
 
+  const visibilityEdits = new Map(); // request id -> chosen visibility; survives list refreshes
   let emptyEl = null;
   let started = 0;
   let rendered = 0;
@@ -43,6 +45,9 @@ export function mountRequests(main, ctx) {
   }
 
   function renderLists(inc, out) {
+    const focus = rememberFocus();
+    const pendingIn = new Set(inc.requests.filter((r) => r.status === 'pending').map((r) => r.request_id));
+    for (const id of [...visibilityEdits.keys()]) if (!pendingIn.has(id)) visibilityEdits.delete(id);
     incoming.replaceChildren(listFor('incoming-list', inc.requests, 'incoming', 'Nobody has asked you for money.'));
     outgoing.replaceChildren(listFor('outgoing-list', out.requests, 'outgoing', 'You have not asked anyone for money.'));
     if (emptyEl) emptyEl.remove();
@@ -53,6 +58,7 @@ export function mountRequests(main, ctx) {
         h('p', { class: 'muted' }, 'Requests you send or receive will appear here. Split a bill to ask several people at once.'));
       status.after(emptyEl);
     }
+    restoreFocus(focus);
   }
 
   function listFor(testid, requests, direction, emptyText) {
@@ -71,6 +77,8 @@ export function mountRequests(main, ctx) {
         id: `request-visibility-${r.request_id}`, label: 'Who can see it', testid: `request-visibility-${r.request_id}`, value: 'public',
         options: [{ value: 'public', label: 'Public' }, { value: 'private', label: 'Private' }],
       });
+      vis.input.value = visibilityEdits.get(r.request_id) ?? 'public';
+      vis.input.addEventListener('change', () => visibilityEdits.set(r.request_id, vis.input.value));
       const pay = h('button', { type: 'button', class: 'btn btn-primary', testid: `request-pay-${r.request_id}` }, 'Pay');
       pay.addEventListener('click', () => payRequest(r, vis.input.value, pay));
       const decline = h('button', { type: 'button', class: 'btn btn-secondary', testid: `request-decline-${r.request_id}` }, 'Decline');

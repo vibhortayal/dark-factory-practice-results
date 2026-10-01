@@ -329,6 +329,7 @@ def test_labels_alerts_focus_and_keyboard_submit(page):
     # navigation is consistent on every signed-in route
     for route in ("/", "/requests", "/split", "/authorizations"):
         page.goto(BASE + route)
+        T(page, "current-user").wait_for()
         links = page.evaluate("[...document.querySelectorAll('nav a')].map(a => a.getAttribute('href'))")
         assert links == ["/", "/requests", "/split", "/authorizations"]
     # uncertain, refused and success are visibly distinct
@@ -384,3 +385,186 @@ def test_k3_everything_is_served_from_the_image(browser):
     assert all(u.startswith(BASE) or u.startswith("data:") for u in seen), [u for u in seen if not u.startswith(BASE)]
     assert failed == [] and errors == [], (failed, errors)
     ctx.close()
+
+
+# ---------------------------------------------------------------- R13, N8 (raw values), V10
+
+def test_wallet_tolerates_a_stage1_me_body(page):
+    reset(fixture())
+    with_session(page, "ada")
+    errors = []
+    page.on("pageerror", lambda e: errors.append(str(e)))
+    def stage1_me(route):
+        r = route.fetch()
+        body = r.json()
+        for k in ("total", "available", "held"):
+            body.pop(k, None)
+        route.fulfill(response=r, json=body)
+    page.route(re.compile(r".*/me$"), stage1_me)
+    page.goto(BASE + "/")
+    expect(T(page, "wallet-balance")).to_have_text("100.00 EUR")
+    expect(T(page, "wallet-available")).to_have_text("100.00 EUR")
+    expect(T(page, "wallet-held")).to_have_count(0)
+    assert T(page, "wallet-balance").get_attribute("data-amount") == "10000"
+    T(page, "wallet-refresh").click()
+    expect(T(page, "wallet-available")).to_have_text("100.00 EUR")
+    page.goto(BASE + "/authorizations")
+    expect(T(page, "wallet-available")).to_have_text("100.00 EUR")
+    assert errors == [], errors
+
+
+def payments_with_note(note):
+    status, feed = api("GET", "/activity?limit=200", token=token_for("ada"))
+    return [p for p in feed["payments"] if p["note"] == note]
+
+
+@pytest.mark.parametrize("prefix,path,fields", [
+    ("pay", "/payments", "to_handle"),
+    ("request", "/requests", "payer_handle"),
+    ("authorize", "/authorizations", "to_handle"),
+])
+def test_raw_value_changes_mint_a_new_key(page, prefix, path, fields):
+    reset(fixture())
+    with_session(page, "ada")
+    page.goto(BASE + "/")
+    seen = []
+    page.on("request", lambda r: seen.append((r.headers.get("idempotency-key"), r.post_data)) if r.method == "POST" and r.url.endswith(path) else None)
+    T(page, f"{prefix}-handle").fill("bob")
+    T(page, f"{prefix}-amount").fill("16")
+    T(page, f"{prefix}-note").fill("raw")
+    T(page, f"{prefix}-submit").click()
+    expect(T(page, f"{prefix}-success")).to_be_visible()
+    # identical re-entry is not a change: same key, same body
+    T(page, f"{prefix}-amount").fill("16")
+    T(page, f"{prefix}-submit").click()
+    expect(T(page, f"{prefix}-success")).to_be_visible()
+    page.wait_for_timeout(300)
+    assert len(seen) == 2 and seen[0] == seen[1]
+    # change and change back before submitting: still not a change
+    T(page, f"{prefix}-note").fill("other")
+    T(page, f"{prefix}-note").fill("raw")
+    T(page, f"{prefix}-submit").click()
+    page.wait_for_timeout(500)
+    assert len(seen) == 3 and seen[2] == seen[0]
+    # 16 -> 16.00 reads as a change: a new key (the body is the same minor-unit amount)
+    T(page, f"{prefix}-amount").fill("16.00")
+    T(page, f"{prefix}-submit").click()
+    page.wait_for_timeout(700)
+    assert len(seen) == 4 and seen[3][0] != seen[0][0] and seen[3][1] == seen[0][1]
+
+
+def test_sixteen_then_sixteen_point_zero_pays_twice_and_replays_pay_once(page):
+    reset(fixture())
+    with_session(page, "ada")
+    page.goto(BASE + "/")
+    T(page, "pay-handle").fill("bob")
+    T(page, "pay-amount").fill("16")
+    T(page, "pay-note").fill("raw-n8")
+    T(page, "pay-submit").click()
+    expect(T(page, "wallet-balance")).to_have_text("84.00 EUR")
+    T(page, "pay-amount").fill("16.00")
+    T(page, "pay-submit").click()
+    expect(T(page, "wallet-balance")).to_have_text("68.00 EUR")
+    assert len(payments_with_note("raw-n8")) == 2
+    # identical re-fill: one payment
+    T(page, "pay-amount").fill("16.00")
+    T(page, "pay-submit").click()
+    page.wait_for_timeout(500)
+    expect(T(page, "wallet-balance")).to_have_text("68.00 EUR")
+    assert len(payments_with_note("raw-n8")) == 2
+    # note changed and restored: still one
+    T(page, "pay-note").fill("raw-n8x")
+    T(page, "pay-note").fill("raw-n8")
+    T(page, "pay-submit").click()
+    page.wait_for_timeout(500)
+    assert len(payments_with_note("raw-n8")) == 2
+    expect(T(page, "wallet-balance")).to_have_text("68.00 EUR")
+
+
+def test_lost_response_still_retries_with_same_key_after_raw_rule(page):
+    reset(fixture())
+    token = with_session(page, "ada")
+    page.goto(BASE + "/")
+    seen = []
+    def lose(route):
+        seen.append((route.request.headers.get("idempotency-key"), route.request.post_data))
+        route.fetch()
+        route.abort()
+    page.route("**/payments", lose)
+    T(page, "pay-handle").fill("bob")
+    T(page, "pay-amount").fill("5")
+    T(page, "pay-submit").click()
+    expect(T(page, "pay-uncertain")).to_be_visible()
+    page.unroute("**/payments")
+    page.on("request", lambda r: seen.append((r.headers.get("idempotency-key"), r.post_data)) if r.method == "POST" and r.url.endswith("/payments") else None)
+    T(page, "pay-submit").click()
+    expect(T(page, "pay-success")).to_be_visible()
+    assert seen[0] == seen[1]
+    expect(T(page, "wallet-balance")).to_have_text("95.00 EUR")
+
+
+def test_split_identity_follows_raw_values(page):
+    reset(fixture())
+    with_session(page, "ada")
+    page.goto(BASE + "/split")
+    seen = []
+    page.on("request", lambda r: seen.append(r.headers.get("idempotency-key")) if r.method == "POST" and r.url.endswith("/splits") else None)
+    T(page, "split-amount").fill("10")
+    T(page, "split-handles").fill("ada,bob")
+    T(page, "split-submit").click()
+    expect(T(page, "split-success")).to_be_visible()
+    T(page, "split-submit").click()
+    page.wait_for_timeout(500)
+    T(page, "split-amount").fill("10.00")
+    T(page, "split-submit").click()
+    page.wait_for_timeout(700)
+    assert len(seen) == 3 and seen[0] == seen[1] and seen[2] != seen[0]
+
+
+def test_capture_input_survives_a_delayed_refresh(page):
+    reset(holds_fixture())
+    with_session(page, "ada")
+    page.goto(BASE + "/authorizations")
+    T(page, "authorization-void-a_out").wait_for()
+    held = []
+    def hold_list(route):
+        if not held:
+            held.append((route, route.fetch()))       # an earlier action's refresh, delayed
+        else:
+            route.continue_()
+    page.route(re.compile(r".*/authorizations\?limit=200$"), hold_list)
+    T(page, "authorization-void-a_out").click()          # the void succeeds; its list refresh is held back
+    page.wait_for_timeout(400)
+    assert held, "the refresh was not delayed"
+    T(page, "authorization-capture-amount-a_in").fill("3.25")
+    page.locator("#capture-rest-a_in").check()
+    route, resp = held[0]
+    route.fulfill(response=resp)                          # the refresh lands before the click
+    page.wait_for_timeout(500)
+    assert T(page, "authorization-capture-amount-a_in").input_value() == "3.25"
+    assert page.locator("#capture-rest-a_in").is_checked()
+    T(page, "authorization-capture-a_in").click()
+    expect(T(page, "authorization-item-a_in")).to_have_attribute("data-status", "open")
+    status, listing = api("GET", "/authorizations?limit=200", token=token_for("ada"))
+    a = [x for x in listing["authorizations"] if x["authorization_id"] == "a_in"][0]
+    assert a["captured_amount"] == 325 and a["remaining_amount"] == 375
+    # an untouched input follows the new remaining amount after a refresh
+    expect(T(page, "authorization-capture-amount-a_in")).to_have_value("3.75")
+
+
+def test_request_visibility_choice_survives_refresh(page):
+    reset(fixture(requests=[
+        {"id": "rq_a", "requester_id": "u_bob", "payer_id": "u_ada", "amount": 100, "note": "", "status": "pending"},
+        {"id": "rq_b", "requester_id": "u_bob", "payer_id": "u_ada", "amount": 100, "note": "", "status": "pending"},
+    ]))
+    with_session(page, "ada")
+    page.goto(BASE + "/requests")
+    T(page, "request-visibility-rq_a").select_option("private")
+    T(page, "request-visibility-rq_b").select_option("private")
+    T(page, "request-decline-rq_b").click()                 # a refresh follows the decline
+    expect(T(page, "request-item-rq_b")).to_have_attribute("data-status", "declined")
+    assert T(page, "request-visibility-rq_a").input_value() == "private"
+    T(page, "request-pay-rq_a").click()
+    expect(T(page, "request-item-rq_a")).to_have_attribute("data-status", "paid")
+    status, feed = api("GET", "/activity", token=token_for("cy"))
+    assert feed["payments"] == []
