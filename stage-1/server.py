@@ -21,13 +21,14 @@ from urllib.parse import parse_qs, unquote, urlsplit
 MAX_AMOUNT = 1_000_000_000
 MAX_BALANCE = 2 ** 53
 MAX_BODY = 512 * 1024  # ordinary API endpoints
-MAX_STRUCTURE = 16384  # non-string, non-whitespace bytes of JSON on ordinary endpoints
+MAX_STRUCTURE = 16384  # bytes of non-string, non-whitespace JSON on ordinary endpoints
 MAX_CONTROL_BODY = 512 * 1024 * 1024  # /_test/reset and /_test/import (memory guard)
 CONTROL_PATHS = ("/_test/reset", "/_test/import")
 MAX_DEPTH = 128
 HANDLE_RE = re.compile(r"^[a-z0-9_]{1,20}$")
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+$")
 DIGITS_RE = re.compile(r"^[0-9]+$")
+DIGEST_RE = re.compile(r"[0-9a-f]{64}")
 HASH_RE = re.compile(r"^scrypt\$\d+\$\d+\$\d+\$[0-9a-f]+\$[0-9a-f]+$")
 DEFAULT_MINOR = {"EUR": 2, "JPY": 0, "BHD": 3}
 STATUSES = ("pending", "paid", "declined", "cancelled")
@@ -66,7 +67,8 @@ def _parse_int(s):
     return int(s) if len(s) <= 4000 else Decimal(s)
 
 
-_STR_RE = re.compile(rb'"[^"\\]*(?:\\.[^"\\]*)*"', re.S)
+_STRING_RE = re.compile(rb'"[^"]*"')
+_OPEN_RUN_RE = re.compile(rb"[\[{]{%d}" % (MAX_DEPTH + 1))  # fixed-length run: no backtracking
 _DELTA = {91: 1, 123: 1, 93: -1, 125: -1}
 _NOT_BRACKET = bytes(set(range(256)) - set(b"[]{}"))
 
@@ -83,7 +85,7 @@ def check_depth(structural):
 
 
 def _load_exact(text):
-    """Exact parse: ints as int, floats as Decimal (the C type is the hook, no Python callback)."""
+    """Control-endpoint parse: ints as int, floats as Decimal (the C type is the hook)."""
     try:
         return json.loads(text, parse_float=Decimal, parse_constant=_bad_constant)
     except json.JSONDecodeError:
@@ -93,38 +95,65 @@ def _load_exact(text):
                           parse_constant=_bad_constant)
 
 
-def parse_body(raw, ordinary=True):
-    """-> (exact, fingerprint, text). Ordinary endpoints: bounded structure and nesting first.
+def _num(d):
+    """Exact canonical text of a Decimal, independent of context precision: 1000 == 1000.0 == 1e3."""
+    if not d.is_finite():
+        return "inf" if d > 0 else "-inf"
+    sign, digits, exp = d.as_tuple()
+    s = "".join(map(str, digits)).lstrip("0")
+    t = s.rstrip("0")
+    if not t:
+        return "0"
+    return ("-" if sign else "") + t + "e" + str(exp + len(s) - len(t))
 
-    Two bodies are the same JSON value iff fingerprints are equal AND exact values compare equal.
-    The fingerprint (all numbers as C floats, sorted keys) fixes structure, strings and the kind of
-    every scalar; `==` on the exact values makes numbers compare exactly."""
-    fp = None
-    if ordinary:
-        structural = _STR_RE.sub(b"", raw).translate(None, b" \t\r\n")
-        if len(structural) > MAX_STRUCTURE:
-            raise ApiError(413, "payload_too_large", "too many JSON tokens")
-        check_depth(structural)
+
+def _load_decimal(text):
+    """Every number as Decimal (C type as both hooks); absurd exponents become Infinity."""
+    try:
+        return json.loads(text, parse_float=Decimal, parse_int=Decimal,
+                          parse_constant=_bad_constant)
+    except json.JSONDecodeError:
+        raise
+    except ArithmeticError:
+        return json.loads(text, parse_float=_parse_float, parse_int=_parse_float,
+                          parse_constant=_bad_constant)
+
+
+def parse_body(raw, ordinary=True):
+    """-> (value, digest). Ordinary endpoints (all work here is linear and runs outside the lock):
+    parse first (a body that is not valid JSON is 400, so every string is terminated afterwards),
+    then bound the JSON structure and nesting, then read every number exactly as a Decimal.
+
+    digest = sha256(fingerprint + NUL + exact numbers): the fingerprint (numbers read as floats,
+    keys sorted) fixes structure, strings and the kind of every scalar; the exact-number text makes
+    numbers compare exactly. Two bodies are the same JSON value iff their digests are equal."""
+    if not ordinary:
+        try:
+            return _load_exact(raw.decode("utf-8")), None
+        except (ValueError, RecursionError, UnicodeDecodeError):
+            raise malformed("body is not valid JSON")
     try:
         text = raw.decode("utf-8")
-        exact = _load_exact(text)
-        if ordinary:
-            fp = json.dumps(json.loads(text, parse_float=float, parse_int=float,
-                                       parse_constant=_bad_constant),
-                            sort_keys=True, separators=(",", ":"))
+        fobj = json.loads(text, parse_float=float, parse_int=float, parse_constant=_bad_constant)
     except (ValueError, RecursionError, UnicodeDecodeError):
         raise malformed("body is not valid JSON")
-    return exact, fp, text
-
-
-def same_body(rec, ctx):
-    """True when a stored idempotency record holds the same JSON value as the current body."""
-    if rec["fp"] != ctx.fp:
-        return False
+    # Remove escaped backslashes, then escaped quotes: every quote left is a real string delimiter.
+    cleaned = raw.replace(b"\\\\", b"").replace(b'\\"', b"")
+    if cleaned.count(b'"') > 2 * MAX_STRUCTURE + 2:
+        raise ApiError(413, "payload_too_large", "too many JSON tokens")
+    structural = _STRING_RE.sub(b"", cleaned).translate(None, b" \t\r\n")
+    if _OPEN_RUN_RE.search(structural):
+        raise malformed("body nested too deeply (limit %d)" % MAX_DEPTH)
+    if len(structural) > MAX_STRUCTURE:
+        raise ApiError(413, "payload_too_large", "too many JSON tokens")
+    check_depth(structural)
     try:
-        return _load_exact(rec["text"]) == ctx.exact
-    except (ValueError, RecursionError, ArithmeticError):
-        return False
+        alld = _load_decimal(text)
+        fp = json.dumps(fobj, sort_keys=True, separators=(",", ":"))
+        numtext = json.dumps(alld, sort_keys=True, separators=(",", ":"), default=_num)
+    except (ValueError, RecursionError):
+        raise malformed("body cannot be processed")
+    return alld, hashlib.sha256((fp + "\x00" + numtext).encode("utf-8", "surrogatepass")).hexdigest()
 
 
 def to_int(v, lo, hi):
@@ -310,7 +339,7 @@ class State:
             "payments": [dict(p) for p in self.pay_list],
             "requests": [dict(r) for r in self.req_list],
             "idempotency": [{"user": k[0], "method": k[1], "path": k[2], "key": k[3],
-                             "fp": v["fp"], "text": v["text"], "status": v["status"],
+                             "digest": v["digest"], "status": v["status"],
                              "response": v["response"]} for k, v in self.idem.items()],
             "operators": sorted(self.operators),
             "counters": dict(self.counters), "seq": self.seq, "last_ts": _last_ts[0],
@@ -487,12 +516,12 @@ def build_from_export(doc):
     for e in s["idempotency"]:
         need(isinstance(e, dict), "idempotency entry")
         need(e.get("user") in st.users and is_str(e.get("method")) and is_str(e.get("path"))
-             and is_str(e.get("key")) and is_str(e.get("fp")) and is_str(e.get("text")),
-             "idempotency entry")
+             and is_str(e.get("key")) and is_str(e.get("digest"))
+             and DIGEST_RE.fullmatch(e["digest"]) is not None, "idempotency entry")
         need(to_int(e.get("status"), 100, 599) is not None and isinstance(e.get("response"), dict),
              "idempotency entry")
         st.idem[(e["user"], e["method"], e["path"], e["key"])] = {
-            "fp": e["fp"], "text": e["text"], "status": to_int(e["status"], 100, 599),
+            "digest": e["digest"], "status": to_int(e["status"], 100, 599),
             "response": e["response"]}
     for o in s["operators"]:
         need(is_str(o) and o in st.users, "operator")
@@ -525,13 +554,13 @@ class Ctx:
         self.params = ()
         self.control = path in CONTROL_PATHS
         self.need_operator = False
-        self.exact = self.fp = self.text = None
+        self.exact = self.digest = None
 
     def body_object(self, allow_empty=False):
         if allow_empty and not self.raw.strip():
-            self.exact, self.fp, self.text = {}, "{}", "{}"
+            self.exact, self.digest = parse_body(b"{}")
             return self.exact
-        v, self.fp, self.text = parse_body(self.raw, not self.control)
+        v, self.digest = parse_body(self.raw, not self.control)
         if not isinstance(v, dict):
             raise malformed("body must be a JSON object")
         self.exact = v
@@ -584,9 +613,8 @@ def paginate(ctx):
 def idempotent(ctx, body, fn):
     """Under one lock acquisition: re-authenticate, resolve a claimed key, validate, mutate.
 
-    The body was parsed and fingerprinted (ctx.exact/fp/text) outside the lock; comparing it with
-    a claimed key's stored body re-parses that stored text under the lock, which the 512 KiB /
-    16 KiB-of-structure bounds keep to a few milliseconds."""
+    The body was parsed and digested (ctx.exact, ctx.digest) outside the lock; resolving a claimed
+    key is a string comparison of fixed-size digests."""
     k_tail = (ctx.method, ctx.path, ctx.key_value)
     with LOCK:
         ctx.authenticate()
@@ -596,11 +624,11 @@ def idempotent(ctx, body, fn):
         k = (ctx.user_id,) + k_tail
         rec = st.idem.get(k)
         if rec is not None:
-            if same_body(rec, ctx):
+            if rec["digest"] == ctx.digest:
                 return 200, rec["response"]
             raise ApiError(409, "idempotency_key_reuse", "key already used with a different body")
         resp = fn(st)
-        st.idem[k] = {"fp": ctx.fp, "text": ctx.text, "status": 201, "response": resp}
+        st.idem[k] = {"digest": ctx.digest, "status": 201, "response": resp}
         return 201, resp
 
 
@@ -651,6 +679,8 @@ def h_signup(ctx):
         raise bad("email must look like local@domain")
     if len(pw) < 8:
         raise bad("password must be at least 8 characters")
+    if len(email) > 320 or len(name) > 1000 or len(pw) > 1024:
+        raise bad("email, display_name or password too long")
     local = email.split("@")[0]
     handle = re.sub(r"[^a-z0-9_]", "_", local.lower())[:20]
     pwh = hash_password(pw)
@@ -670,6 +700,8 @@ def h_signup(ctx):
 def h_login(ctx):
     body = ctx.body_object()
     split_checks(body, ("email", "password"))
+    if len(body["email"]) > 320 or len(body["password"]) > 1024:
+        raise ApiError(401, "unauthenticated", "invalid credentials")
     with LOCK:
         st = STATE[0]
         uid = st.by_email.get(body["email"])

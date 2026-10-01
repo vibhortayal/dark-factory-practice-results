@@ -25,22 +25,27 @@ BASE_URL=http://localhost:8080 python3 tests/test_stage1.py
 Ordinary API endpoints (everything except `/_test/reset` and `/_test/import`):
 
 - request body at most 512 KiB, else 413 `payload_too_large` (excess drained, never buffered);
-- at most 16 KiB of JSON structure (everything left after removing string literals and whitespace:
-  numbers, brackets, commas, colons), else 413 `payload_too_large`; this bounds the number of
-  numbers/keys in any accepted body;
-- JSON nesting at most 128 levels, else 400 `malformed_request`.
+- the body is parsed first (not valid JSON -> 400 `malformed_request`); then at most 16,384 bytes of
+  JSON structure (everything left after removing string literals and whitespace), else 413
+  `payload_too_large`; this bounds the number of numbers/keys in any accepted body;
+- JSON nesting at most 128 levels, else 400 `malformed_request`;
+- signup: `email` <= 320, `display_name` <= 1,000, `password` <= 1,024 characters, else 422
+  (login with longer values is simply 401); `note` <= 200 characters, `Idempotency-Key` <= 255.
 
 `/_test/reset` and `/_test/import` accept up to 512 MiB (a memory guard only) so any export this
 service produces can be imported again; they are parsed with the standard decoder (too deep -> 400).
 
-Idempotency body equality ("same JSON value"): two bodies are equal iff a fingerprint (all numbers
-read as floats, keys sorted) is equal and the exactly-parsed values (ints, Decimal floats) compare
-equal. So key order/whitespace are irrelevant, `1000 == 1000.0 == 1e3`, `1.5 == 1.50 == 15e-1`,
-`1 != true != "1" != null`, array order matters. Known and accepted: `-0.0` and `0` in an unknown
-field count as different bodies, as do two exponent literals too large for a float to tell apart.
-The stored body text of a claimed key is re-parsed under the lock for the comparison (bounded by the
-limits above to a few milliseconds).
+Idempotency body equality ("same JSON value"): each body is reduced to a SHA-256 digest of
+(fingerprint + exact numbers). The fingerprint (numbers read as floats, keys sorted) fixes
+structure, strings and the kind of every scalar; the exact-number text reads every number as a
+Decimal and prints it canonically, so `1000 == 1000.0 == 1e3 == 10E2` and `1.5 == 1.50 == 15e-1`,
+but `1.5 != 1.6`, `1 != true != "1" != null`, `"1e3" != 1000`, array order matters and key order
+and whitespace do not. A record keeps only the 64-character digest, status and response, so memory
+per accepted request is independent of body size. Known and accepted: `-0.0` and `0` in an
+unknown field count as different bodies.
 
-Parsing, validation of the body and password hashing run outside the global lock; the lock covers only
-authenticate / replay lookup / validate against state / mutate and the state swap. Bodies over 32 KiB
-are processed one at a time so small requests stay responsive.
+Parsing, body validation and password hashing run outside the global lock; the lock covers only
+authenticate / replay lookup (a digest string comparison) / validate against state / mutate and the
+state swap. Bodies over 32 KiB are processed one at a time so small requests stay responsive.
+Ordinary handlers validate from the Decimal parse (every number is a Decimal; `1000`, `1000.0`,
+`1e3` are the same integral amount, `1.5` is rejected).

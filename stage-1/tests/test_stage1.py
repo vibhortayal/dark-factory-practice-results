@@ -678,6 +678,11 @@ def export_import():  # H1-H11 (+ cross container)
     assert len(ids) == len(set(ids))
     # invalid imports change nothing
     cur = call("GET", "/_test/export")[1]
+    for badd in ("xyz", "A" * 64, "a" * 63, "a" * 65, 5, None):
+        e2 = json.loads(json.dumps(cur))
+        e2["state"]["idempotency"][0]["digest"] = badd
+        err(call("POST", "/_test/import", e2), 422, "validation_failed")
+    assert all(len(e["digest"]) == 64 for e in cur["state"]["idempotency"])
     err(call("POST", "/_test/import", raw=b"{x"), 400, "malformed_request")
     for b in ({}, {"track": "pocketful", "format_version": 1}, dict(cur, track="other"), dict(cur, format_version=2),
               {"track": "pocketful", "format_version": 1, "state": {}}, {"track": "pocketful", "format_version": 1, "state": 5},
@@ -759,6 +764,15 @@ def fix_round1():  # parse limits, regex anchors, key chars, decoded path, lock
     err(call("POST", "/auth/signup", {"email": "nl@x.com\n", "password": "12345678", "display_name": "n"}), 422, "validation_failed")
     err(call("POST", "/_test/reset", {"users": [U(0, "bob\n", 1)]}), 422, "validation_failed")
     assert call("GET", "/me%0A", token=ada)[0] == 404
+    # signup field limits (login with over-long values is simply 401)
+    ok = lambda e, p, n: call("POST", "/auth/signup", {"email": e, "password": p, "display_name": n})
+    assert ok("a" * 314 + "@x.com", "p" * 1024, "n" * 1000)[0] == 201  # 320-char email
+    err(ok("z" * 315 + "@x.com", "p" * 10, "n"), 422, "validation_failed")
+    err(ok("b@x.com", "p" * 1025, "n"), 422, "validation_failed")
+    err(ok("c@x.com", "p" * 10, "n" * 1001), 422, "validation_failed")
+    err(call("POST", "/auth/login", {"email": "a" * 400 + "@x.com", "password": "x"}), 401, "unauthenticated")
+    err(call("POST", "/auth/login", {"email": "a@x.com", "password": "x" * 100000}), 401, "unauthenticated")
+    ada, bob, cy = basic3()
     # key length counts characters
     assert call("POST", "/payments", {"to_handle": "bob", "amount": 1}, ada, "\u00e9" * 255)[0] == 201
     err(call("POST", "/payments", {"to_handle": "bob", "amount": 1}, ada, "\u00e9" * 256), 422, "validation_failed")
@@ -800,10 +814,44 @@ def deep_json_burst_is_fast():  # A6/A7: depth cap 128; hostile nesting is cheap
     for d in (129, 1200, 5000, 9000, 40000):
         t0 = time.time()
         r = burst(50, lambda i: call("POST", "/payments", raw=body(d), token=ada, key=K())[0])
-        assert set(r) <= {400, 413} and (d > 8000 or set(r) == {400}) and time.time() - t0 < 5, (d, set(r), time.time() - t0)
+        assert set(r) == {400} and time.time() - t0 < 5, (d, set(r), time.time() - t0)
         assert call("GET", "/health")[0] == 200
     for path in ("/auth/login", "/requests", "/splits"):
         err(call("POST", path, raw=body(5000), token=ada, key=K()), 400, "malformed_request")
+    # (a)/(b) hostile at-cap bodies: linear time, single and 50-way, /health responsive meanwhile
+    hostile = {
+        "unterminated 4000": b'{"to_handle":"bob","amount":1,"x":"' + b'\\"' * 4000,
+        "unterminated 32000": b'{"to_handle":"bob","amount":1,"x":"' + b'\\"' * 32000,
+        "unterminated 260000": b'{"to_handle":"bob","amount":1,"x":"' + b'\\"' * 260000,
+        "512KiB of quotes": b'"' * (512 * 1024),
+        "50000 x a:b": b'{"a":"b",' * 50000 + b'"',
+        "130000 short strings": b'{"x":[' + b'"a",' * 130000 + b'"a"]}',
+        "260000 backslashes": b'{"x":"' + b"\\\\" * 260000 + b'"}',
+        "130000 bs-quotes": b'{"x":"' + b'\\\\\\"' * 130000 + b'"}',
+        "garbage 17.5KB": b"x" * 17500,
+        "nesting 9000": b'{"x":' + b"[" * 9000 + b"]" * 9000 + b"}",
+        "nesting 4000 alt": b'{"x":' + b"[{" * 4000 + b"}]" * 4000 + b"}",
+    }
+    expect = {"130000 short strings": 413}
+    for name, raw in hostile.items():
+        want = expect.get(name, 201 if "backslashes" in name or "bs-quotes" in name else 400)
+        want = want if want != 201 else None
+        t0 = time.time()
+        r = call("POST", "/payments", raw=raw, token=ada, key=K())
+        single = time.time() - t0
+        assert r[0] < 500 and (want is None or r[0] == want), (name, r[0], want)
+        h = []
+        def one(i, raw=raw):
+            return call("POST", "/payments", raw=raw, token=ada, key=K())[0]
+        t0 = time.time()
+        with cf.ThreadPoolExecutor(52) as ex:
+            fs = [ex.submit(one, i) for i in range(50)]
+            time.sleep(0.05)
+            th = time.time(); hs = call("GET", "/health")[0]; h.append(time.time() - th)
+            codes = [f.result() for f in fs]
+        el = time.time() - t0
+        print("   hostile %-22s single %.3fs 50-way %.2fs health %.2fs %s" % (name, single, el, h[0], sorted(set(codes))))
+        assert max(codes) < 500 and single < 0.5 and el < 5 and h[0] < 0.5 and hs == 200, (name, single, el, h)
     # oversized body: 4xx envelope, not read into memory
     s, js, _, _ = call("POST", "/payments", raw=b'{"note":"' + b"a" * (600 * 1024) + b'"}', token=ada, key=K())
     assert s == 413 and js["error"]["code"] == "payload_too_large", s
@@ -845,9 +893,9 @@ def max_body_perf():  # ordinary bodies: 512 KiB cap, 16 KiB structure cap; fast
     ada, bob, cy = basic3(ada=10 ** 9)
     pre = b'{"to_handle":"bob","amount":1,"x":'
     units = [b"1E999,", b"1.5,", b"1e9,", b"1e1,", b"1.5e-9,", b"-0.0,", b"0,"]
-    big_str = b"a" * 490000
+    big_str = b"a" * 420000
     for u in units:  # (a) numbers up to the structure limit plus a ~490 KiB string elsewhere
-        raw = pre + b"[" + u * (16000 // len(u)) + b'0],"y":"' + big_str + b'"}'
+        raw = pre + b"[" + u * (16000 // len(u)) + b'0],"y":"' + b"a" * 490000 + b'"}'
         assert len(raw) < 512 * 1024
         timed_burst("num %s +490K str" % u.decode(), ada, lambda i: ("POST", "/payments", raw, K()), [201])
     strs = {"ascii": b"a" * 510000, "emoji-escapes": b"\\ud83d\\ude00" * 42000,
@@ -902,6 +950,30 @@ def max_body_perf():  # ordinary bodies: 512 KiB cap, 16 KiB structure cap; fast
     r = burst(50, lambda i: call("POST", "/payments", raw=raw, token=ada, key=k))
     assert [x[0] for x in r].count(201) == 1 and [x[0] for x in r].count(200) == 49, [x[0] for x in r]
     assert len({json.dumps(x[1], sort_keys=True) for x in r}) == 1
+
+
+@test
+def identical_atcap_all_paths():  # E9 with ~500 KB bodies on all five write paths
+    reset([U(0, "ada", 10 ** 8), U(0, "bob", 10 ** 6), U(0, "dee", 10 ** 6)], settlement_operator_ids=["u_dee"])
+    ada, bob, dee = login("ada"), login("bob"), login("dee")
+    rid = call("POST", "/requests", {"payer_handle": "bob", "amount": 5}, ada, K())[1]["request_id"]
+    s = b'"' + b"a\\u00e9" * 70000 + b'"'
+    cases = [(ada, "/payments", b'{"to_handle":"bob","amount":1,"x":%s}' % s),
+             (ada, "/requests", b'{"payer_handle":"bob","amount":1,"x":%s}' % s),
+             (bob, "/requests/%s/pay" % rid, b'{"visibility":"private","x":%s}' % s),
+             (ada, "/splits", b'{"amount":3,"participant_handles":["ada","bob"],"x":%s}' % s),
+             (dee, "/settlements", b'{"transfers":[{"from_handle":"dee","to_handle":"bob","amount":1}],"x":%s}' % s)]
+    for who, path, raw in cases:
+        assert len(raw) > 480000, len(raw)
+        k = K()
+        t0 = time.time()
+        r = burst(50, lambda i: call("POST", path, raw=raw, token=who, key=k))
+        codes = [x[0] for x in r]
+        assert codes.count(201) == 1 and codes.count(200) == 49, (path, codes)
+        assert len({json.dumps(x[1], sort_keys=True) for x in r}) == 1 and time.time() - t0 < 5
+        # same value, different spelling -> still a replay; changed unknown field -> 409
+        err(call("POST", path, raw=raw.replace(b"a\\u00e9", b"b\\u00e9", 1), token=who, key=k), 409, "idempotency_key_reuse")
+        print("   identical at-cap %-24s 1x201 + 49x200 in %.2fs" % (path[:24], time.time() - t0))
 
 
 def timed(f):
