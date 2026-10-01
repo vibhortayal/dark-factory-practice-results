@@ -1,14 +1,15 @@
 // Wallet/payment/request logic. Every function here runs synchronously against
 // store.s, so each call is atomic and serialisable by construction.
-import { store, insertOrdered, newId, publicPayment, publicRequest } from './state.js';
-import { nowStamp } from './time.js';
+import { store, insertOrdered, newId, publicPayment, publicRequest, publicAuthorization, availableOf, heldOf } from './state.js';
+import { nowStamp, nowStampMs, stampAt } from './time.js';
+import { equalShares } from '../public/assets/js/split.js';
 import { conflict, forbidden, invalid, malformed, notFound } from './errors.js';
 import {
   checkAmount, checkNote, checkVisibility, checkHandleType, requireHandle,
 } from './validate.js';
 import { has } from './json.js';
 
-function createPayment(s, from, to, amount, note, visibility, requestId, settlementId, stamp) {
+function createPayment(s, from, to, amount, note, visibility, requestId, settlementId, stamp, authorizationId = null) {
   from.balance -= amount;
   to.balance += amount;
   const p = {
@@ -23,6 +24,7 @@ function createPayment(s, from, to, amount, note, visibility, requestId, settlem
     visibility,
     request_id: requestId,
     settlement_id: settlementId,
+    authorization_id: authorizationId,
     created_at: stamp.text,
     ts: stamp.ms,
     seq: ++s.seq,
@@ -63,7 +65,7 @@ export function sendPayment(user, body) {
   if (handle === user.handle) throw invalid_self('self_payment', 'cannot pay yourself');
   const to = s.byHandle.get(handle);
   if (!to) throw notFound('no user has that handle');
-  if (user.balance < amount) throw conflict('insufficient_funds', 'balance is below amount');
+  if (availableOf(s, user) < amount) throw conflict('insufficient_funds', 'available balance is below amount');
   return publicPayment(createPayment(s, user, to, amount, note, visibility, null, null, nowStamp()));
 }
 
@@ -92,7 +94,7 @@ export function payRequest(user, id, body) {
   if (!r) throw notFound('no such request');
   if (r.payer_id !== user.id) throw forbidden('only the payer may pay this request');
   if (r.status !== 'pending') throw conflict('request_not_pending', 'request is not pending');
-  if (user.balance < r.amount) throw conflict('insufficient_funds', 'balance is below amount');
+  if (availableOf(s, user) < r.amount) throw conflict('insufficient_funds', 'available balance is below amount');
   const requester = s.users.get(r.requester_id);
   const p = createPayment(s, user, requester, r.amount, r.note, visibility, r.request_id, null, nowStamp());
   r.status = 'paid';
@@ -112,12 +114,7 @@ function transition(user, id, who, target) {
 export const declineRequest = (user, id) => transition(user, id, 'payer_id', 'declined');
 export const cancelRequest = (user, id) => transition(user, id, 'requester_id', 'cancelled');
 
-// Equal split: base share, the first (amount mod n) participants get one extra unit.
-export function equalShares(amount, n) {
-  const base = Math.floor(amount / n);
-  const extra = amount % n;
-  return Array.from({ length: n }, (_, i) => base + (i < extra ? 1 : 0));
-}
+export { equalShares };
 
 export function createSplit(user, body) {
   const s = store.s;
@@ -188,7 +185,8 @@ export function createSettlement(user, body) {
     delta.set(e.to.id, (delta.get(e.to.id) || 0) + e.amount);
   }
   for (const [id, d] of delta) {
-    if (s.users.get(id).balance + d < 0) throw conflict('insufficient_funds', 'settlement is not affordable');
+    const w = s.users.get(id);
+    if (w.balance + d - heldOf(s, id) < 0) throw conflict('insufficient_funds', 'settlement is not affordable');
   }
   const stamp = nowStamp();
   const id = newId(s, 'st', 'st', (x) => s.settlements.some((y) => y.id === x));
@@ -197,4 +195,90 @@ export function createSettlement(user, body) {
     id, operator_id: user.id, committed_at: stamp.text, payment_ids: payments.map((p) => p.payment_id),
   });
   return { settlement_id: id, committed_at: stamp.text, payments: payments.map(publicPayment) };
+}
+
+// ---- authorizations (stage 2) ----
+
+function authorizationFor(s, id) {
+  const a = s.authById.get(id);
+  if (!a) throw notFound('no such authorization');
+  return a;
+}
+
+export function createAuthorization(user, body) {
+  const s = store.s;
+  checkHandleType(body, 'to_handle');
+  const handle = requireHandle(body, 'to_handle');
+  const amount = checkAmount(body);
+  const note = checkNote(body);
+  const visibility = checkVisibility(body);
+  if (handle === user.handle) throw invalid_self('self_payment', 'cannot authorize a payment to yourself');
+  const to = s.byHandle.get(handle);
+  if (!to) throw notFound('no user has that handle');
+  if (availableOf(s, user) < amount) throw conflict('insufficient_funds', 'available balance is below amount');
+  const created = nowStampMs();
+  const expires = stampAt(created.ms + s.authTtl * 1000);
+  const a = {
+    authorization_id: newId(s, 'a', 'a', (id) => s.authById.has(id)),
+    from_user_id: user.id,
+    from_handle: user.handle,
+    to_user_id: to.id,
+    to_handle: to.handle,
+    amount,
+    captured_amount: 0,
+    currency: s.currency,
+    note,
+    visibility,
+    status: 'open',
+    expires_at: expires.text,
+    payment_id: null,
+    payment_ids: [],
+    created_at: created.text,
+    ts: created.ms,
+    seq: ++s.seq,
+    exp: expires.ms,
+  };
+  s.authById.set(a.authorization_id, a);
+  insertOrdered(s.authorizations, a);
+  s.openAuths.add(a);
+  return publicAuthorization(a);
+}
+
+export function captureAuthorization(user, id, body) {
+  const s = store.s;
+  if (has(body, 'final') && typeof body.final !== 'boolean') throw malformed('final must be a boolean');
+  let amount;
+  if (has(body, 'amount')) {
+    const v = body.amount;
+    if (typeof v !== 'number' || !Number.isInteger(v) || v < 1) throw invalid('amount must be an integer of at least 1');
+    amount = v;
+  }
+  const a = authorizationFor(s, id);
+  if (a.to_user_id !== user.id) throw forbidden('only the receiver may capture');
+  if (a.status === 'captured' || a.status === 'voided') throw conflict('authorization_not_open', 'authorization is not open');
+  if (a.status === 'expired') throw conflict('authorization_expired', 'authorization has expired');
+  const remaining = a.amount - a.captured_amount;
+  if (amount === undefined) amount = remaining;
+  if (amount > remaining) throw invalid_self('capture_exceeds_authorization', 'amount exceeds the remaining authorization');
+  const from = s.users.get(a.from_user_id);
+  const p = createPayment(s, from, user, amount, a.note, a.visibility, null, null, nowStamp(), a.authorization_id);
+  a.captured_amount += amount;
+  a.payment_id = p.payment_id;
+  a.payment_ids.push(p.payment_id);
+  if (body.final !== false || amount === remaining) {
+    a.status = 'captured';
+    s.openAuths.delete(a);
+  }
+  return publicPayment(p);
+}
+
+export function voidAuthorization(user, id) {
+  const s = store.s;
+  const a = authorizationFor(s, id);
+  if (a.from_user_id !== user.id) throw forbidden('only the payer may void');
+  if (a.status === 'voided') return publicAuthorization(a);
+  if (a.status !== 'open') throw conflict('authorization_not_open', 'authorization is not open');
+  a.status = 'voided';
+  s.openAuths.delete(a);
+  return publicAuthorization(a);
 }

@@ -1,13 +1,14 @@
 // GET /_test/export and POST /_test/import.
 // state.schema_version is this module's own version so later stages can read it.
-import { emptyState, addUser, insertOrdered, STATE_SCHEMA_VERSION } from './state.js';
+import { emptyState, addUser, insertOrdered, sweep, STATE_SCHEMA_VERSION } from './state.js';
 import { invalid } from './errors.js';
 import { isObject, has } from './json.js';
-import { parseStamp } from './time.js';
+import { parseStamp, parseInstant } from './time.js';
 import { HANDLE_RE } from './validate.js';
 import { validHashFormat } from './passwords.js';
 
-const PAYMENT_KEYS = ['payment_id', 'from_user_id', 'from_handle', 'to_user_id', 'to_handle', 'amount', 'currency', 'note', 'visibility', 'request_id', 'settlement_id', 'created_at'];
+const PAYMENT_KEYS = ['payment_id', 'from_user_id', 'from_handle', 'to_user_id', 'to_handle', 'amount', 'currency', 'note', 'visibility', 'request_id', 'settlement_id', 'authorization_id', 'created_at'];
+const AUTH_KEYS = ['authorization_id', 'from_user_id', 'from_handle', 'to_user_id', 'to_handle', 'amount', 'captured_amount', 'currency', 'note', 'visibility', 'status', 'expires_at', 'payment_id', 'payment_ids', 'created_at'];
 const REQUEST_KEYS = ['request_id', 'requester_id', 'requester_handle', 'payer_id', 'payer_handle', 'amount', 'currency', 'note', 'status', 'payment_id', 'created_at'];
 const pick = (o, keys) => Object.fromEntries(keys.map((k) => [k, o[k]]));
 
@@ -15,6 +16,7 @@ export const idemId = (userId, method, path, key) => `${userId}\0${method}\0${pa
 
 // Runs synchronously, so the result is a consistent point-in-time copy.
 export function exportState(s) {
+  sweep(s);
   return {
     track: 'pocketful',
     format_version: 1,
@@ -22,12 +24,14 @@ export function exportState(s) {
       schema_version: STATE_SCHEMA_VERSION,
       currency: s.currency,
       minor_units: s.minorUnits,
+      authorization_ttl_seconds: s.authTtl,
       users: [...s.users.values()].map((u) => pick(u, ['id', 'email', 'display_name', 'handle', 'balance', 'password_hash'])),
       tokens: [...s.tokens].map(([token, user_id]) => ({ token, user_id })),
       payments: s.payments.map((p) => pick(p, PAYMENT_KEYS)),
       requests: s.requests.map((r) => pick(r, REQUEST_KEYS)),
       splits: s.splits.map((x) => ({ ...x, shares: x.shares.map((h) => ({ ...h })), request_ids: [...x.request_ids] })),
       settlements: s.settlements.map((x) => ({ ...x, payment_ids: [...x.payment_ids] })),
+      authorizations: s.authorizations.map((a) => ({ ...pick(a, AUTH_KEYS), payment_ids: [...a.payment_ids] })),
       settlement_operator_ids: [...s.operators],
       idempotency: [...s.idem.values()].map((e) => ({ ...e })),
       counters: { ...s.counters },
@@ -54,12 +58,19 @@ export function importState(doc) {
   if (doc.track !== 'pocketful') throw bad('track must be "pocketful"');
   if (doc.format_version !== 1) throw bad('format_version must be 1');
   const st = obj(doc.state, 'state');
-  if (st.schema_version !== STATE_SCHEMA_VERSION) throw bad('unsupported state schema_version');
+  // Stage-1 exports (schema 1) have no authorizations and a default lifetime; stage-2 exports are schema 2.
+  if (st.schema_version !== 1 && st.schema_version !== 2) throw bad('unsupported state schema_version');
+  const v1 = st.schema_version === 1;
   if (!str(st.currency) || st.currency === '') throw bad('currency is invalid');
   if (![0, 2, 3].includes(st.minor_units)) throw bad('minor_units is invalid');
   const s = emptyState();
   s.currency = st.currency;
   s.minorUnits = st.minor_units;
+  if (!v1) {
+    const ttl = st.authorization_ttl_seconds;
+    if (typeof ttl !== 'number' || !Number.isInteger(ttl) || ttl < 1) throw bad('authorization_ttl_seconds is invalid');
+    s.authTtl = ttl;
+  }
 
   for (const raw of arr(st, 'users')) {
     const u = obj(raw, 'user');
@@ -90,6 +101,8 @@ export function importState(doc) {
     if (p.visibility !== 'public' && p.visibility !== 'private') throw bad('payment visibility is invalid');
     if (p.request_id !== null && !id64(p.request_id)) throw bad('payment request_id is invalid');
     if (p.settlement_id !== null && !id64(p.settlement_id)) throw bad('payment settlement_id is invalid');
+    if (v1) p.authorization_id = null;
+    else if (p.authorization_id !== null && !id64(p.authorization_id)) throw bad('payment authorization_id is invalid');
     const rec = { ...pick(p, PAYMENT_KEYS), ts: ms, seq: ++s.seq };
     s.paymentById.set(rec.payment_id, rec);
     insertOrdered(s.payments, rec);
@@ -113,6 +126,29 @@ export function importState(doc) {
     if (!Array.isArray(x.shares) || !x.shares.every((h) => isObject(h) && str(h.handle) && int(h.amount))) throw bad('split shares are invalid');
     if (!Array.isArray(x.request_ids) || !x.request_ids.every((q) => s.requestById.has(q))) throw bad('split requests are invalid');
     s.splits.push({ id: x.id, user_id: x.user_id, amount: x.amount, note: x.note, shares: x.shares.map((h) => ({ handle: h.handle, amount: h.amount })), request_ids: [...x.request_ids], created_at: x.created_at });
+  }
+  if (!v1) {
+    for (const raw of arr(st, 'authorizations')) {
+      const a = obj(raw, 'authorization');
+      const from = s.users.get(a.from_user_id), to = s.users.get(a.to_user_id);
+      if (!id64(a.authorization_id) || s.authById.has(a.authorization_id)) throw bad('authorization id is invalid');
+      if (!from || !to || from.handle !== a.from_handle || to.handle !== a.to_handle) throw bad('authorization references an unknown user');
+      if (!int(a.amount) || a.amount < 1 || !int(a.captured_amount) || a.captured_amount < 0 || a.captured_amount > a.amount) throw bad('authorization amounts are invalid');
+      if (a.currency !== s.currency || !str(a.note) || (a.visibility !== 'public' && a.visibility !== 'private')) throw bad('authorization is invalid');
+      if (!['open', 'captured', 'voided', 'expired'].includes(a.status)) throw bad('authorization status is invalid');
+      const exp = parseInstant(a.expires_at);
+      const created = parseStamp(a.created_at);
+      if (exp === null || created === null) throw bad('authorization timestamps are invalid');
+      if (a.payment_id !== null && !id64(a.payment_id)) throw bad('authorization payment_id is invalid');
+      if (!Array.isArray(a.payment_ids) || !a.payment_ids.every(id64)) throw bad('authorization payment_ids is invalid');
+      const rec = { ...pick(a, AUTH_KEYS), payment_ids: [...a.payment_ids], ts: created, seq: ++s.seq, exp };
+      s.authById.set(rec.authorization_id, rec);
+      insertOrdered(s.authorizations, rec);
+      if (rec.status === 'open') s.openAuths.add(rec);
+    }
+    const held = new Map();
+    for (const a of s.openAuths) held.set(a.from_user_id, (held.get(a.from_user_id) || 0) + a.amount - a.captured_amount);
+    for (const [uid, h] of held) if (h > s.users.get(uid).balance) throw bad('open holds exceed a balance');
   }
   for (const raw of arr(st, 'settlements')) {
     const x = obj(raw, 'settlement');
@@ -138,5 +174,6 @@ export function importState(doc) {
       s.counters[k] = c[k];
     }
   }
+  sweep(s);
   return s;
 }

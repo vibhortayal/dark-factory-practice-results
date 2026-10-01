@@ -1,10 +1,10 @@
 // POST /_test/reset: validate the whole fixture first, build a complete new state,
 // and only then swap it in. Any error leaves the live state untouched.
-import { emptyState, addUser, insertOrdered } from './state.js';
+import { emptyState, addUser, insertOrdered, sweep } from './state.js';
 import { invalid } from './errors.js';
 import { isObject, has } from './json.js';
 import { hashPassword } from './passwords.js';
-import { parseStamp, nowStamp } from './time.js';
+import { parseStamp, parseInstant, nowStamp, nowStampMs, stampAt } from './time.js';
 import { HANDLE_RE, MAX_AMOUNT } from './validate.js';
 
 const STATUSES = ['pending', 'paid', 'declined', 'cancelled'];
@@ -26,6 +26,37 @@ function money(v, what, max = MAX_BALANCE) {
   if (v < 0) throw bad(`${what} must not be negative`);
   if (v > max) throw bad(`${what} is too large`);
   return v === 0 ? 0 : v;
+}
+
+const AUTH_STATUSES = ['open', 'captured', 'voided', 'expired'];
+
+function checkAuthorization(a, userIds) {
+  if (!isObject(a)) throw bad('authorization must be an object');
+  if (!id64(a.id)) throw bad('authorization id must be a string of 1 to 64 characters');
+  if (!userIds.has(a.from_user_id) || !userIds.has(a.to_user_id)) throw bad('authorization references an unknown user');
+  if (a.from_user_id === a.to_user_id) throw bad('authorization must be between two different users');
+  const amount = money(a.amount, 'authorization amount', MAX_AMOUNT);
+  if (amount < 1) throw bad('authorization amount must be at least 1');
+  if (!AUTH_STATUSES.includes(a.status)) throw bad('authorization status is invalid');
+  if (has(a, 'note') && !str(a.note)) throw bad('authorization note must be a string');
+  if (has(a, 'visibility') && a.visibility !== 'public' && a.visibility !== 'private') throw bad('authorization visibility is invalid');
+  let exp = null;
+  if (has(a, 'expires_at') && a.expires_at !== null) {
+    exp = parseInstant(a.expires_at);
+    if (exp === null) throw bad('authorization expires_at must be an RFC 3339 timestamp');
+  } else if (a.status === 'open') throw bad('an open authorization needs expires_at');
+  let captured = a.status === 'captured' ? amount : 0;
+  if (has(a, 'captured_amount') && a.captured_amount !== null) captured = money(a.captured_amount, 'captured_amount', amount);
+  let paymentIds = null;
+  if (has(a, 'payment_ids') && a.payment_ids !== null) {
+    if (!Array.isArray(a.payment_ids) || !a.payment_ids.every(id64)) throw bad('authorization payment_ids is invalid');
+    paymentIds = a.payment_ids;
+  }
+  if (has(a, 'payment_id') && a.payment_id !== null && !id64(a.payment_id)) throw bad('authorization payment_id is invalid');
+  const paymentId = has(a, 'payment_id') ? a.payment_id : null;
+  if (paymentIds === null) paymentIds = paymentId === null ? [] : [paymentId];
+  if (a.status === 'open' && captured >= amount) throw bad('an open authorization must have an uncaptured remainder');
+  return { raw: a, id: a.id, from_user_id: a.from_user_id, to_user_id: a.to_user_id, amount, captured, status: a.status, exp, paymentId: paymentId ?? (paymentIds.length ? paymentIds[paymentIds.length - 1] : null), paymentIds };
 }
 
 function stampOf(rec, reset) {
@@ -73,6 +104,19 @@ export function validateFixture(fx) {
     if (has(r, 'payment_id') && r.payment_id !== null && !id64(r.payment_id)) throw bad('request payment_id is invalid');
     return r;
   });
+  const authorizations = optArray(fx, 'authorizations').map((a) => checkAuthorization(a, ids));
+  if (new Set(authorizations.map((a) => a.id)).size !== authorizations.length) throw bad('duplicate authorization id');
+  const held = new Map();
+  const now = Date.now();
+  for (const a of authorizations) {
+    if (a.status === 'open' && a.exp > now) held.set(a.from_user_id, (held.get(a.from_user_id) || 0) + a.amount - a.captured);
+  }
+  for (const u of users) if ((held.get(u.id) || 0) > u.balance) throw bad('open holds exceed the balance');
+  let ttl = 600;
+  if (has(fx, 'authorization_ttl_seconds')) {
+    ttl = fx.authorization_ttl_seconds;
+    if (typeof ttl !== 'number' || !Number.isInteger(ttl) || ttl < 1) throw bad('authorization_ttl_seconds must be a positive integer');
+  }
   const operators = optArray(fx, 'settlement_operator_ids');
   for (const o of operators) if (!ids.has(o)) throw bad('settlement operator is not a user');
   if (new Set(payments.map((p) => p.id)).size !== payments.length) throw bad('duplicate payment id');
@@ -80,7 +124,7 @@ export function validateFixture(fx) {
   const payIds = new Set(payments.map((p) => p.id)), reqIds = new Set(requests.map((r) => r.id));
   for (const p of payments) if (p.request_id != null && !reqIds.has(p.request_id)) throw bad('payment references an unknown request');
   for (const r of requests) if (r.payment_id != null && !payIds.has(r.payment_id)) throw bad('request references an unknown payment');
-  return { fx, users, payments, requests, operators };
+  return { fx, users, payments, requests, operators, authorizations, ttl };
 }
 
 export async function buildState(raw) {
@@ -89,6 +133,7 @@ export async function buildState(raw) {
   // Stamps and amounts are checked before any hashing so errors stay cheap.
   const payRecs = v.payments.map((p) => ({ p, stamp: stampOf(p, reset), amount: money(p.amount, 'payment amount', MAX_AMOUNT) }));
   const reqRecs = v.requests.map((r) => ({ r, stamp: stampOf(r, reset), amount: money(r.amount, 'request amount', MAX_AMOUNT) }));
+  const authRecs = v.authorizations.map((a) => ({ a, stamp: stampOf(a.raw, nowStampMs()) }));
   const hashes = await Promise.all(v.users.map((u) => hashPassword(u.password, SEED_COST)));
 
   const s = emptyState();
@@ -103,6 +148,7 @@ export async function buildState(raw) {
       payment_id: p.id, from_user_id: from.id, from_handle: from.handle, to_user_id: to.id, to_handle: to.handle,
       amount, currency: s.currency, note: has(p, 'note') ? p.note : '', visibility: has(p, 'visibility') ? p.visibility : 'public',
       request_id: has(p, 'request_id') ? p.request_id : null, settlement_id: null,
+      authorization_id: has(p, 'authorization_id') && str(p.authorization_id) ? p.authorization_id : null,
       created_at: stamp.text, ts: stamp.ms, seq: ++s.seq,
     };
     s.paymentById.set(rec.payment_id, rec);
@@ -118,6 +164,23 @@ export async function buildState(raw) {
     s.requestById.set(rec.request_id, rec);
     insertOrdered(s.requests, rec);
   }
+  s.authTtl = v.ttl;
+  for (const { a, stamp } of authRecs) {
+    const from = s.users.get(a.from_user_id), to = s.users.get(a.to_user_id);
+    const expText = a.exp === null ? stampAt(stamp.ms + v.ttl * 1000) : null;
+    const rec = {
+      authorization_id: a.id, from_user_id: from.id, from_handle: from.handle, to_user_id: to.id, to_handle: to.handle,
+      amount: a.amount, captured_amount: a.captured, currency: s.currency,
+      note: has(a.raw, 'note') ? a.raw.note : '', visibility: has(a.raw, 'visibility') ? a.raw.visibility : 'public',
+      status: a.status, expires_at: expText ? expText.text : a.raw.expires_at,
+      payment_id: a.paymentId, payment_ids: [...a.paymentIds],
+      created_at: stamp.text, ts: stamp.ms, seq: ++s.seq, exp: expText ? expText.ms : a.exp,
+    };
+    s.authById.set(rec.authorization_id, rec);
+    insertOrdered(s.authorizations, rec);
+    if (rec.status === 'open') s.openAuths.add(rec);
+  }
+  sweep(s);
   for (const o of v.operators) s.operators.add(o);
   return s;
 }

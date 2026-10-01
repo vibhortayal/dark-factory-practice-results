@@ -4,7 +4,8 @@ import { randomBytes } from 'node:crypto';
 import { ApiError, malformed, missingKey, unauthenticated, forbidden, invalid, notFound, conflict } from './errors.js';
 import { readBody, send, sendJson, sendError } from './http.js';
 import { parseJson, isObject, canon, has } from './json.js';
-import { store, addUser, newId, publicPayment, publicRequest } from './state.js';
+import { store, addUser, newId, publicPayment, publicRequest, publicAuthorization, sweep, heldOf } from './state.js';
+import { UI_PAGES, SHARED_PAGES, wantsHtml, sendShell, sendAsset } from './ui.js';
 import { hashPassword, verifyPassword } from './passwords.js';
 import { buildState } from './fixture.js';
 import { exportState, importState, idemId } from './snapshot.js';
@@ -106,6 +107,12 @@ export async function handle(req, res) {
   const buf = await readBody(req);
   const q = url.searchParams;
   let m;
+  sweep(store.s);
+
+  if (method === 'GET') {
+    if (UI_PAGES.has(path) || (SHARED_PAGES.has(path) && wantsHtml(req))) return sendShell(res);
+    if (path.startsWith('/assets/') && sendAsset(res, path)) return;
+  }
 
   if (path === '/health' && method === 'GET') return sendJson(res, 200, { status: 'ok' });
 
@@ -126,7 +133,11 @@ export async function handle(req, res) {
   if (path === '/me' && method === 'GET') {
     const u = authenticate(req);
     const s = store.s;
-    return sendJson(res, 200, { user_id: u.id, display_name: u.display_name, handle: u.handle, balance: u.balance, currency: s.currency, minor_units: s.minorUnits });
+    const held = heldOf(s, u.id);
+    return sendJson(res, 200, {
+      user_id: u.id, display_name: u.display_name, handle: u.handle, balance: u.balance, total: u.balance,
+      available: u.balance - held, held, currency: s.currency, minor_units: s.minorUnits,
+    });
   }
   if (path === '/payments' && method === 'POST') {
     const u = authenticate(req);
@@ -135,6 +146,29 @@ export async function handle(req, res) {
   if (path === '/requests' && method === 'POST') {
     const u = authenticate(req);
     return idempotent(req, res, u, method, path, buf, (b) => ledger.openRequest(u, b));
+  }
+  if (path === '/authorizations' && method === 'POST') {
+    const u = authenticate(req);
+    return idempotent(req, res, u, method, path, buf, (b) => ledger.createAuthorization(u, b));
+  }
+  if (path === '/authorizations' && method === 'GET') {
+    const u = authenticate(req);
+    const pg = paging(q);
+    const direction = oneOf(q, 'direction', ['incoming', 'outgoing']);
+    const status = oneOf(q, 'status', ['open', 'captured', 'voided', 'expired']);
+    const r = page(store.s.authorizations, (x) => {
+      // "outgoing": the caller is the payer; "incoming": the caller is the receiver.
+      if (direction === 'incoming' ? x.to_user_id !== u.id : direction === 'outgoing' ? x.from_user_id !== u.id : x.to_user_id !== u.id && x.from_user_id !== u.id) return false;
+      return status === null || x.status === status;
+    }, pg);
+    return sendJson(res, 200, { authorizations: r.items.map(publicAuthorization), has_more: r.has_more });
+  }
+  if ((m = /^\/authorizations\/([^/]+)\/(capture|void)$/.exec(path)) && method === 'POST') {
+    let id;
+    try { id = decodeURIComponent(m[1]); } catch { throw notFound(); }
+    const u = authenticate(req);
+    if (m[2] === 'capture') return idempotent(req, res, u, method, path, buf, (b) => ledger.captureAuthorization(u, id, b), { emptyBodyOk: true });
+    return sendJson(res, 200, ledger.voidAuthorization(u, id));
   }
   if (path === '/splits' && method === 'POST') {
     const u = authenticate(req);

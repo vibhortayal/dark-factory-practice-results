@@ -1,6 +1,6 @@
 // In-memory service state. One instance is live at a time (store.s); reset/import
 // build a complete replacement and swap it in one synchronous step.
-export const STATE_SCHEMA_VERSION = 1;
+export const STATE_SCHEMA_VERSION = 2;
 
 export function emptyState() {
   return {
@@ -16,10 +16,14 @@ export function emptyState() {
     requestById: new Map(),
     splits: [], // {id, user_id, amount, note, shares, request_ids, created_at}
     settlements: [], // {id, operator_id, committed_at, payment_ids}
+    authTtl: 600, // authorization_ttl_seconds
+    authorizations: [], // ascending by (ts, seq); see publicAuthorization
+    authById: new Map(),
+    openAuths: new Set(), // authorizations whose status is 'open' (the only ones that hold funds)
     operators: new Set(),
     idem: new Map(), // "user\0method\0path\0key" -> {user_id,method,path,key,body,status,response}
     seq: 0,
-    counters: { u: 0, p: 0, rq: 0, sp: 0, st: 0 },
+    counters: { u: 0, p: 0, rq: 0, sp: 0, st: 0, a: 0 },
   };
 }
 
@@ -59,6 +63,7 @@ export const publicPayment = (p) => ({
   visibility: p.visibility,
   request_id: p.request_id,
   settlement_id: p.settlement_id,
+  authorization_id: p.authorization_id,
   created_at: p.created_at,
 });
 
@@ -75,3 +80,41 @@ export const publicRequest = (r) => ({
   payment_id: r.payment_id,
   created_at: r.created_at,
 });
+
+export const publicAuthorization = (a) => ({
+  authorization_id: a.authorization_id,
+  from_user_id: a.from_user_id,
+  from_handle: a.from_handle,
+  to_user_id: a.to_user_id,
+  to_handle: a.to_handle,
+  amount: a.amount,
+  captured_amount: a.captured_amount,
+  remaining_amount: a.status === 'open' ? a.amount - a.captured_amount : 0,
+  currency: a.currency,
+  note: a.note,
+  visibility: a.visibility,
+  status: a.status,
+  expires_at: a.expires_at,
+  payment_id: a.payment_id,
+  payment_ids: [...a.payment_ids],
+  created_at: a.created_at,
+});
+
+// Expiry is derived from the clock, never from a timer: every request calls this first, so an
+// authorization whose expires_at is at or before now is 'expired' and holds nothing.
+export function sweep(s, nowMs = Date.now()) {
+  for (const a of s.openAuths) {
+    if (a.exp <= nowMs) {
+      a.status = 'expired';
+      s.openAuths.delete(a);
+    }
+  }
+}
+
+// Sum of the remaining amounts of the user's open (unexpired) outgoing authorizations.
+export function heldOf(s, userId) {
+  let held = 0;
+  for (const a of s.openAuths) if (a.from_user_id === userId) held += a.amount - a.captured_amount;
+  return held;
+}
+export const availableOf = (s, user) => user.balance - heldOf(s, user.id);

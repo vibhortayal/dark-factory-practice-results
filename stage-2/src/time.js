@@ -16,3 +16,22 @@ export function parseStamp(s) {
   const ms = Date.parse(s);
   return Number.isNaN(ms) ? null : ms;
 }
+
+const pad = (n, w = 2) => String(n).padStart(w, '0');
+
+// Millisecond-precision stamp, used for authorizations so a short ttl is judged
+// against the exact instant that is returned.
+export function stampAt(ms) {
+  const d = new Date(ms);
+  return { text: d.toISOString().slice(0, 23) + '+00:00', ms };
+}
+export const nowStampMs = () => stampAt(Date.now());
+
+// Exact instant (epoch ms, may carry sub-millisecond digits) of a valid RFC 3339 timestamp, else null.
+export function parseInstant(s) {
+  const whole = parseStamp(typeof s === 'string' ? s.replace(/\.\d+/, '') : s);
+  if (whole === null) return null;
+  const frac = /\.(\d+)/.exec(s);
+  return whole + (frac ? Number('0.' + frac[1]) * 1000 : 0);
+}
+export { pad };
