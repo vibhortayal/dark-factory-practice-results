@@ -733,6 +733,43 @@ def a4_health_and_misc():
     assert set(m) == {"user_id", "display_name", "handle", "balance", "currency", "minor_units"}
 
 
+@test
+def fix_round1():  # parse limits, regex anchors, key chars, decoded path, lock
+    ada, bob, cy = basic3()
+    pre = b'{"to_handle":"bob","amount":'
+    big = [b"1e1000000000000000000}", b"1" + b"0" * 5000 + b"}", b"1" + b"0" * 4300 + b"}"]
+    for a in big:
+        err(call("POST", "/payments", raw=pre + a, token=ada, key=K()), 422, "validation_failed")
+    for x in (b"1e1000000000000000000", b"1" + b"0" * 5000):
+        assert call("POST", "/payments", raw=b'{"to_handle":"bob","amount":5,"extra":' + x + b"}", token=ada, key=K())[0] == 201
+    assert call("POST", "/_test/reset", raw=b'{"users":[],"zz":1e1000000000000000000}')[0] == 204
+    ada, bob, cy = basic3()
+    for ep in ("/activity", "/requests"):
+        for q in ("limit=5%0A", "offset=0%0A", "limit=%0A5", "limit=5%20"):
+            err(call("GET", ep + "?" + q, token=ada), 422, "validation_failed")
+    err(call("POST", "/auth/signup", {"email": "nl@x.com\n", "password": "12345678", "display_name": "n"}), 422, "validation_failed")
+    err(call("POST", "/_test/reset", {"users": [U(0, "bob\n", 1)]}), 422, "validation_failed")
+    assert call("GET", "/me%0A", token=ada)[0] == 404
+    # key length counts characters
+    assert call("POST", "/payments", {"to_handle": "bob", "amount": 1}, ada, "\u00e9" * 255)[0] == 201
+    err(call("POST", "/payments", {"to_handle": "bob", "amount": 1}, ada, "\u00e9" * 256), 422, "validation_failed")
+    # decoded path: same key/body on /payments and /p%61yments is one request
+    k = K()
+    b = {"to_handle": "bob", "amount": 7}
+    s1 = call("POST", "/payments", b, ada, k)
+    s2 = call("POST", "/p%61yments", b, ada, k)
+    assert (s1[0], s2[0]) == (201, 200) and s1[1] == s2[1] and me(ada)["balance"] >= 0
+    assert call("POST", "/payments/", b, ada, K())[0] == 404
+    # reset racing authenticated traffic never 5xx / never authenticates stale
+    def worker(i):
+        return call("GET", "/me", token=ada)[0]
+    with cf.ThreadPoolExecutor(20) as ex:
+        futs = [ex.submit(worker, i) for i in range(40)]
+        reset([U(0, "ada", 1)])
+        codes = [f.result() for f in futs]
+    assert set(codes) <= {200, 401}, codes
+
+
 if __name__ == "__main__":
     only = sys.argv[1:]
     failed = 0

@@ -516,7 +516,12 @@ class Ctx:
         k = self.headers.get("Idempotency-Key")
         if k is None or k == "":
             raise ApiError(400, "missing_idempotency_key", "Idempotency-Key header required")
-        if len(k) > 255:
+        raw = k.encode("latin-1", "replace")
+        try:
+            n = len(raw.decode("utf-8"))
+        except UnicodeDecodeError:
+            n = len(raw)
+        if n > 255:
             raise bad("Idempotency-Key too long")
         return k
 
@@ -903,6 +908,8 @@ ROUTES = [
     ("GET", r"/activity", h_activity),
     ("POST", r"/settlements", h_settlement),
 ]
+LOCKED = {h_me, h_payment, h_request_create, h_pay, h_transition, h_requests_list,
+          h_activity, h_split, h_settlement}
 ROUTES = [(m, re.compile(p + "$"), h) for m, p, h in ROUTES]
 
 
@@ -1014,7 +1021,11 @@ class Handler(BaseHTTPRequestHandler):
                 raise ApiError(404, "not_found", "no such route")
             ctx = Ctx(method, unquote(path, errors="replace"), query, self.headers, raw)
             ctx.params = groups
-            status, payload = h(ctx)
+            if h in LOCKED:
+                with LOCK:
+                    status, payload = h(ctx)
+            else:
+                status, payload = h(ctx)
             self.send_json(status, payload)
         except ApiError as e:
             extra = None
@@ -1045,7 +1056,8 @@ def main():
         port = int(os.environ.get("PORT") or 8080)
     except ValueError:
         port = 8080
-    sys.setrecursionlimit(3000)
+    sys.setrecursionlimit(100000)
+    threading.stack_size(256 * 1024 * 1024)
     Server(("0.0.0.0", port), Handler).serve_forever()
 
 
