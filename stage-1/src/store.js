@@ -2,7 +2,7 @@
 const crypto = require('crypto');
 const { err, isObject, HANDLE_RE } = require('./util');
 
-const SCRYPT = { N: 4096, r: 8, p: 1 };
+const SCRYPT = { N: 2048, r: 8, p: 1 };
 const STATUSES = ['pending', 'paid', 'declined', 'cancelled'];
 
 function emptyState() {
@@ -256,7 +256,7 @@ function deserialize(st) {
   for (const sp of arr(st.splits, 'splits')) {
     if (!isObject(sp)) throw bad('split');
     s.splits.push({ id: str(sp.id, 'split id'), requester: str(sp.requester, 'requester'), amount: nint(sp.amount, 'amount'),
-      note: str(sp.note, 'note', false), shares: arr(sp.shares, 'shares').map((x) => ({ handle: str(x.handle, 'handle'), amount: nint(x.amount, 'share') })),
+      note: str(sp.note, 'note', false), shares: arr(sp.shares, 'shares').map((x) => ({ handle: str(isObject(x) ? x.handle : undefined, 'share handle'), amount: nint(isObject(x) ? x.amount : undefined, 'share') })),
       request_ids: arr(sp.request_ids, 'request_ids').map((x) => str(x, 'request id')), ts: nint(sp.ts, 'ts') });
   }
   for (const m of arr(st.settlements, 'settlements')) {

@@ -66,7 +66,12 @@ function readBody(req, limit) {
 
 async function handle(req, res) {
   try {
-    const url = new URL(req.url, 'http://localhost');
+    let url;
+    try {
+      url = new URL(req.url, 'http://localhost');
+    } catch (e) {
+      throw err.notFound('no such route');
+    }
     let path = url.pathname;
     if (path.length > 1 && path.endsWith('/')) path = path.slice(0, -1);
     let match = null;
@@ -89,7 +94,9 @@ async function handle(req, res) {
     const rawBody = await readBody(req, route[4] || BODY_LIMIT);
     let id;
     try { id = m[1] === undefined ? undefined : decodeURIComponent(m[1]); } catch (e) { id = m[1]; }
-    const ctx = { method: req.method, path, query: url.searchParams, headers: req.headers, rawBody, params: { id } };
+    let idPath = path;
+    try { idPath = decodeURIComponent(path); } catch (e) { /* keep raw */ }
+    const ctx = { method: req.method, path: idPath, query: url.searchParams, headers: req.headers, rawBody, params: { id } };
     const user = route[3] ? H.authenticate(req.headers) : null;
     const out = await route[2](ctx, user);
     send(res, out.status, out.json);

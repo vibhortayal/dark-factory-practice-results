@@ -592,3 +592,26 @@ test('currencies: BHD and JPY report their minor units', async () => {
   expectErr(r, 422, 'validation_failed');
   await reset({ users: [user('u_a', 'a', 1)] });
 });
+
+test('regression: odd request targets and corrupt split shares never 5xx', async () => {
+  await world();
+  const net = require('net');
+  const raw = (target) => new Promise((resolve) => {
+    const u = new URL(BASE);
+    const sock = net.connect(Number(u.port), u.hostname, () => sock.write(`GET ${target} HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n`));
+    let d = ''; sock.on('data', (c) => { d += c; }); sock.on('close', () => resolve(d));
+  });
+  for (const t of ['//', '///', '//[', '/\\', 'http://[::1/health', 'http://x:99999/health']) {
+    const out = await raw(t);
+    assert.match(out, /^HTTP\/1\.1 4\d\d /, t + ' -> ' + out.slice(0, 40));
+  }
+  const exp = JSON.parse((await call('GET', '/_test/export')).text);
+  exp.state.splits = [{ id: 'sp_1', requester: 'u_ada', amount: 1, note: '', shares: [null], request_ids: [], ts: 1 }];
+  expectErr(await call('POST', '/_test/import', { body: exp }), 422, 'validation_failed');
+  // an encoded path is the same path for idempotency
+  const k = newKey();
+  const w = { ada: await login('ada') };
+  const first = await call('POST', '/requests/rq%5F1/pay', { token: w.ada, key: k, body: {} });
+  assert.equal(first.status, 201);
+  assert.equal((await call('POST', '/requests/rq_1/pay', { token: w.ada, key: k, body: {} })).status, 200);
+});
