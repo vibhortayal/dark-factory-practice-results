@@ -67,15 +67,20 @@ class Base(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.port = free_port()
-        env = dict(os.environ, PORT=str(cls.port))
-        cls.proc = subprocess.Popen([sys.executable, "-m", "app"], cwd=ROOT, env=env)
-        for _ in range(100):
-            try:
-                if call(cls.port, "GET", "/health").status == 200:
-                    return
-            except OSError:
-                time.sleep(0.1)
+        for _ in range(5):  # another process may grab the port between probe and bind
+            cls.port = free_port()
+            cls.proc = subprocess.Popen([sys.executable, "-m", "app"], cwd=ROOT,
+                                        env=dict(os.environ, PORT=str(cls.port)))
+            for _ in range(100):
+                if cls.proc.poll() is not None:
+                    break
+                try:
+                    if call(cls.port, "GET", "/health").status == 200:
+                        return
+                except OSError:
+                    time.sleep(0.1)
+            cls.proc.kill()
+            cls.proc.wait()
         raise RuntimeError("server did not start")
 
     @classmethod
@@ -1031,6 +1036,53 @@ class TestRegressions(Base):
             self.assertEqual(self.bal(fresh), 10000)
             self.assertEqual(self.req("GET", "/activity", token=fresh).json["payments"], [])
             self.err(self.req("GET", "/me", token=old), 401, "unauthenticated")
+
+    def test_export_is_strict_json_after_overlong_numbers(self):
+        def strict(raw):
+            def refuse(c):
+                raise AssertionError("non-JSON constant " + c)
+            return json.loads(raw, parse_constant=refuse)
+        bodies = {}
+        for i, x in enumerate((b"1" + b"0" * 4300, b"1e400", b"-1e999", b"1e-400")):
+            bodies[i] = b'{"to_handle":"bob","amount":1,"x":' + x + b"}"
+            self.assertEqual(self.req("POST", "/payments", raw=bodies[i], token=self.ada, key="s%d" % i).status, 201)
+        exp = self.req("GET", "/_test/export")
+        strict(exp.raw)
+        self.assertEqual(self.req("POST", "/_test/import", raw=exp.raw).status, 204)
+        strict(self.req("GET", "/_test/export").raw)
+        for i, raw in bodies.items():
+            self.assertEqual(self.req("POST", "/payments", raw=raw, token=self.ada, key="s%d" % i).status, 200)
+            changed = raw.replace(b'"amount":1,', b'"amount":2,')
+            self.err(self.req("POST", "/payments", raw=changed, token=self.ada, key="s%d" % i), 409,
+                     "idempotency_key_reuse")
+        for path in ("/activity", "/requests", "/me"):
+            strict(self.req("GET", path, token=self.ada).raw)
+
+    def test_login_retry_budget_exhausted_still_answers_correctly(self):
+        sys.path.insert(0, ROOT)
+        from app import service as svc_mod
+        svc = svc_mod.Service()
+        fx = fixture()
+        svc.reset(fx)
+        real = svc_mod.verify_password
+        calls = []
+
+        def churn(password, record):
+            ok = real(password, record)
+            if not svc.lock._is_owned():
+                calls.append(1)
+                svc.reset(fx)  # replace the state while the login is hashing
+            return ok
+        svc_mod.verify_password = churn
+        try:
+            good = svc.login({"email": "ada@example.com", "password": "correct horse"})
+            self.assertEqual(good["user_id"], "u_ada")
+            self.assertGreaterEqual(len(calls), 3)
+            with self.assertRaises(svc_mod.ApiError) as cm:
+                svc.login({"email": "ada@example.com", "password": "wrong password"})
+            self.assertEqual(cm.exception.status, 401)
+        finally:
+            svc_mod.verify_password = real
 
     def test_deep_nesting_unknown_field(self):
         for depth in (10, 950, 1000, 5000):

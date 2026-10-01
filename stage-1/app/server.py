@@ -24,9 +24,9 @@ svc = Service()
 
 def dumps(obj):
     try:
-        return json.dumps(obj, ensure_ascii=False).encode("utf-8")
+        return json.dumps(obj, ensure_ascii=False, allow_nan=False).encode("utf-8")
     except UnicodeEncodeError:
-        return json.dumps(obj, ensure_ascii=True).encode("ascii")
+        return json.dumps(obj, ensure_ascii=True, allow_nan=False).encode("ascii")
 
 
 class Handler(BaseHTTPRequestHandler):

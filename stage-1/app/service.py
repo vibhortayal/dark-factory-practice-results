@@ -299,7 +299,7 @@ class Service:
     def export(self):
         with self.lock:
             blob = json.dumps({"track": TRACK, "format_version": FORMAT_VERSION,
-                               "state": self.state}, ensure_ascii=True)
+                               "state": self.state}, ensure_ascii=True, allow_nan=False)
         return blob.encode("ascii")
 
     def import_(self, doc):
