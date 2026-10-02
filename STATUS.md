@@ -7,7 +7,7 @@ check-report timestamps.
 | Unit | State | Accepted revision | Fix rounds (BLOCK verdicts) | Elapsed |
 |---|---|---|---|---|
 | stage-1 | DONE | 43ecb3c9d24e89b47ea00c98828bf3999bb0a5cc | 3 | 04:11Z to 05:57Z (1 h 46 min) |
-| stage-2 | BUILDING (fix round 1) | n/a | 1 | started 05:57Z |
+| stage-2 | BUILDING (fix round 2) | n/a | 2 | started 05:57Z |
 | stage-3 | PLANNED | n/a | 0 | n/a |
 | stage-4 | PLANNED | n/a | 0 | n/a |
 
@@ -25,6 +25,8 @@ check-report timestamps.
 - 05:57Z stage-2 spec read; acceptance map acceptance/stage-2.md written; stage-2 handoff sent to both seats.
 - 06:33Z Implementer committed 3ba327652d0fa62e939ae0d773bd845c96b58a6d (stage 2; supplied checks isolated 147 + 35 passed in ../checks/s2-impl-final-02, stage-3 probe fails; own API 24 OK, stage-1 own suite 61 OK, own browser suite 28 OK); complete handoff sent to Verifier.
 - ~07:35Z Verifier BLOCK #1 (stage 2) on 3ba3276: supplied checks isolated 147/147 and 35/35 (../checks/s2-ver-01), stage-3 probe fails; own list 1,338 check executions all passed after the finding was isolated; visual rows V1-V4 accepted from screenshots. One Severity 2 finding: with the page's API calls answered by the stage-1 service (the pre-upgrade situation of rows M2/M4), `/` throws a script error (`BigInt(undefined)` on the missing `available`) and shows no balance, no refresh button and no feed; `/authorizations` throws too. Routed to Implementer with notes T2-T5 to fix.
+- 07:57Z Implementer committed 54ab7a9c086d6280402df0d09faca3b10949a5c5 (stage 2 fix round 1; supplied checks isolated 147 + 35 in ../checks/s2-impl-final-03; own API 25, stage-1 list 61, browser 34 OK); complete handoff sent to Verifier.
+- ~08:29Z Verifier BLOCK #2 (stage 2) on 54ab7a9: finding 1 and notes T2-T5 confirmed fixed; supplied checks isolated 147/147 and 35/35 (../checks/s2-ver-02), stage-3 probe fails; own list 1,411 of 1,412; container logs empty (the 4 unexplained lines did not recur). One Severity 2 finding: the delayed first `/me` read of the page load overwrites a later `wallet-refresh` (balance goes back from 75.00 to 100.00 EUR). Routed to Implementer.
 
 ## Verifier notes (Severity 3 and 4)
 
@@ -53,3 +55,5 @@ Stage 2, from BLOCK #1 on 3ba3276 (all Severity 4; no Severity 3):
 - T6 (S4) at 375 px a 17-digit amount breaks inside the number; text exact, no sideways scroll. Kept.
 - T7 (S4) forms lower-case and trim a typed handle and drop empty split entries. Kept.
 - Unexplained observation by the Verifier: 4 log lines matching `traceback|internal error` in one stage-2 container of the first run, text not captured, no request received a 5xx, not reproduced in a full re-run. Implementer asked to look for the cause.
+
+Stage 2, after BLOCK #2 on 54ab7a9: T2, T3, T4, T5 fixed. Open, all Severity 4, kept by Architect decision: T1, T6, T7 (T7 now also: `0015.50` and ` 15.00 ` accepted as 15.50 and 15.00). No Severity 3 open.
