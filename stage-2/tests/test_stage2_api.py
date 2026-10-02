@@ -146,6 +146,12 @@ class TestHolds(Base):
         self.assertEqual((j["held"], j["total"], j["available"]), (0, 10000 - 2000 - 600 + 2000 - 2000 + 0 if False else 10000 - 2000 - 600, 10000 - 2000 - 600))
         self.assertEqual(self.total(), 13000)
 
+    def test_capture_without_body_and_favicon(self):
+        aid = self.auth(self.ada, "bob", 100)[1]["authorization_id"]
+        s, j, _ = call("POST", "/authorizations/%s/capture" % aid, None, self.bob, nk())
+        self.assertEqual((s, j["amount"]), (201, 100))
+        self.assertEqual(call("GET", "/favicon.ico")[0], 204)
+
     def test_capture_errors(self):
         aid = self.auth(self.ada, "bob", 2000)[1]["authorization_id"]
         err(self.cap(self.ada, aid), 403, "forbidden")

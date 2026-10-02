@@ -1,5 +1,7 @@
 /* Pocketful web client. Plain JavaScript, no dependencies, no external requests.
- * Data and actions go through the documented JSON API of this origin with a bearer token. */
+ * Data and actions go through the documented JSON API of this origin with a bearer token.
+ * Every answer is normalised in one place (norm*) before it is rendered, and every panel loads,
+ * fails and renders on its own, so one bad answer never blanks another part of a screen. */
 (function () {
   'use strict';
 
@@ -12,8 +14,16 @@
     try { if (v == null) window.localStorage.removeItem(k); else window.localStorage.setItem(k, v); } catch (e) { /* ignore */ }
   }
 
+  // ---------------------------------------------------------- value helpers
+  function isObj(v) { return v !== null && typeof v === 'object' && !Array.isArray(v); }
+  function isInt(v) { return typeof v === 'number' && isFinite(v) && Math.floor(v) === v; }
+  function str(v, d) { return typeof v === 'string' ? v : (d === undefined ? '' : d); }
+  function intOr(v, d) { return isInt(v) ? v : d; }
+  function vis(v) { return v === 'private' ? 'private' : 'public'; }
+
   var S = { token: load(TOKEN_KEY), user: null, me: null, cur: 'EUR', mu: 2 };
   try { S.user = JSON.parse(load(USER_KEY) || 'null'); } catch (e) { S.user = null; }
+  if (!isObj(S.user)) S.user = null;
 
   // -------------------------------------------------------------------- DOM
   function h(tag, props, kids) {
@@ -55,7 +65,7 @@
   }
 
   // ------------------------------------------------------------------ money
-  function digits(n) { return BigInt(n).toString(); }
+  function digits(n) { try { return BigInt(n).toString(); } catch (e) { return '0'; } }
   function plain(n) {
     var s = digits(n);
     if (S.mu === 0) return s;
@@ -70,8 +80,7 @@
     if (!re.test(t)) return null;
     var parts = t.split('.');
     var frac = (parts[1] || '').padEnd(S.mu, '0');
-    var d = (parts[0] + frac).replace(/^0+(?=[0-9])/, '');
-    return d;
+    return (parts[0] + frac).replace(/^0+(?=[0-9])/, '');
   }
   function amountHint() {
     return S.mu === 0 ? 'Whole amounts only, for example 15.' :
@@ -94,6 +103,50 @@
     return Array.prototype.map.call(a, function (b) { return ('0' + b.toString(16)).slice(-2); }).join('');
   }
 
+  // ------------------------------------------------- normalising API answers
+  /* Each returns a complete, well-typed object, or null when the answer cannot be used at all. An older
+   * service (before the upgrade) answers /me with `balance` only and payments without authorization_id. */
+  function normMe(d) {
+    if (!isObj(d) || !isInt(d.balance)) return null;
+    var total = intOr(d.total, d.balance);
+    var held = intOr(d.held, 0);
+    return {
+      user_id: str(d.user_id), display_name: str(d.display_name), handle: str(d.handle),
+      balance: d.balance, total: total, available: intOr(d.available, total - held), held: held,
+      currency: str(d.currency, S.cur), minor_units: [0, 2, 3].indexOf(d.minor_units) >= 0 ? d.minor_units : S.mu
+    };
+  }
+  function normPayment(p) {
+    if (!isObj(p) || typeof p.payment_id !== 'string' || !isInt(p.amount)) return null;
+    return {
+      payment_id: p.payment_id, from_user_id: str(p.from_user_id), from_handle: str(p.from_handle, '?'),
+      to_user_id: str(p.to_user_id), to_handle: str(p.to_handle, '?'), amount: p.amount, note: str(p.note),
+      visibility: vis(p.visibility), request_id: str(p.request_id, null), settlement_id: str(p.settlement_id, null),
+      authorization_id: str(p.authorization_id, null), created_at: str(p.created_at)
+    };
+  }
+  function normRequest(r) {
+    if (!isObj(r) || typeof r.request_id !== 'string' || !isInt(r.amount)) return null;
+    return {
+      request_id: r.request_id, requester_id: str(r.requester_id), requester_handle: str(r.requester_handle, '?'),
+      payer_id: str(r.payer_id), payer_handle: str(r.payer_handle, '?'), amount: r.amount, note: str(r.note),
+      status: ['pending', 'paid', 'declined', 'cancelled'].indexOf(r.status) >= 0 ? r.status : 'pending',
+      payment_id: str(r.payment_id, null), created_at: str(r.created_at)
+    };
+  }
+  function normAuth(a) {
+    if (!isObj(a) || typeof a.authorization_id !== 'string' || !isInt(a.amount)) return null;
+    var status = ['open', 'captured', 'voided', 'expired'].indexOf(a.status) >= 0 ? a.status : 'open';
+    var captured = intOr(a.captured_amount, 0);
+    return {
+      authorization_id: a.authorization_id, from_user_id: str(a.from_user_id), from_handle: str(a.from_handle, '?'),
+      to_user_id: str(a.to_user_id), to_handle: str(a.to_handle, '?'), amount: a.amount, captured_amount: captured,
+      remaining_amount: intOr(a.remaining_amount, status === 'open' ? a.amount - captured : 0), note: str(a.note),
+      visibility: vis(a.visibility), status: status, expires_at: str(a.expires_at), created_at: str(a.created_at)
+    };
+  }
+  var NORM = { payments: normPayment, requests: normRequest, authorizations: normAuth };
+
   // -------------------------------------------------------------------- API
   function call(method, path, o) {
     o = o || {};
@@ -103,17 +156,21 @@
     if (o.token !== false && S.token) headers.Authorization = 'Bearer ' + S.token;
     if (o.body != null) headers['Content-Type'] = 'application/json';
     if (o.key) headers['Idempotency-Key'] = o.key;
-    return fetch(path, { method: method, headers: headers, body: o.body, signal: ctl.signal, cache: 'no-store' })
-      .then(function (res) {
-        return res.text().then(function (t) {
-          clearTimeout(timer);
-          var data = null, bad = false;
-          if (t) { try { data = JSON.parse(t); } catch (e) { bad = true; } } else if (res.status !== 204) { bad = true; }
-          var r = { status: res.status, data: data, bad: bad, net: false };
-          if (r.status === 401 && o.token !== false) { signedOut(); }
-          return r;
-        }, function () { clearTimeout(timer); return { status: 0, data: null, bad: true, net: true }; });
-      }, function () { clearTimeout(timer); return { status: 0, data: null, bad: true, net: true }; });
+    var lost = function () { clearTimeout(timer); return { status: 0, data: null, bad: true, net: true }; };
+    var req;
+    try {
+      req = fetch(path, { method: method, headers: headers, body: o.body, signal: ctl.signal, cache: 'no-store' });
+    } catch (e) { return Promise.resolve(lost()); }
+    return req.then(function (res) {
+      return res.text().then(function (t) {
+        clearTimeout(timer);
+        var data = null, bad = false;
+        if (t) { try { data = JSON.parse(t); } catch (e) { bad = true; } } else if (res.status !== 204) { bad = true; }
+        var r = { status: res.status, data: data, bad: bad, net: false };
+        if (r.status === 401 && o.token !== false) { signedOut(); }
+        return r;
+      }, lost);
+    }, lost);
   }
   /* 'ok' | 'refused' (a confirmed rejection with an error body) | 'uncertain' (outcome unknown) */
   function kind(r) {
@@ -122,7 +179,7 @@
     if (r.status >= 500) return 'uncertain';
     return 'refused';
   }
-  function errCode(r) { return r.data && r.data.error && r.data.error.code; }
+  function errCode(r) { return isObj(r.data) && isObj(r.data.error) ? r.data.error.code : undefined; }
   var FRIENDLY = {
     insufficient_funds: 'There is not enough available money for that. Held funds cannot be spent.',
     not_found: 'We could not find that person or item.',
@@ -145,17 +202,24 @@
     return FRIENDLY[c] || 'Something went wrong (' + (c || r.status) + ').';
   }
 
+  /* Every page of a list, normalised. Resolves {items} or {fail: response} (never throws). */
   function loadAll(path, key) {
     var out = [];
     function page(off) {
       var sep = path.indexOf('?') < 0 ? '?' : '&';
       return call('GET', path + sep + 'limit=200&offset=' + off).then(function (r) {
-        if (kind(r) !== 'ok') return { fail: r };
-        out = out.concat(r.data[key]);
-        return r.data.has_more ? page(off + 200) : { items: out };
+        if (kind(r) !== 'ok' || !isObj(r.data) || !Array.isArray(r.data[key])) return { fail: r };
+        r.data[key].forEach(function (x) { var n = NORM[key](x); if (n) out.push(n); });
+        return r.data.has_more === true && r.data[key].length ? page(off + 200) : { items: out };
       });
     }
     return page(0);
+  }
+  function loadMe() {
+    return call('GET', '/me').then(function (r) {
+      var me = kind(r) === 'ok' ? normMe(r.data) : null;
+      return me ? { me: me } : { fail: r };
+    });
   }
 
   // ------------------------------------------------------------------- auth
@@ -164,20 +228,20 @@
     save(TOKEN_KEY, null); save(USER_KEY, null);
     if (!/^\/(login|signup)$/.test(location.pathname)) location.replace('/login');
   }
-  function signIn(token) {
-    S.token = token; save(TOKEN_KEY, token);
-    return call('GET', '/me').then(function (r) {
-      if (kind(r) !== 'ok') return false;
-      setMe(r.data);
-      return true;
-    });
-  }
   function setMe(me) {
     S.me = me; S.cur = me.currency; S.mu = me.minor_units;
     S.user = { display_name: me.display_name, handle: me.handle };
     save(USER_KEY, JSON.stringify(S.user));
     var bar = document.querySelector('.topbar');
     if (bar && S.token) bar.replaceWith(header());
+  }
+  function signIn(token) {
+    S.token = token; save(TOKEN_KEY, token);
+    return loadMe().then(function (r) {
+      if (!r.me) return false;
+      setMe(r.me);
+      return true;
+    });
   }
 
   // ----------------------------------------------------------------- layout
@@ -196,8 +260,8 @@
     }
     var who = h('div', { cls: 'who' });
     if (S.token && S.user) {
-      who.appendChild(h('span', { cls: 'name', tid: 'current-user', text: S.user.display_name }));
-      who.appendChild(h('span', { cls: 'handle' }, ['@', h('span', { tid: 'current-handle', text: S.user.handle })]));
+      who.appendChild(h('span', { cls: 'name', tid: 'current-user', text: str(S.user.display_name) }));
+      who.appendChild(h('span', { cls: 'handle' }, ['@', h('span', { tid: 'current-handle', text: str(S.user.handle) })]));
       who.appendChild(h('button', {
         cls: 'btn secondary small', type: 'button', tid: 'logout-button', text: 'Sign out',
         onclick: function () { signedOut(); location.assign('/login'); }
@@ -215,42 +279,94 @@
     app.appendChild(h('a', { cls: 'skip', href: '#main', text: 'Skip to content' }));
     app.appendChild(header());
     main = h('main', { id: 'main' });
-    main.appendChild(h('div', { cls: 'page-title' }, [h('h1', { text: title }), subtitle ? h('p', { text: subtitle }) : null]));
+    main.appendChild(pageTitle(title, subtitle));
     app.appendChild(main);
     document.title = title + ' · Pocketful';
     return main;
+  }
+  function pageTitle(title, subtitle) {
+    return h('div', { cls: 'page-title' }, [h('h1', { text: title }), subtitle ? h('p', { text: subtitle }) : null]);
   }
 
   function loadingState(text) { return h('p', { cls: 'state loading', role: 'status', text: text || 'Loading…' }); }
   function emptyState(tid, title, text) {
     return h('div', { cls: 'empty', tid: tid }, [h('strong', { text: title }), h('span', { text: text })]);
   }
-  function failState(retry) {
+  function failState(retry, text) {
     return h('div', { cls: 'msg error', role: 'alert' }, [
-      'We could not load this right now. ',
-      h('button', { cls: 'btn secondary small', type: 'button', text: 'Try again', onclick: retry })
+      (text || 'We could not load this right now.') + ' ',
+      retry ? h('button', { cls: 'btn secondary small', type: 'button', text: 'Try again', onclick: retry }) : null
     ]);
   }
+  /* Why a read failed, in words: an older service has no such screen. */
+  function failText(r, what) {
+    if (r && (r.status === 404 || r.status === 405)) return 'Your ' + what + ' are not available on this service.';
+    return 'We could not load your ' + what + ' right now.';
+  }
 
-  // ------------------------------------------------------- refresh ordering
-  var refreshSeq = 0, applied = 0;
-  /* Latest refresh wins: a result is applied only if no later refresh has been applied already. */
-  function refreshWith(loader, render, onFail) {
+  /* A last resort: an unexpected script error becomes a visible message instead of a silent blank. */
+  function showFatal() {
+    var app = document.getElementById('app');
+    if (!app || document.getElementById('fatal')) return;
+    var box = h('div', { id: 'fatal', cls: 'msg error', tid: 'page-error', role: 'alert' }, [
+      'Something went wrong on this page. ',
+      h('button', { cls: 'btn secondary small', type: 'button', text: 'Reload', onclick: function () { location.reload(); } })]);
+    var m = document.getElementById('main') || app;
+    m.insertBefore(box, m.firstChild);
+  }
+  window.addEventListener('error', function () { showFatal(); });
+  window.addEventListener('unhandledrejection', function (ev) { showFatal(); ev.preventDefault(); });
+
+  // ------------------------------------------------------ panels and refresh
+  /* A panel owns one region and one loader. Latest refresh wins per panel: a result is applied only
+   * if no later refresh has already been applied to that panel. */
+  var refreshSeq = 0;
+  function Panel(loader, render, fail) {
+    this.loader = loader; this.render = render; this.fail = fail; this.applied = 0; this.ok = false;
+  }
+  Panel.prototype.fetch = function () {
+    var done;
+    try { done = this.loader(); } catch (e) { done = Promise.resolve({ fail: { status: 0 } }); }
+    return done.then(function (res) { return res; }, function () { return { fail: null }; });
+  };
+  Panel.prototype.apply = function (id, res) {
+    if (id < this.applied) return false;
+    this.applied = id;
+    try {
+      if (res && !res.fail) { this.ok = true; this.render(res); return true; }
+      this.fail(res ? res.fail : null, this.ok);
+    } catch (e) { showFatal(); }
+    return false;
+  };
+  Panel.prototype.run = function (id) {
+    var p = this;
+    return p.fetch().then(function (res) { return p.apply(id, res); });
+  };
+  /* The panels of one refresh are shown together (so balance, feed and lists always agree), unless one
+   * of them is slow: after a short grace period the ones that are ready are shown and the rest follow. */
+  function refreshPanels(panels) {
     var id = ++refreshSeq;
-    return loader().then(function (res) {
-      if (id < applied) return false;
-      if (!res) { if (onFail) onFail(); return false; }
-      applied = id;
-      render(res);
-      return true;
-    });
+    var pending = panels.length, ready = [], timer = null, flushed = false;
+    function flush() {
+      clearTimeout(timer);
+      flushed = true;
+      ready.splice(0).forEach(function (x) { x.p.apply(id, x.res); });
+    }
+    return Promise.all(panels.map(function (p) {
+      return p.fetch().then(function (res) {
+        if (flushed) { p.apply(id, res); return; }
+        ready.push({ p: p, res: res });
+        pending--;
+        if (pending === 0) flush();
+        else if (!timer) timer = setTimeout(flush, 300);
+      });
+    }));
   }
 
   // --------------------------------------------------------- messages / forms
   function setMsg(box, kindName, tid, text) {
     clearMsg(box);
-    var m = h('div', { cls: 'msg ' + kindName, tid: tid, role: kindName === 'error' ? 'alert' : 'status', text: text });
-    box.appendChild(m);
+    box.appendChild(h('div', { cls: 'msg ' + kindName, tid: tid, role: kindName === 'error' ? 'alert' : 'status', text: text }));
   }
   function clearMsg(box) { box.textContent = ''; }
 
@@ -285,7 +401,9 @@
         btn.disabled = false;
         var k = kind(r);
         if (k === 'ok') {
-          setMsg(cfg.box, 'success', cfg.prefix + '-success', cfg.okText(r));
+          var text = 'Done.';
+          try { text = cfg.okText(r); } catch (e) { /* an unexpected answer shape still counts as success */ }
+          setMsg(cfg.box, 'success', cfg.prefix + '-success', text);
           cfg.onDone(r);
         } else if (k === 'refused') {
           setMsg(cfg.box, 'error', cfg.prefix + '-error', friendly(r));
@@ -301,13 +419,15 @@
   function handleValue(v) { return String(v || '').trim().replace(/^@/, '').toLowerCase(); }
 
   // ---------------------------------------------------------------- wallet
-  function walletCard(withRefresh, onRefresh) {
-    var el = h('section', { cls: 'card wallet', 'aria-label': 'Wallet' });
+  /* The wallet frame (and its refresh button) exists from first paint; its numbers arrive later. */
+  function walletCard(onRefresh) {
+    var body = h('div', {}, [loadingState('Loading your wallet…')]);
+    var el = h('section', { cls: 'card wallet', 'aria-label': 'Wallet' }, [body]);
+    if (onRefresh) el.appendChild(h('button', { cls: 'btn ghost', type: 'button', tid: 'wallet-refresh', text: 'Refresh', onclick: onRefresh }));
     var api = { el: el };
-    api.loading = function () { el.textContent = ''; el.appendChild(loadingState('Loading your wallet…')); };
     api.update = function (me) {
-      el.textContent = '';
-      el.appendChild(h('div', {}, [
+      body.textContent = '';
+      body.appendChild(h('div', {}, [
         h('p', { cls: 'label', text: 'Available to spend' }),
         h('p', { cls: 'headline', tid: 'wallet-available', 'data-amount': String(me.available), text: fmt(me.available) })
       ]));
@@ -319,11 +439,18 @@
         sec.appendChild(h('div', { cls: 'held' }, [h('p', { cls: 'label', text: 'On hold' }),
           h('p', { cls: 'num', tid: 'wallet-held', 'data-amount': String(me.held), text: fmt(me.held) })]));
       }
-      el.appendChild(sec);
-      if (withRefresh) {
-        el.appendChild(h('button', { cls: 'btn ghost', type: 'button', tid: 'wallet-refresh', text: 'Refresh', onclick: onRefresh }));
-      }
+      body.appendChild(sec);
     };
+    /* keep the last good numbers when a later refresh fails; show the problem next to them */
+    api.fail = function (r, hadData, retry) {
+      var msg = h('div', { cls: 'msg error', role: 'alert', text: 'We could not refresh your wallet. ' });
+      if (retry) msg.appendChild(h('button', { cls: 'btn secondary small', type: 'button', text: 'Try again', onclick: retry }));
+      var old = body.querySelector('.msg');
+      if (old) old.remove();
+      if (!hadData) body.textContent = '';
+      body.appendChild(msg);
+    };
+    api.clearFail = function () { var old = body.querySelector('.msg'); if (old) old.remove(); };
     return api;
   }
 
@@ -331,14 +458,14 @@
   function payCard(page) {
     var handle = textInput('pay-handle', { placeholder: 'e.g. bob', autocapitalize: 'none' });
     var amount = textInput('pay-amount', { inputmode: 'decimal', placeholder: '15.00', 'aria-describedby': 'pay-amount-hint' });
-    var note = textInput('pay-note', { placeholder: 'What is it for? (optional)', maxlength: '2000' });
-    var vis = visibilitySelect('pay-visibility');
+    var note = textInput('pay-note', { placeholder: 'What is it for? (optional)' });
+    var visibility = visibilitySelect('pay-visibility');
     var box = h('div', { 'aria-live': 'polite' });
     var btn = h('button', { cls: 'btn', type: 'submit', tid: 'pay-submit', text: 'Send money' });
     var form = h('form', { novalidate: true }, [
       h('div', { cls: 'row two' }, [field('pay-handle', 'Pay to (handle)', handle), field('pay-amount', 'Amount (' + S.cur + ')', amount, amountHint())]),
       field('pay-note', 'Note', note),
-      field('pay-visibility', 'Who can see it', vis),
+      field('pay-visibility', 'Who can see it', visibility),
       box, h('div', { cls: 'actions' }, [btn])
     ]);
     wireSubmit({
@@ -349,7 +476,7 @@
         var d = parseAmount(amount.value);
         if (d == null) return { error: amountError() };
         return { body: '{"to_handle":' + JSON.stringify(to) + ',"amount":' + d + ',"note":' + JSON.stringify(note.value) +
-          ',"visibility":' + JSON.stringify(vis.value) + '}' };
+          ',"visibility":' + JSON.stringify(visibility.value) + '}' };
       },
       okText: function (r) { return 'Sent ' + fmt(r.data.amount) + ' to @' + r.data.to_handle + '.'; },
       onDone: function () { page.reload(); }
@@ -388,12 +515,12 @@
     var handle = textInput('authorize-handle', { placeholder: 'e.g. bob', autocapitalize: 'none' });
     var amount = textInput('authorize-amount', { inputmode: 'decimal', placeholder: '20.00' });
     var note = textInput('authorize-note', { placeholder: 'What is it for? (optional)' });
-    var vis = visibilitySelect('authorize-visibility');
+    var visibility = visibilitySelect('authorize-visibility');
     var box = h('div', { 'aria-live': 'polite' });
     var btn = h('button', { cls: 'btn secondary', type: 'submit', tid: 'authorize-submit', text: 'Place a hold' });
     var form = h('form', { novalidate: true }, [
       h('div', { cls: 'row two' }, [field('authorize-handle', 'Hold for (handle)', handle), field('authorize-amount', 'Amount (' + S.cur + ')', amount, amountHint())]),
-      field('authorize-note', 'Note', note), field('authorize-visibility', 'Who can see the payment when it is collected', vis),
+      field('authorize-note', 'Note', note), field('authorize-visibility', 'Who can see the payment when it is collected', visibility),
       box, h('div', { cls: 'actions' }, [btn])
     ]);
     wireSubmit({
@@ -404,7 +531,7 @@
         var d = parseAmount(amount.value);
         if (d == null) return { error: amountError() };
         return { body: '{"to_handle":' + JSON.stringify(to) + ',"amount":' + d + ',"note":' + JSON.stringify(note.value) +
-          ',"visibility":' + JSON.stringify(vis.value) + '}' };
+          ',"visibility":' + JSON.stringify(visibility.value) + '}' };
       },
       okText: function (r) { return fmt(r.data.amount) + ' is now on hold for @' + r.data.to_handle + '.'; },
       onDone: function () { page.reload(); }
@@ -416,11 +543,11 @@
 
   // ------------------------------------------------------------------- feed
   function feedItem(p) {
-    var mine = S.me ? S.me.user_id : null;
-    var dir = p.from_user_id === mine ? 'sent' : (p.to_user_id === mine ? 'received' : 'other');
+    var mine = S.user ? S.user.handle : '';
+    var dir = p.from_handle === mine ? 'sent' : (p.to_handle === mine ? 'received' : 'other');
     var id = p.payment_id;
     var label = dir === 'sent' ? 'Sent' : (dir === 'received' ? 'Received' : 'Public payment');
-    var li = h('li', { cls: 'item ' + dir, tid: 'activity-item-' + id, 'data-visibility': p.visibility }, [
+    return h('li', { cls: 'item ' + dir, tid: 'activity-item-' + id, 'data-visibility': p.visibility }, [
       h('div', { cls: 'main' }, [
         h('div', {}, [h('span', { cls: 'badge ' + dir, text: label }), ' ',
           h('span', { cls: 'parties', tid: 'activity-parties-' + id, text: p.from_handle + ' → ' + p.to_handle })]),
@@ -428,17 +555,16 @@
       ]),
       h('p', { cls: 'amount', tid: 'activity-amount-' + id, text: fmt(p.amount) }),
       h('div', { cls: 'meta' }, [
-        h('span', { text: when(p.created_at) }),
+        p.created_at ? h('span', { text: when(p.created_at) }) : null,
         h('span', { cls: 'badge ' + p.visibility, text: p.visibility === 'private' ? 'Private' : 'Public' }),
         p.authorization_id ? h('span', { text: 'Collected from a hold' }) : null,
         p.request_id ? h('span', { text: 'Paid a request' }) : null,
         p.settlement_id ? h('span', { text: 'Settlement' }) : null
       ])
     ]);
-    return li;
   }
 
-  function feedCard() {
+  function feedCard(retry) {
     var body = h('div', {}, [loadingState('Loading activity…')]);
     var api = { el: h('section', { cls: 'card span-2', 'aria-labelledby': 'feed-title' }, [
       h('header', {}, [h('h2', { id: 'feed-title', text: 'Activity' }), h('p', { cls: 'sub', text: 'Newest first. Private payments are only visible to the two people involved.' })]), body]) };
@@ -452,45 +578,47 @@
       items.forEach(function (p) { ul.appendChild(feedItem(p)); });
       body.appendChild(ul);
     };
-    api.fail = function (retry) { body.textContent = ''; body.appendChild(failState(retry)); };
+    api.fail = function () { body.textContent = ''; body.appendChild(failState(retry, 'We could not load your activity.')); };
     return api;
   }
 
   // ------------------------------------------------------------- page: home
   function homePage() {
     var m = shell('Your wallet', 'Available funds are what you can spend right now.');
-    var page = {};
-    var wallet, feed;
-    m.appendChild(loadingState());
+    var page = { built: false };
+    var wallet = walletCard(function () { page.reload(); });
+    var feed, panels = [];
+    m.appendChild(wallet.el);
+
     function build() {
+      page.built = true;
+      feed = feedCard(function () { page.reload(); });
       m.textContent = '';
-      m.appendChild(h('div', { cls: 'page-title' }, [h('h1', { text: 'Your wallet' }), h('p', { text: 'Available funds are what you can spend right now.' })]));
-      wallet = walletCard(true, function () { page.reload(); });
-      feed = feedCard();
+      m.appendChild(pageTitle('Your wallet', 'Available funds are what you can spend right now.'));
       m.appendChild(h('div', { cls: 'grid two' }, [
         h('div', { cls: 'span-2' }, [wallet.el]),
         payCard(page), requestCard(page), authorizeCard(page), feed.el
       ]));
-      wallet.update(S.me);
+      panels = [
+        new Panel(loadMe, function (res) { setMe(res.me); wallet.clearFail(); wallet.update(res.me); },
+          function (r, had) { wallet.fail(r, had, function () { page.reload(); }); }),
+        new Panel(function () { return loadAll('/activity', 'payments'); }, function (res) { feed.update(res.items); },
+          function () { feed.fail(); })
+      ];
+    }
+    function start() {
+      return loadMe().then(function (r) {
+        if (r.me) { setMe(r.me); wallet.update(r.me); } else { wallet.fail(r.fail, false, function () { page.reload(); }); }
+        build();
+        if (r.me) { panels[0].applied = ++refreshSeq; panels[0].ok = true; }
+        return refreshPanels(r.me ? panels.slice(1) : panels);
+      });
     }
     page.reload = function () {
-      return refreshWith(function () {
-        return Promise.all([call('GET', '/me'), loadAll('/activity', 'payments')]).then(function (rs) {
-          if (kind(rs[0]) !== 'ok' || rs[1].fail) return null;
-          return { me: rs[0].data, feed: rs[1].items };
-        });
-      }, function (res) {
-        setMe(res.me);
-        wallet.update(res.me);
-        feed.update(res.feed);
-        scheduleRefresh([], page);
-      }, function () { feed.fail(page.reload); });
+      if (!page.built) return start();
+      return refreshPanels(panels);
     };
-    ensureMe().then(function (ok) {
-      if (!ok) { m.textContent = ''; m.appendChild(failState(function () { location.reload(); })); return; }
-      build();
-      page.reload();
-    });
+    start();
   }
 
   var expiryTimer = null;
@@ -510,14 +638,6 @@
     expiryTimer = setTimeout(function () { page.reload(); }, wait);
   }
 
-  function ensureMe() {
-    return call('GET', '/me').then(function (r) {
-      if (kind(r) !== 'ok') return false;
-      setMe(r.data);
-      return true;
-    });
-  }
-
   // ---------------------------------------------------------- page: requests
   function statusLabel(s) { return { pending: 'Pending', paid: 'Paid', declined: 'Declined', cancelled: 'Cancelled' }[s] || s; }
 
@@ -526,13 +646,11 @@
     var box = h('div', { 'aria-live': 'polite' });
     var incoming = h('ul', { cls: 'list', tid: 'incoming-list' });
     var outgoing = h('ul', { cls: 'list', tid: 'outgoing-list' });
-    var inHint = h('p', { cls: 'state' });
-    var outHint = h('p', { cls: 'state' });
+    var inHint = h('div', {}, [loadingState()]);
+    var outHint = h('div', {}, [loadingState()]);
     var overall = h('div');
-    var loading = loadingState();
-    m.appendChild(box);
-    m.appendChild(loading);
     var payKeys = {}, privChoice = {};
+    var counts = { inc: null, out: null };
 
     function item(r, incomingSide) {
       var id = r.request_id;
@@ -559,31 +677,36 @@
           r.note ? h('p', { cls: 'note', text: r.note }) : null
         ]),
         h('p', { cls: 'amount', tid: 'request-amount-' + id, text: fmt(r.amount) }),
-        h('div', { cls: 'meta' }, [h('span', { text: when(r.created_at) })]),
+        h('div', { cls: 'meta' }, r.created_at ? [h('span', { text: when(r.created_at) })] : []),
         controls
       ]);
     }
-
-    function render(res) {
-      loading.remove();
-      incoming.textContent = ''; outgoing.textContent = '';
-      res.inc.forEach(function (r) { incoming.appendChild(item(r, true)); });
-      res.out.forEach(function (r) { outgoing.appendChild(item(r, false)); });
-      inHint.textContent = res.inc.length ? '' : 'No incoming requests.';
-      outHint.textContent = res.out.length ? '' : 'No outgoing requests.';
+    function overallState() {
       overall.textContent = '';
-      if (!res.inc.length && !res.out.length) {
+      if (counts.inc === 0 && counts.out === 0) {
         overall.appendChild(emptyState('empty-requests', 'No requests yet', 'Requests you send or receive will appear here.'));
       }
     }
-    function reload() {
-      return refreshWith(function () {
-        return Promise.all([loadAll('/requests?direction=incoming', 'requests'), loadAll('/requests?direction=outgoing', 'requests')]).then(function (rs) {
-          if (rs[0].fail || rs[1].fail) return null;
-          return { inc: rs[0].items, out: rs[1].items };
-        });
-      }, render, function () { loading.remove(); setMsg(box, 'error', 'request-error', 'We could not load your requests. Please try again.'); });
+    function listPanel(path, ul, hint, side, label, empty) {
+      return new Panel(function () { return loadAll(path, 'requests'); }, function (res) {
+        ul.textContent = '';
+        res.items.forEach(function (r) { ul.appendChild(item(r, side)); });
+        hint.textContent = '';
+        if (!res.items.length) hint.appendChild(h('p', { cls: 'state', text: empty }));
+        counts[side ? 'inc' : 'out'] = res.items.length;
+        overallState();
+      }, function (r) {
+        hint.textContent = '';
+        hint.appendChild(failState(reload, failText(r, label)));
+        counts[side ? 'inc' : 'out'] = null;
+        overallState();
+      });
     }
+    var panels = [
+      listPanel('/requests?direction=incoming', incoming, inHint, true, 'incoming requests', 'No incoming requests.'),
+      listPanel('/requests?direction=outgoing', outgoing, outHint, false, 'outgoing requests', 'No outgoing requests.')
+    ];
+    function reload() { return refreshPanels(panels); }
     function act(btn, what, r, priv) {
       var id = r.request_id;
       var path = '/requests/' + encodeURIComponent(id) + '/' + what;
@@ -605,23 +728,21 @@
       });
     }
 
-    ensureMe().then(function (ok) {
-      if (!ok) { loading.remove(); m.appendChild(failState(function () { location.reload(); })); return; }
-      m.appendChild(overall);
-      m.appendChild(h('div', { cls: 'grid two' }, [
-        h('section', { cls: 'card', 'aria-labelledby': 'in-title' }, [h('header', {}, [h('h2', { id: 'in-title', text: 'Incoming' }), h('p', { cls: 'sub', text: 'People asking you for money.' })]), incoming, inHint]),
-        h('section', { cls: 'card', 'aria-labelledby': 'out-title' }, [h('header', {}, [h('h2', { id: 'out-title', text: 'Outgoing' }), h('p', { cls: 'sub', text: 'Money you have asked for.' })]), outgoing, outHint])
-      ]));
-      reload();
-    });
+    m.appendChild(box);
+    m.appendChild(overall);
+    m.appendChild(h('div', { cls: 'grid two' }, [
+      h('section', { cls: 'card', 'aria-labelledby': 'in-title' }, [h('header', {}, [h('h2', { id: 'in-title', text: 'Incoming' }), h('p', { cls: 'sub', text: 'People asking you for money.' })]), incoming, inHint]),
+      h('section', { cls: 'card', 'aria-labelledby': 'out-title' }, [h('header', {}, [h('h2', { id: 'out-title', text: 'Outgoing' }), h('p', { cls: 'sub', text: 'Money you have asked for.' })]), outgoing, outHint])
+    ]));
+    loadMe().then(function (r) { if (r.me) setMe(r.me); }).then(reload);
   }
 
   // ------------------------------------------------------------- page: split
   function splitPage() {
     var m = shell('Split a bill', 'Share an amount you already paid. Everyone else gets a request for their share.');
     m.appendChild(loadingState());
-    ensureMe().then(function (ok) {
-      if (!ok) { m.textContent = ''; m.appendChild(failState(function () { location.reload(); })); return; }
+    loadMe().then(function (r) {
+      if (r.me) setMe(r.me);
       var amount = textInput('split-amount', { inputmode: 'decimal', placeholder: '30.00' });
       var handles = textInput('split-handles', { placeholder: 'ada, bob, cy', autocapitalize: 'none' });
       var note = textInput('split-note', { placeholder: 'What is it for? (optional)' });
@@ -662,15 +783,14 @@
           if (d == null) return { error: amountError() };
           return { body: '{"amount":' + d + ',"participant_handles":' + JSON.stringify(participants()) + ',"note":' + JSON.stringify(note.value) + '}' };
         },
-        okText: function (r) {
-          var n = r.data.requests.length;
+        okText: function (resp) {
+          var n = isObj(resp.data) && Array.isArray(resp.data.requests) ? resp.data.requests.length : 0;
           return 'Split saved. ' + n + (n === 1 ? ' request was' : ' requests were') + ' sent.';
         },
         onDone: function () {}
       });
       m.textContent = '';
-      m.appendChild(h('div', { cls: 'page-title' }, [h('h1', { text: 'Split a bill' }),
-        h('p', { text: 'Share an amount you already paid. Everyone else gets a request for their share.' })]));
+      m.appendChild(pageTitle('Split a bill', 'Share an amount you already paid. Everyone else gets a request for their share.'));
       m.appendChild(h('section', { cls: 'card narrow', 'aria-label': 'Split form' }, [form]));
       updatePreview();
     });
@@ -682,14 +802,16 @@
   function authorizationsPage() {
     var m = shell('Authorizations', 'Holds set money aside for someone to collect later.');
     var page = {};
-    var wallet, listBox, box;
     var capKeys = {};
-    m.appendChild(loadingState());
+    var box = h('div', { 'aria-live': 'polite' });
+    var listBox = h('div', {}, [loadingState('Loading authorizations…')]);
+    var wallet = walletCard(null);
+    var panels = [];
 
     function item(a) {
       var id = a.authorization_id;
-      var mine = S.me.user_id;
-      var incomingSide = a.to_user_id === mine;
+      var mine = S.me ? S.me.user_id : '';
+      var incomingSide = mine ? a.to_user_id === mine : a.to_handle === (S.user ? S.user.handle : '');
       var controls = h('div', { cls: 'controls' });
       if (a.status === 'open' && incomingSide) {
         var st = capKeys[id] || (capKeys[id] = { key: null, sig: null, dirty: true, value: null, keep: false });
@@ -756,15 +878,10 @@
       });
     }
 
-    page.reload = function () {
-      return refreshWith(function () {
-        return Promise.all([call('GET', '/me'), loadAll('/authorizations', 'authorizations')]).then(function (rs) {
-          if (kind(rs[0]) !== 'ok' || rs[1].fail) return null;
-          return { me: rs[0].data, items: rs[1].items };
-        });
-      }, function (res) {
-        setMe(res.me);
-        wallet.update(res.me);
+    panels = [
+      new Panel(loadMe, function (res) { setMe(res.me); wallet.clearFail(); wallet.update(res.me); },
+        function (r, had) { wallet.fail(r, had, function () { page.reload(); }); }),
+      new Panel(function () { return loadAll('/authorizations', 'authorizations'); }, function (res) {
         listBox.textContent = '';
         if (!res.items.length) {
           listBox.appendChild(emptyState('empty-authorizations', 'No authorizations yet', 'Holds you place or receive will appear here.'));
@@ -774,24 +891,22 @@
           listBox.appendChild(ul);
         }
         scheduleRefresh(res.items, page);
-      }, function () { listBox.textContent = ''; listBox.appendChild(failState(page.reload)); });
-    };
+      }, function (r) {
+        listBox.textContent = '';
+        listBox.appendChild(failState(page.reload, failText(r, 'authorizations')));
+      })
+    ];
+    page.reload = function () { return refreshPanels(panels); };
 
-    ensureMe().then(function (ok) {
-      if (!ok) { m.textContent = ''; m.appendChild(failState(function () { location.reload(); })); return; }
-      m.textContent = '';
-      m.appendChild(h('div', { cls: 'page-title' }, [h('h1', { text: 'Authorizations' }),
-        h('p', { text: 'Holds set money aside for someone to collect later. Held money is not available to spend.' })]));
-      wallet = walletCard(false);
-      wallet.update(S.me);
-      box = h('div', { 'aria-live': 'polite' });
-      listBox = h('div', {}, [loadingState('Loading authorizations…')]);
-      m.appendChild(h('div', { cls: 'grid two' }, [
-        h('div', {}, [wallet.el]), authorizeCard(page),
-        h('section', { cls: 'card span-2', 'aria-labelledby': 'auth-list-title' }, [
-          h('header', {}, [h('h2', { id: 'auth-list-title', text: 'Your holds' }), h('p', { cls: 'sub', text: 'Newest first.' })]), box, listBox])
-      ]));
-      page.reload();
+    m.appendChild(h('div', { cls: 'grid two' }, [
+      h('div', {}, [wallet.el]), authorizeCard(page),
+      h('section', { cls: 'card span-2', 'aria-labelledby': 'auth-list-title' }, [
+        h('header', {}, [h('h2', { id: 'auth-list-title', text: 'Your holds' }), h('p', { cls: 'sub', text: 'Newest first.' })]), box, listBox])
+    ]));
+    // currency and decimals first (labels and the amount rule depend on them), then every panel on its own
+    loadMe().then(function (r) {
+      if (r.me) setMe(r.me);
+      return page.reload();
     });
   }
 
@@ -819,7 +934,7 @@
       busy = true; btn.disabled = true;
       call('POST', path, { body: JSON.stringify(payload), token: false }).then(function (r) {
         var k = kind(r);
-        if (k === 'ok') {
+        if (k === 'ok' && isObj(r.data) && typeof r.data.token === 'string') {
           return signIn(r.data.token).then(function (ok) {
             if (ok) { location.assign('/'); return; }
             busy = false; btn.disabled = false;
@@ -834,7 +949,7 @@
     var other = signup ? h('p', { cls: 'sub' }, ['Already have an account? ', h('a', { href: '/login', text: 'Sign in' })])
       : h('p', { cls: 'sub' }, ['New here? ', h('a', { href: '/signup', text: 'Create an account' })]);
     m.appendChild(h('section', { cls: 'card narrow', 'aria-label': signup ? 'Sign up' : 'Sign in' }, [form, other]));
-    if (S.token && !S.user) ensureMe().then(function (ok) { if (ok) { var hd = document.querySelector('.topbar'); if (hd) hd.replaceWith(header()); } });
+    if (S.token && !S.user) loadMe().then(function (r) { if (r.me) setMe(r.me); });
   }
 
   // ------------------------------------------------------------------ start
@@ -848,5 +963,6 @@
     if (p === '/authorizations') return authorizationsPage();
     return homePage();
   }
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
+  function boot() { try { start(); } catch (e) { showFatal(); } }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
 })();

@@ -54,13 +54,27 @@ class UI(unittest.TestCase):
     def setUp(self):
         self.ctx = self.browser.new_context(base_url=BASE, viewport={"width": 1280, "height": 900})
         self.page = self.ctx.new_page()
+        self.errors = []
+        self.watch(self.page)
         self.requests = []
         self.ctx.on("request", lambda r: self.requests.append(r))
         self.fixture = seed()
         reset(self.fixture)
 
+    def watch(self, page):
+        """Every browser test fails on a script error or a console error (failed network loads of a 4xx are the browser's own log)."""
+        page.on("pageerror", lambda e: self.errors.append("pageerror: " + str(e)))
+        page.on("console", lambda m: self.errors.append("console: " + m.text)
+                if m.type == "error" and "Failed to load resource" not in m.text else None)
+
     def tearDown(self):
+        for p in self.ctx.pages:
+            try:
+                p.unroute_all(behavior="ignoreErrors")
+            except Exception:
+                pass
         self.ctx.close()
+        self.assertEqual(self.errors, [])
 
     # helpers
     def login(self, who="ada", page=None, password="correct horse"):
@@ -108,6 +122,7 @@ class UI(unittest.TestCase):
         for width, height in ((375, 800), (768, 900), (1280, 900), (1920, 1000)):
             ctx = self.browser.new_context(base_url=BASE, viewport={"width": width, "height": height})
             page = ctx.new_page()
+            self.watch(page)
             self.login("ada", page)
             for route, anchor in (("/", "pay-submit"), ("/requests", "incoming-list"), ("/split", "split-submit"),
                                   ("/authorizations", "authorization-list"), ("/login", "login-submit"),
@@ -128,6 +143,7 @@ class UI(unittest.TestCase):
         for route in ("/login", "/signup"):
             ctx = self.browser.new_context(base_url=BASE, viewport={"width": 375, "height": 800})
             page = ctx.new_page()
+            self.watch(page)
             page.goto(route)
             page.wait_for_selector(sel(route.strip("/") + "-submit"))
             page.screenshot(path="%s/%s-signedout-375.png" % (SHOTS, route.strip("/")), full_page=True)
@@ -735,6 +751,306 @@ class UI(unittest.TestCase):
         self.page.click(sel("request-pay-rq_1"))
         self.page.wait_for_selector("%s[data-status='paid']" % sel("request-item-rq_1"))
         self.assertEqual(call("GET", "/me", token=tok)[1]["balance"], 7300)
+
+    @unittest.skipUnless(PREV, "BASE_URL_PREV not set")
+    def test_pages_against_a_stage1_service(self):
+        """A browser working before the upgrade talks to the stage-1 service: no script errors, wallet and feed shown."""
+        call("POST", "/_test/reset", seed(payments=[{"id": "p_1", "from_user_id": "u_ada", "to_user_id": "u_bob", "amount": 500,
+                                                      "note": "coffee", "visibility": "public"}]), base=PREV)
+        errors = []
+        self.page.on("pageerror", lambda e: errors.append(str(e)))
+
+        def handler(route):
+            req = route.request
+            u = urlsplit(req.url)
+            if req.resource_type not in ("fetch", "xhr"):
+                return route.continue_()
+            route.fulfill(response=route.fetch(url=PREV + u.path + ("?" + u.query if u.query else "")))
+        self.page.route("**/*", handler)
+        self.login()
+        self.page.goto("/")
+        self.page.wait_for_selector(sel("wallet-balance"))
+        self.assertEqual(self.text("wallet-balance"), "100.00 EUR")
+        self.assertEqual(self.text("wallet-available"), "100.00 EUR")
+        self.assertIsNone(self.page.query_selector(sel("wallet-held")))
+        self.assertTrue(self.page.query_selector(sel("wallet-refresh")))
+        self.page.wait_for_selector(sel("activity-item-p_1"))
+        self.page.goto("/authorizations")
+        self.page.wait_for_selector(sel("wallet-balance"))
+        self.page.wait_for_selector(".msg.error")
+        for route in ("/requests", "/split"):
+            self.page.goto(route)
+            self.page.wait_for_selector(sel("current-user"))
+        self.assertEqual(errors, [])
+
+
+    # ------------------------------------------- pre-upgrade suite (page on a stage-1 service)
+    def route_api_to(self, page, upstream_ref, hooks=None):
+        """Answer the page's API calls (fetch/xhr) from another service; upstream_ref is a one-item list (None = this service)."""
+        hooks = hooks or {}
+
+        def handler(route):
+            req = route.request
+            u = urlsplit(req.url)
+            if req.resource_type not in ("fetch", "xhr") or upstream_ref[0] is None:
+                return route.continue_()
+            resp = route.fetch(url=upstream_ref[0] + u.path + ("?" + u.query if u.query else ""))
+            hook = hooks.get((req.method, u.path))
+            if hook and hook(route, resp):
+                return
+            route.fulfill(response=resp)
+        page.route("**/*", handler)
+
+    @unittest.skipUnless(PREV, "BASE_URL_PREV not set")
+    def test_pre_upgrade_suite_both_widths(self):
+        for width, height in ((375, 800), (1280, 900)):
+            self.pre_upgrade_flow(width, height)
+
+    def pre_upgrade_flow(self, width, height):
+        fx = seed(requests=[{"id": "rq_1", "requester_id": "u_bob", "payer_id": "u_ada", "amount": 1200, "note": "taxi", "status": "pending"},
+                            {"id": "rq_2", "requester_id": "u_bob", "payer_id": "u_ada", "amount": 100, "note": "x", "status": "pending"},
+                            {"id": "rq_3", "requester_id": "u_ada", "payer_id": "u_bob", "amount": 300, "note": "y", "status": "pending"}],
+                  payments=[{"id": "p_1", "from_user_id": "u_bob", "to_user_id": "u_ada", "amount": 500, "note": "coffee", "visibility": "public"}])
+        reset(fx)
+        call("POST", "/_test/reset", fx, base=PREV)
+        ctx = self.browser.new_context(base_url=BASE, viewport={"width": width, "height": height})
+        page = ctx.new_page()
+        self.watch(page)
+        reqs = []
+        ctx.on("request", lambda r: reqs.append(r))
+        upstream = [PREV]
+        state = {"lose": False}
+
+        def lose(route, resp):
+            if state["lose"]:
+                route.abort()
+                return True
+        self.route_api_to(page, upstream, {("POST", "/payments"): lose})
+        self.login("ada", page)
+        page.goto("/")
+        page.wait_for_selector(sel("wallet-balance"))
+        self.assertEqual(self.text("wallet-balance", page), "100.00 EUR")
+        self.assertEqual(self.text("wallet-available", page), "100.00 EUR")
+        self.assertIsNone(page.query_selector(sel("wallet-held")))
+        page.wait_for_selector(sel("activity-item-p_1"))
+        self.assertEqual(self.text("activity-amount-p_1", page), "5.00 EUR")
+        # pay once, resubmit unchanged = replay, refusal keeps inputs, bad decimal sends nothing
+        page.fill(sel("pay-handle"), "cy")
+        page.fill(sel("pay-amount"), "15.005")
+        page.click(sel("pay-submit"))
+        page.wait_for_selector(sel("pay-error"))
+        page.fill(sel("pay-amount"), "15.00")
+        page.fill(sel("pay-note"), "dinner")
+        page.click(sel("pay-submit"))
+        page.wait_for_selector("%s[data-amount='8500']" % sel("wallet-balance"))
+        page.click(sel("pay-submit"))
+        page.dblclick(sel("pay-submit"))
+        page.wait_for_timeout(500)
+        self.assertEqual(page.get_attribute(sel("wallet-balance"), "data-amount"), "8500")
+        self.assertIsNone(page.query_selector(sel("pay-error")))
+        keys = {r.headers["idempotency-key"] for r in reqs if r.method == "POST" and urlsplit(r.url).path == "/payments"}
+        self.assertEqual(len(keys), 1)
+        page.fill(sel("pay-amount"), "999.00")
+        page.click(sel("pay-submit"))
+        page.wait_for_selector(sel("pay-error"))
+        self.assertEqual(page.input_value(sel("pay-note")), "dinner")
+        # another client spends; refresh; uncertain outcome
+        call("POST", "/payments", {"to_handle": "bob", "amount": 100}, self.token("ada", PREV), nk(), base=PREV)
+        page.click(sel("wallet-refresh"))
+        page.wait_for_selector("%s[data-amount='8400']" % sel("wallet-balance"))
+        state["lose"] = True
+        page.fill(sel("pay-amount"), "2.00")
+        page.click(sel("pay-submit"))
+        page.wait_for_selector(sel("pay-uncertain"))
+        self.assertIsNone(page.query_selector(sel("pay-error")))
+        # requests screen: pay, decline, cancel
+        state["lose"] = False
+        page.goto("/requests")
+        page.wait_for_selector(sel("request-item-rq_1"))
+        page.click(sel("request-decline-rq_2"))
+        page.wait_for_selector("%s[data-status='declined']" % sel("request-item-rq_2"))
+        page.click(sel("request-cancel-rq_3"))
+        page.wait_for_selector("%s[data-status='cancelled']" % sel("request-item-rq_3"))
+        # split
+        page.goto("/split")
+        page.fill(sel("split-amount"), "10.00")
+        page.fill(sel("split-handles"), "ada,bob,cy")
+        page.wait_for_selector(sel("split-preview"))
+        self.assertEqual([self.text("split-share-" + h, page) for h in ("ada", "bob", "cy")], [money(334), money(333), money(333)])
+        page.click(sel("split-submit"))
+        page.wait_for_selector(sel("split-success"))
+        for route, anchor in (("/login", "login-submit"), ("/signup", "signup-submit")):
+            page.goto(route)
+            page.wait_for_selector(sel(anchor))
+        # the authorisation screen has no counterpart on a stage-1 service: wallet and an error state, no script error
+        page.goto("/authorizations")
+        page.wait_for_selector(sel("wallet-balance"))
+        page.wait_for_selector(".msg.error")
+        # upgrade: export the stage-1 state, import into this service, switch the page over, continue without a reload
+        page.goto("/")
+        page.wait_for_selector(sel("pay-uncertain")) if False else None
+        page.wait_for_selector(sel("pay-submit"))
+        state["lose"] = True
+        page.fill(sel("pay-handle"), "bob")
+        page.fill(sel("pay-amount"), "3.00")
+        page.fill(sel("pay-note"), "in flight")
+        page.click(sel("pay-submit"))
+        page.wait_for_selector(sel("pay-uncertain"))
+        state["lose"] = False
+        ex = call("GET", "/_test/export", base=PREV)[1]
+        self.assertEqual(call("POST", "/_test/import", ex)[0], 204)
+        upstream[0] = None
+        page.click(sel("pay-submit"))
+        page.wait_for_selector(sel("pay-uncertain"), state="detached")
+        self.assertIsNone(page.query_selector(sel("pay-error")))
+        tok = self.token("ada")
+        bal = call("GET", "/me", token=tok)[1]
+        page.wait_for_selector("%s[data-amount='%d']" % (sel("wallet-balance"), bal["balance"]))
+        self.assertEqual(self.amount_attr("wallet-available") if False else page.get_attribute(sel("wallet-available"), "data-amount"), str(bal["available"]))
+        call("POST", "/authorizations", {"to_handle": "bob", "amount": 500}, tok, nk())
+        page.click(sel("wallet-refresh"))
+        page.wait_for_selector("%s[data-amount='500']" % sel("wallet-held"))
+        self.assertEqual(page.get_attribute(sel("wallet-available"), "data-amount"), str(bal["balance"] - 500))
+        page.goto("/requests")
+        page.wait_for_selector(sel("request-pay-rq_1"))
+        page.click(sel("request-pay-rq_1"))
+        page.wait_for_selector("%s[data-status='paid']" % sel("request-item-rq_1"))
+        ctx.close()
+
+    # --------------------------------------------------------------- malformed answers
+    def mutate(self, page, path, fn):
+        """Answer every page read of `path` with the real answer passed through fn (a callable returning a dict for fulfill, or None)."""
+        def handler(route):
+            req = route.request
+            if req.resource_type in ("fetch", "xhr") and req.method == "GET" and urlsplit(req.url).path == path:
+                resp = route.fetch()
+                out = fn(resp)
+                if out == "hang":
+                    return
+                return route.fulfill(**out)
+            route.continue_()
+        page.route("**/*", handler)
+
+    def variants(self, key, members, nested=None):
+        def pass_json(f):
+            return lambda resp: {"status": 200, "content_type": "application/json", "body": json.dumps(f(resp.json()))}
+        out = [("500", lambda resp: {"status": 500, "body": "boom"}),
+               ("empty", lambda resp: {"status": 200, "content_type": "application/json", "body": ""}),
+               ("array", lambda resp: {"status": 200, "content_type": "application/json", "body": "[1,2]"}),
+               ("null", lambda resp: {"status": 200, "content_type": "application/json", "body": "null"}),
+               ("html", lambda resp: {"status": 200, "content_type": "text/html", "body": "<p>x</p>"}),
+               ("404", lambda resp: {"status": 404, "content_type": "application/json", "body": '{"error":{"code":"not_found","message":"x"}}'})]
+        for m in members:
+            def drop(j, m=m):
+                j.pop(m, None)
+                return j
+            out.append(("missing-" + m, pass_json(drop)))
+        if nested:
+            for m in nested:
+                def dropn(j, m=m):
+                    for it in j.get(key, []):
+                        it.pop(m, None)
+                    return j
+                out.append(("item-missing-" + m, pass_json(dropn)))
+            out.append(("item-not-object", pass_json(lambda j: {**j, key: [1, "x", None, [], *j.get(key, [])]})))
+            out.append(("items-wrong-type", pass_json(lambda j: {**j, key: "nope"})))
+            out.append(("amount-string", pass_json(lambda j: {**j, key: [{**it, "amount": "5"} for it in j.get(key, [])]})))
+        return out
+
+    def test_malformed_reads_never_script_error(self):
+        ada, bob = self.token("ada"), self.token("bob")
+        call("POST", "/payments", {"to_handle": "bob", "amount": 100, "note": "n"}, ada, nk())
+        call("POST", "/requests", {"payer_handle": "ada", "amount": 5, "note": "r"}, bob, nk())
+        call("POST", "/requests", {"payer_handle": "bob", "amount": 6, "note": "r"}, ada, nk())
+        call("POST", "/authorizations", {"to_handle": "bob", "amount": 50}, ada, nk())
+        call("POST", "/authorizations", {"to_handle": "ada", "amount": 70}, bob, nk())
+        self.login()
+        plans = [
+            ("/", "/me", None, ["balance", "total", "available", "held", "currency", "minor_units", "user_id", "handle"], None),
+            ("/", "/activity", "payments", ["payments", "has_more"], ["payment_id", "from_handle", "to_handle", "amount", "note", "visibility",
+                                                                       "currency", "created_at", "request_id", "settlement_id", "authorization_id"]),
+            ("/requests", "/requests", "requests", ["requests", "has_more"], ["request_id", "requester_handle", "payer_handle", "amount", "note",
+                                                                              "status", "payment_id", "created_at"]),
+            ("/authorizations", "/authorizations", "authorizations", ["authorizations", "has_more"],
+             ["authorization_id", "from_handle", "to_handle", "to_user_id", "amount", "captured_amount", "remaining_amount", "note", "visibility",
+              "status", "expires_at", "payment_id", "payment_ids", "created_at"]),
+            ("/authorizations", "/me", None, ["balance", "total", "available", "held"], None),
+        ]
+        for route, path, key, members, nested in plans:
+            for name, fn in self.variants(key, members, nested):
+                with self.subTest(route=route, path=path, variant=name):
+                    page = self.ctx.new_page()
+                    self.watch(page)
+                    self.mutate(page, path, fn)
+                    page.goto(route)
+                    page.wait_for_timeout(700)
+                    # the rest of the screen is intact
+                    anchors = {"/": ["pay-submit", "request-submit", "authorize-submit"], "/requests": ["incoming-list", "outgoing-list"],
+                               "/authorizations": ["authorize-submit"]}[route]
+                    for a in anchors:
+                        page.wait_for_selector(sel(a), state="attached", timeout=4000)
+                    self.assertIsNone(page.query_selector("[data-testid='page-error']"))
+                    # recovery: real answers again, then refresh
+                    page.unroute_all(behavior="ignoreErrors")
+                    retry = page.query_selector("main .msg.error button") or page.query_selector(sel("wallet-refresh"))
+                    if retry:
+                        retry.click()
+                    else:
+                        page.goto(route)
+                    page.wait_for_timeout(500)
+                    if route == "/":
+                        page.wait_for_selector(sel("wallet-balance"), timeout=5000)
+                        page.wait_for_selector(sel("activity-list"), timeout=5000)
+                    elif route == "/requests":
+                        page.wait_for_selector("[data-testid^='request-item-']", timeout=5000)
+                    else:
+                        page.wait_for_selector(sel("authorization-list"), timeout=5000)
+                        page.wait_for_selector(sel("wallet-balance"), timeout=5000)
+                    page.close()
+
+    def test_hung_reads_show_loading_then_recover(self):
+        self.login()
+        for route, path, anchor in (("/", "/activity", "empty-activity"), ("/requests", "/requests", "empty-requests"),
+                                     ("/authorizations", "/authorizations", "empty-authorizations")):
+            page = self.ctx.new_page()
+            self.watch(page)
+            self.mutate(page, path, lambda resp: "hang")
+            page.goto(route)
+            page.wait_for_selector(".state.loading", timeout=4000)
+            self.assertIsNone(page.query_selector("[data-testid='page-error']"))
+            page.wait_for_selector("main .msg.error", timeout=20000)  # the page gives up after its own timeout
+            page.unroute_all(behavior="ignoreErrors")
+            page.click("main .msg.error button")
+            page.wait_for_selector(sel(anchor), timeout=6000)
+            page.close()
+
+    def test_wallet_refresh_available_while_first_read_pending(self):
+        self.login()
+        page = self.ctx.new_page()
+        self.watch(page)
+        self.mutate(page, "/me", lambda resp: "hang")
+        page.goto("/")
+        page.wait_for_selector(sel("wallet-refresh"), timeout=3000)
+        page.unroute_all(behavior="ignoreErrors")
+        page.click(sel("wallet-refresh"))
+        page.wait_for_selector(sel("wallet-balance"), timeout=6000)
+        page.wait_for_selector(sel("pay-submit"), timeout=6000)
+        page.close()
+
+    def test_accept_header_and_icon(self):
+        self.login()
+        r = self.ctx.request.get("/requests", headers={"Accept": "text/htmlx"})
+        self.assertEqual(r.status, 401)
+        r = self.ctx.request.get("/requests", headers={"Accept": "text/html;q=0"})
+        self.assertEqual(r.status, 401)
+        r = self.ctx.request.get("/requests", headers={"Accept": "application/xhtml+xml, text/html; charset=utf-8; q=0.8"})
+        self.assertEqual(r.status, 200)
+        self.assertTrue(r.headers["content-type"].startswith("text/html"))
+        r = self.ctx.request.get("/static/icon.svg")
+        self.assertEqual((r.status, r.headers["content-type"]), (200, "image/svg+xml"))
+        self.page.goto("/")
+        self.page.wait_for_selector(sel("pay-submit"))
+        self.assertEqual(self.page.get_attribute("link[rel=icon]", "href"), "/static/icon.svg")
 
     # ----------------------------------------------------------- a11y / look
     def test_labels_focus_and_contrast(self):

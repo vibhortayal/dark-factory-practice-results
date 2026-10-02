@@ -11,6 +11,7 @@ import os
 import re
 import secrets
 import sys
+import traceback
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -1263,6 +1264,7 @@ UI_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ui")
 UI_TITLES = {"/": "Wallet", "/requests": "Requests", "/split": "Split a bill", "/signup": "Create account",
              "/login": "Sign in", "/authorizations": "Authorizations"}
 ASSETS = {"/static/app.js": ("app.js", "text/javascript; charset=utf-8"),
+          "/static/icon.svg": ("icon.svg", "image/svg+xml"),
           "/static/app.css": ("app.css", "text/css; charset=utf-8")}
 
 
@@ -1287,12 +1289,32 @@ def _load_ui():
 UI_PAGES, UI_ASSETS = _load_ui()
 
 
+def accepts_html(header):
+    """True when one media range of the Accept header is exactly text/html with a q that is not 0."""
+    for part in (header or "").split(","):
+        bits = [b.strip() for b in part.split(";")]
+        if bits[0].lower() != "text/html":
+            continue
+        q = 1.0
+        for b in bits[1:]:
+            if b.lower().startswith("q="):
+                try:
+                    q = float(b[2:])
+                except ValueError:
+                    q = 1.0
+        if q > 0:
+            return True
+    return False
+
+
 def ui_response(path, headers):
     """HTML for UI routes (shared routes only when the client asks for text/html), else None."""
+    if path == "/favicon.ico":
+        return 204, None
     if path in UI_ASSETS:
         return 200, UI_ASSETS[path]
     if path in UI_PAGES:
-        if path in ("/requests", "/authorizations") and "text/html" not in (headers.get("Accept") or "").lower():
+        if path in ("/requests", "/authorizations") and not accepts_html(headers.get("Accept")):
             return None
         return 200, UI_PAGES[path]
     return None
@@ -1380,6 +1402,7 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:  # never leak a 5xx for a bug in one request path
             status, obj = 500, {"error": {"code": "internal_error", "message": "internal error"}}
             print("internal error:", repr(e), flush=True)
+            traceback.print_exc()
         if close:
             self.close_connection = True
         try:
@@ -1479,7 +1502,7 @@ class Handler(BaseHTTPRequestHandler):
                 aid = segs[1]
                 if segs[2] == "capture":
                     return idempotent(user, method, "/authorizations/" + aid + "/capture", H, raw,
-                                      lambda b: capture_authorization(user, aid, b))
+                                      lambda b: capture_authorization(user, aid, b), allow_empty=True)
                 return void_authorization(user, aid)
             if path == "/payments":
                 return idempotent(user, method, path, H, raw, lambda b: create_payment(user, b))
@@ -1507,6 +1530,14 @@ class Handler(BaseHTTPRequestHandler):
 
 class Server(ThreadingHTTPServer):
     daemon_threads = True
+
+    def handle_error(self, request, client_address):
+        exc = sys.exc_info()[1]
+        if isinstance(exc, (ConnectionError, TimeoutError, BrokenPipeError)):
+            return  # a client that resets, aborts or stalls a connection is not a service error
+        print("unexpected error in connection thread:", repr(exc), flush=True)
+        traceback.print_exc()
+        sys.stdout.flush()
     request_queue_size = 512
     allow_reuse_address = True
 
