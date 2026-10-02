@@ -11,7 +11,8 @@ const MAX_AMOUNT = 1000000000;
 const MAX_SAFE = 9007199254740992; // 2^53
 const MAX_BODY = 16 * 1024 * 1024;
 const HANDLE_RE = /^[a-z0-9_]{1,20}$/;
-const SCRYPT_N = 8192;
+const SCRYPT_N = 2048; // ~4 ms per hash: keeps resets of large fixtures well inside the 10 s limit
+const MAX_SEQ = 1e15; // id counters beyond this are rejected on import so ++ always advances
 
 class ApiError extends Error {
   constructor(status, code, message) {
@@ -76,16 +77,16 @@ function hashPw(pw) {
     });
   });
 }
+const HASH_RE = new RegExp(`^scrypt\\$${SCRYPT_N}\\$8\\$1\\$([0-9a-f]{32})\\$([0-9a-f]{64})$`);
 function verifyPw(pw, stored) {
   return new Promise((resolve) => {
-    const parts = stored.split('$');
-    if (parts.length !== 6 || parts[0] !== 'scrypt') return resolve(false);
-    const N = Number(parts[1]), r = Number(parts[2]), p = Number(parts[3]);
-    const salt = Buffer.from(parts[4], 'hex');
-    const want = Buffer.from(parts[5], 'hex');
-    crypto.scrypt(pw, salt, want.length, { N, r, p }, (err, key) => {
+    const m = HASH_RE.exec(stored);
+    if (!m) return resolve(false);
+    const salt = Buffer.from(m[1], 'hex');
+    const want = Buffer.from(m[2], 'hex');
+    crypto.scrypt(pw, salt, 32, { N: SCRYPT_N, r: 8, p: 1 }, (err, key) => {
       if (err) return resolve(false);
-      resolve(key.length === want.length && crypto.timingSafeEqual(key, want));
+      resolve(crypto.timingSafeEqual(key, want));
     });
   });
 }
@@ -245,7 +246,8 @@ function idempotent(ctx, handler, bodyOpts) {
   const key = readKey(ctx.headers);
   const body = parseBody(ctx.body, bodyOpts);
   const scope = JSON.stringify([ctx.user.id, ctx.method, ctx.path, key]);
-  const c = canon(body);
+  let c;
+  try { c = canon(body); } catch (e) { throw malformed('body too deeply nested'); }
   const rec = S.idem.get(scope);
   if (rec) {
     if (rec.canon === c) return { status: 200, body: rec.response };
@@ -632,7 +634,7 @@ function doImport(env) {
   const seen = { ids: new Set(), emails: new Set(), handles: new Set() };
   s.users.forEach((u, i) => {
     checkUserPayload(u, i, seen);
-    need(isStr(u.pw) && /^scrypt\$[0-9]+\$[0-9]+\$[0-9]+\$[0-9a-f]+\$[0-9a-f]+$/.test(u.pw), `users[${i}].pw invalid`);
+    need(isStr(u.pw) && HASH_RE.test(u.pw), `users[${i}].pw invalid`);
   });
   const known = (id) => seen.ids.has(id);
   need(Array.isArray(s.tokens) && s.tokens.every((t) => Array.isArray(t) && t.length === 2 && isStr(t[0]) && known(t[1])), 'state.tokens invalid');
@@ -662,7 +664,7 @@ function doImport(env) {
   });
   need(Array.isArray(s.operators) && s.operators.every((id) => known(id)), 'state.operators invalid');
   need(Array.isArray(s.idem) && s.idem.every((r) => isObj(r) && isStr(r.scope) && isStr(r.canon) && isObj(r.response)), 'state.idem invalid');
-  need(isObj(s.seq) && ['p', 'rq', 'sp', 'st', 'u'].every((k) => isInt(s.seq[k], 0)), 'state.seq invalid');
+  need(isObj(s.seq) && ['p', 'rq', 'sp', 'st', 'u'].every((k) => isInt(s.seq[k], 0) && s.seq[k] <= MAX_SEQ), 'state.seq invalid');
 
   const st = emptyState();
   st.currency = s.currency;
@@ -738,7 +740,9 @@ async function dispatch(req, body) {
     if (!m) continue;
     allowed = true;
     if (method !== req.method) continue;
-    const ctx = { method, path, query, headers: req.headers, body, params: {}, user: null };
+    let dpath = path;
+    try { dpath = decodeURIComponent(path); } catch (e) { /* keep raw */ }
+    const ctx = { method, path: dpath, query, headers: req.headers, body, params: {}, user: null };
     if (m[1] !== undefined) {
       try { ctx.params.id = decodeURIComponent(m[1]); } catch (e) { ctx.params.id = '\0'; }
     }
@@ -772,7 +776,6 @@ function onRequest(req, res) {
       send(res, r.status, r.body);
     } catch (e) {
       if (e instanceof ApiError) return sendError(res, e);
-      if (e instanceof RangeError) return sendError(res, malformed('request too deeply nested'));
       console.error(e);
       sendError(res, E(500, 'internal_error', 'internal error'));
     }

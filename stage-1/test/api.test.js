@@ -401,3 +401,32 @@ test('awkward input never 5xx (C10)', async () => {
   assert.equal((await call('GET', '/requests/%E0%A4', { token: t.ada })).status, 404);
   err(await post('/requests/%E0%A4/pay', t.ada, {}), 404, 'not_found');
 });
+
+test('import rejects states the service cannot operate on (F1, F2)', async () => {
+  const t = await world();
+  const e = (await get('/_test/export')).json;
+  const mut = (f) => { const c = JSON.parse(JSON.stringify(e)); f(c.state); return c; };
+  const bads = [
+    mut((s) => { s.seq.p = 9007199254740992; }),
+    mut((s) => { s.seq.u = 1e16; }),
+    mut((s) => { s.users[0].pw = 'scrypt$3$8$1$00$00'; }),
+    mut((s) => { s.users[0].pw = 'scrypt$99999999999999999999$8$1$00$00'; }),
+    mut((s) => { s.users[0].pw = 'scrypt$2048$8$1$ab$a'; }),
+    mut((s) => { s.users[0].pw = 'plaintext'; }),
+  ];
+  for (const b of bads) err(await call('POST', '/_test/import', { body: b }), 422, 'validation_failed');
+  assert.equal(await bal(t.ada), 10000);
+  assert.equal((await post('/payments', t.ada, { to_handle: 'bob', amount: 1 })).status, 201);
+});
+
+test('idempotent replay through an escaped path (N3) and deep unknown fields (N4)', async () => {
+  const t = await world({ requests: [{ id: 'rq_1', requester_id: 'u_bob', payer_id: 'u_ada', amount: 5, status: 'pending' }] });
+  const k = key();
+  const a = await call('POST', '/requests/rq_1/pay', { token: t.ada, k, raw: '{}' });
+  assert.equal(a.status, 201);
+  const b = await call('POST', '/requests/rq%5F1/pay', { token: t.ada, k, raw: '{}' });
+  assert.equal(b.status, 200); assert.deepEqual(b.json, a.json);
+  const deep = '['.repeat(50000) + ']'.repeat(50000);
+  const c = await call('POST', '/payments', { token: t.ada, k: key(), raw: '{"to_handle":"bob","amount":1,"x":' + deep + '}' });
+  assert.ok(c.status < 500, c.text);
+});
