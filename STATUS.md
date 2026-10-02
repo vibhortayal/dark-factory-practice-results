@@ -5,8 +5,8 @@ Run started: 2026-10-02T16:47Z (dispatch received by the Architect).
 | Unit | State | Accepted revision | BLOCK verdicts (fix rounds) | Elapsed | Notes |
 |---|---|---|---|---|---|
 | stage-1 | DONE | 77409dda43334b784ca1125d2d990ba51478abf6 | 1 | 0h36 (16:47Z to 17:23Z) | Verifier PASS after one fix round. Final isolated check: `checks/s1-ver-04` (147 passed, `claimed stage: 1`). |
-| stage-2 | BUILDING (fix round 1) | n/a | 1 | 0h43 at 18:06Z (started 17:23Z) | 427730e1c2d1d84edfc66233b81ceab77885c07b BLOCKED by the Verifier (rows T1, Q4). Fix request sent with new row Q11. |
-| stage-3 | PLANNED | n/a | 0 | n/a | |
+| stage-2 | DONE | 88b9223d3e56cd9a668499f3cd5b87575d0ea114 | 1 | 0h53 (17:23Z to 18:16Z) | Verifier PASS after one fix round. Final isolated check: `checks/s2-ver-04` (147 + 35 passed, `claimed stage: 2`). |
+| stage-3 | PLANNED | n/a | 0 | n/a | Acceptance map in preparation. |
 | stage-4 | PLANNED | n/a | 0 | n/a | |
 
 ## Decisions
@@ -43,7 +43,7 @@ Non-blocking notes: (1) a body that is not valid JSON and is nested deeper than 
 Architect's acceptance: stage-1 accepted at 77409dda43334b784ca1125d2d990ba51478abf6. Note 1 is carried into the stage-2 map as a required correction in the copied code; stage-1/ itself is not reopened.
 
 
-### stage-2, verdict 1: BLOCK on 427730e1c2d1d84edfc66233b81ceab77885c07b (18:05Z)
+### stage-2, verdict 1: BLOCK on 427730e1c2d1d84edfc66233b81ceab77885c07b (about 18:00Z; fix request sent 18:00Z)
 
 Blocking finding 1 (rows T1, Q4): the requests screen adds a `<select data-testid="request-pay-visibility">` (stage-2/public/js/screens/requests.js line 27), which is inside the specified family `request-pay-{request_id}`. With a seeded pending request whose id is `visibility`, `[data-testid="request-pay-visibility"]` matches a SELECT and a BUTTON; expected one BUTTON.
 
@@ -56,3 +56,16 @@ Product quality (V1 to V4): meets the specification's direction. Slightly short,
 Non-blocking notes: (1) RUN.md still says "Timestamps: whole seconds"; (2) import accepts a non-boolean `seeded` flag on a payment; (3) `GET /authorizations` lists in insertion order, so seeded entries with their own out-of-order `created_at` are not sorted by it; (4) a capture in the same millisecond as the deadline can be stamped at or after `expires_at` because the sweep and the handler read the clock separately; (5) nothing pruned, fixture leniencies unchanged; (6) browser tests need Playwright on the host. Remaining risk: other browsers, no soak, the held-back checks.
 
 Architect's action: fix request sent with new row Q11 (no added id inside any specified family). Notes 1 to 4 and the three product-quality shortfalls are included in the same fix as required corrections, because 2, 3 and 4 are stated rules (import validity, "newest first by created_at", expiry "at or before now") and the others are cheap.
+
+
+### stage-2, verdict 2: PASS on 88b9223d3e56cd9a668499f3cd5b87575d0ea114 (18:16Z)
+
+Finding confirmed fixed: with a pending incoming request whose id is `visibility`, `[data-testid="request-pay-visibility"]` matches exactly one BUTTON; the widened check (ids `visibility`, `amount`, `keep-open`, `error` on requests, authorisations and payments) passes for row Q11; no test id appears twice.
+
+What the Verifier ran: head equals the revision, stage-1/ unchanged since 77409dda, clean `git archive` copy. Delivery 9 of 9 (clean build, healthy in 0.13 s with and without `PORT`, `--network none`, peak memory 578 MiB of 2 GiB). Harness host `checks/s2-ver-03` and isolated `checks/s2-ver-04`: `stage 1: pass`, `stage 2: pass`, `stage 3: fail`, `claimed stage: 2 on the shipped checks`, 147 + 35 passed, none skipped. Implementer's tests 52/52 and browser tests 24/24. Own HTTP probes 125 of 125 (7,480 requests, no 5xx, slowest API request 2.14 s). Own browser probes 21 of 21. Output band-work/verifier/run-s2-88b9223/ (api-1.txt, ui-1.txt, shots/ with 32 screenshots).
+
+Points checked on request: the frozen clock is taken and released in try/finally around the synchronous part only, timestamps advance across success, 404, over-cap 422, failed login and a new hold, no capture stamped at or after its hold's `expires_at`, full concurrency/idempotency/expiry lists pass at 50 in flight on all seven paths; ordering by stored `created_at` with mixed precisions and a `+02:00` offset, paging and `has_more`; typed import rejects all 100 tampered leaves with no 5xx, unchanged stage-1 and stage-2 exports import twice each; feed rows stack at 375 px, "On hold" marker replaced, no horizontal scroll at 375/768/1280, contrast >= 4.5:1; loading indicators visible on `/`, `/requests`, `/authorizations`; lost-response retry, latest-refresh-wins, upgrade without reload (also against a real stage-1 service) and the stage boundary re-run and passing.
+
+Non-blocking notes: (1) the first-load state is a bare page with a spinner and one line, plainer than the rest; (2) every list read copies and sorts the whole collection (milliseconds at 200 payments and 200 requests, not measured beyond); (3) the frozen instant is process-wide module state, safe only while the synchronous part never yields (enforced by the finally and the synchronous-handler guard); (4) nothing pruned, fixture leniencies unchanged, browser tests need Playwright on the host. Remaining risk: other browsers, no soak, the held-back checks.
+
+Architect's acceptance: stage-2 accepted at 88b9223d3e56cd9a668499f3cd5b87575d0ea114.
