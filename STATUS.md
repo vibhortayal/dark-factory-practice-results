@@ -6,8 +6,8 @@ Run started: 2026-10-02T21:11Z (dispatch). Track: pocketful.
 |---|---|---|---|---|---|
 | stage-1 | DONE | d02b8f6b1eb8e0511b9a7e07f0bb02342d8b5a47 | 2 | 0h42 (21:11-21:53Z) | PASS by Verifier on d02b8f6 (`verification/stage-1/VERDICT-round-3.md` at 1b197a6). Supplied checks, isolated (`../checks/s1-ver-03`): stage 1 pass 147/147, stage-2 overshoot fails, `claimed stage: 1`. Verifier's own list 94/94 plus fresh-container import; Implementer's tests 55 OK. BLOCK #1 on 03b5470 (B1-B4), BLOCK #2 on 38f2970 (B5), all fixed. See notes below. |
 | stage-2 | DONE | 93f0fbd4e6e0aa2bf5447b080bb99a619542fdaf | 1 | 0h45 (21:53-22:38Z) | PASS by Verifier on 93f0fbd (`verification/stage-2/VERDICT-round-2.md` at 2a99ea0). Supplied checks, isolated (`../checks/s2-ver-02`): stage 1 pass 147/147, stage 2 pass 35/35, stage-3 overshoot fails, `claimed stage: 2`. Verifier's lists: API 113/113, browser 22/22 (375 and 1280 px, incl. upgrade from the stage-1 container), probes 95/95 and 17/17; 20,000 authorizations with exact lifetimes. Implementer's tests 88 OK. BLOCK #1 on 1e2214f (B1 expires_at one second short) fixed via map row K6. |
-| stage-3 | BUILDING (fix round 1) | - | 1 | started 22:40Z | BLOCK #1 on 0f569d9b19e0c5e8cb69fb30150c8ed6eea9c9c0 (`verification/stage-3/VERDICT.md` at d711434): B1 seeded `expired` hold with future `expires_at` counted as held in historical views, causing false `historical_overdraft`. Supplied checks isolated (`../checks/s3-ver-01`): stages 1/2/3 pass 147/35/6, stage-4 overshoot fails, claimed stage 3. Verifier's list: API 127/127, browser 22 (one unreproduced cold-start timeout), probes 11/12. Routed to Implementer with map row V7 clarified. |
-| stage-4 | PLANNED | - | 0 | - | |
+| stage-3 | DONE | cfff6f7b46744123d0e1a59fd3983e815518fbfb | 1 | 0h32 (22:40-23:12Z) | PASS by Verifier on cfff6f7 (`verification/stage-3/VERDICT-round-2.md` at 3a56a43). Supplied checks, isolated (`../checks/s3-ver-02`): stages 1/2/3 pass 147/35/6, stage-4 overshoot fails, `claimed stage: 3`. Verifier's lists: API 129/129, browser 22/22 incl. upgrade. Implementer's tests 127 OK. BLOCK #1 on 0f569d9 (seeded expired hold with future expires_at counted as held) fixed after map row V7 was clarified. |
+| stage-4 | BUILDING | - | 0 | started 23:13Z | Handoff sent to Implementer and Verifier; map: `acceptance/stage-4.md` |
 
 ## Decisions
 
@@ -35,3 +35,12 @@ Run started: 2026-10-02T21:11Z (dispatch). Track: pocketful.
 - N8 (maintainability): one clock module and one entry point (`operation.begin`); every locked handler must call it by convention, not enforced; RUN.md names both.
 - N9: scrypt cost unchanged (N=4096, r=8, p=1).
 - Remaining risk: hidden tests larger than the shipped set; the hidden upgrade check's mechanism for moving a signed-in browser is unknown (request interception per row L5 was used); timestamps now have six fractional digits (valid RFC 3339, but a hidden check comparing whole-second strings would fail); visual quality judged from Chromium screenshots; latency measured on the same host.
+
+## Stage 3 - Verifier's notes on the accepted revision (non-blocking, copied from the PASS verdict)
+
+- N1: every Architect [reading] row checked is met, V7 as changed included.
+- N3: every first statement read stores a snapshot until reset (2,000 reads: 1.7 s, export 0.47 MB); no bound other than reset.
+- N5 (maintainability): one history module serves `/me?as_of`, `/statement` and the overdraft check; the closed-hold decision sits in `holds.release_time`; `fixture.py` (219 lines) and `statecheck.py` (176 lines) are the largest modules.
+- N6: scrypt cost unchanged (N=4096, r=8, p=1).
+- A single cold-start timeout of the first browser page load was seen once in round 1 and not reproduced; it did not occur in round 2.
+- Remaining risk: hidden tests larger than the shipped set and many view combinations untested beyond the named boundaries; hidden upgrade-check mechanism unknown; latency measured on the same host.
