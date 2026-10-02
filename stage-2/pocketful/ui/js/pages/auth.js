@@ -1,7 +1,7 @@
 // `/login` and `/signup`.
-import { call, describe, setToken } from '../api.js';
+import { call, describe } from '../api.js';
 import { field, h, replace, tid } from '../dom.js';
-import { app, loadMe, signIn } from '../session.js';
+import { app, signIn } from '../session.js';
 
 function authForm({ prefix, title, intro, fields, button, alt, run }) {
   const messages = h('div', { class: 'messages', 'aria-live': 'polite' });
@@ -32,8 +32,7 @@ function authForm({ prefix, title, intro, fields, button, alt, run }) {
 async function finishSignIn(result, wrong) {
   if (result.kind === 'ok') {
     signIn(result.data);
-    await loadMe();
-    app.navigate('/', { replace: true });
+    app.navigate('/', { replace: true });   // the screen loads /me itself
     return null;
   }
   if (result.kind === 'refused') return result.code === 'unauthenticated' ? wrong : describe(result);

@@ -25,7 +25,10 @@ def server_port():
 class Resp:
     def __init__(self, status, headers, raw):
         self.status, self.headers, self.raw = status, headers, raw
-        self.json = json.loads(raw) if raw else None
+        try:
+            self.json = json.loads(raw) if raw else None
+        except ValueError:  # HTML and other non-JSON bodies
+            self.json = None
 
     @property
     def code(self):

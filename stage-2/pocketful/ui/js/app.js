@@ -55,8 +55,8 @@ window.addEventListener('popstate', show);
 
 setUnauthorizedHandler(() => {
   if (!isSignedIn()) return;
-  signOut();
-  app.navigate('/login', { replace: true });
+  signOut();   // the header updates itself; only a private screen has to move
+  if (ROUTES[current] && ROUTES[current].private) app.navigate('/login', { replace: true });
 });
 
 onChange(() => renderHeader(header, current));
