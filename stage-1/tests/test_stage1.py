@@ -3,6 +3,7 @@
 Run against a live container:  BASE_URL=http://127.0.0.1:8080 python3 tests/test_stage1.py
 Standard library only. BASE_URL2 (optional) is a second fresh container for the export/import test.
 """
+import sys
 import http.client
 import json
 import os
@@ -13,6 +14,7 @@ import unittest
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlsplit
 
+sys.set_int_max_str_digits(0)
 BASE = os.environ.get("BASE_URL", "http://127.0.0.1:8080")
 BASE2 = os.environ.get("BASE_URL2")
 TS_RE = re.compile(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?(Z|[+-]\d\d:\d\d)$")
@@ -917,6 +919,195 @@ class TestHardening(Base):
         except (ConnectionError, OSError):
             pass
         self.assertEqual(call("GET", "/health")[0], 200)
+
+
+class TestRound2(Base):
+    HUGE = ("1e99999999999999999999", "1e-99999999999999999999", "0e99999999999999999999", "1E+1000000000000000000")
+
+    def test_huge_exponents(self):
+        for lit in self.HUGE:
+            for path, body in (("/payments", '{"to_handle":"bob","amount":%s}'), ("/requests", '{"payer_handle":"bob","amount":%s}')):
+                r = call("POST", path, raw=(body % lit).encode(), token=self.ada, key=nk())
+                self.assertIn(r[0], (201, 422), (lit, r))
+            r = call("POST", "/payments", raw=('{"to_handle":"bob","amount":5,"x":%s}' % lit).encode(), token=self.ada, key=nk())
+            self.assertEqual(r[0], 201)
+            self.assertLess(call("POST", "/auth/login", raw=('{"email":"ada@example.com","password":"x","y":%s}' % lit).encode())[0], 500)
+            self.assertLess(call("POST", "/auth/signup", raw=('{"email":"q@x.io","password":"longenough1","display_name":"d","y":%s}' % lit).encode())[0], 500)
+            self.assertEqual(call("POST", "/_test/reset", raw=json.dumps(fixture()).replace("}]", ',"z":%s}]' % lit).encode())[0], 204)
+            self.assertLess(call("POST", "/_test/import", raw=('{"track":"pocketful","format_version":1,"state":{},"y":%s}' % lit).encode())[0], 500)
+            self.ada, self.bob = login("ada"), login("bob")
+
+    def test_decimal_replay_after_import(self):
+        reset(fixture())
+        ada, bob = login("ada"), login("bob")
+        cases = [("/payments", {"to_handle": "bob", "amount": 5}, ada), ("/requests", {"payer_handle": "ada", "amount": 5}, bob),
+                 ("/splits", {"amount": 9, "participant_handles": ["ada", "bob"]}, ada)]
+        keys = []
+        for path, b, t in cases:
+            raw = json.dumps(b)[:-1] + ',"lat":52.52,"big":1e99999999999999999999}'
+            k = nk()
+            self.assertEqual(call("POST", path, raw=raw.encode(), token=t, key=k)[0], 201)
+            keys.append((path, raw, t, k))
+        ex = call("GET", "/_test/export")[1]
+        self.assertEqual(call("POST", "/_test/import", ex)[0], 204)
+        for path, raw, t, k in keys:
+            self.assertEqual(call("POST", path, raw=raw.encode(), token=t, key=k)[0], 200, path)
+            # same value, other spelling, still a replay (D-7)
+            self.assertEqual(call("POST", path, raw=raw.replace("52.52", "52.520").encode(), token=t, key=k)[0], 200, path)
+            self.assertEqual(call("POST", path, raw=raw.replace("52.52", "52.53").encode(), token=t, key=k)[0], 409, path)
+
+    def test_deep_export_import(self):
+        for depth in (850, 898, 900):
+            reset(fixture())
+            ada = login("ada")
+            body = b'{"to_handle":"bob","amount":1,"x":' + b"[" * depth + b"]" * depth + b"}"
+            k = nk()
+            self.assertEqual(call("POST", "/payments", raw=body, token=ada, key=k)[0], 201)
+            ex = call("GET", "/_test/export")[1]
+            self.assertEqual(call("POST", "/_test/import", ex)[0], 204, depth)
+            self.assertEqual(call("POST", "/payments", raw=body, token=ada, key=k)[0], 200)
+
+    def test_control_chars_email(self):
+        for e in ("ctl\x00@example.com", "a\x7fb@exa\x01mple.com", "a\x85b@x.io", "a\tb@x.io"):
+            r = call("POST", "/auth/signup", {"email": e, "password": "longenough1", "display_name": "x"})
+            err(r, 422, "validation_failed")
+        self.assertEqual(call("POST", "/auth/signup", {"email": "ok@x.io", "password": "longenough1", "display_name": "x"})[0], 201)
+
+    def test_zero_padded_query(self):
+        self.assertEqual(call("GET", "/activity?limit=" + "0" * 29 + "1", token=self.ada)[0], 200)
+        self.assertEqual(call("GET", "/activity?limit=" + "0" * 40 + "5", token=self.ada)[0], 200)
+        err(call("GET", "/activity?limit=" + "0" * 40 + "0", token=self.ada), 422, "validation_failed")
+        err(call("GET", "/activity?limit=1" + "0" * 40, token=self.ada), 422, "validation_failed")
+
+
+def expected_valid_int(lit, lo, hi):
+    """Exact value of a JSON number literal (test oracle using Fraction)."""
+    from fractions import Fraction
+    m = re.fullmatch(r"(-?)(\d+)(?:\.(\d+))?(?:[eE]([+-]?\d+))?", lit)
+    sign, ip, fp, ex = m.groups()
+    if int(ip + (fp or "") or "0") == 0:
+        return lo <= 0 <= hi
+    if ex is not None and abs(int(ex)) > 2000:
+        return False
+    v = Fraction(int(ip + (fp or ""))) * Fraction(10) ** (int(ex or 0) - len(fp or ""))
+    if sign:
+        v = -v
+    return v.denominator == 1 and lo <= v <= hi
+
+
+def number_literals():
+    import random
+    rnd = random.Random(7)
+    out = ["0", "-0", "0.0", "1", "1.0", "1e0", "1e3", "1E3", "1e+3", "10e-1", "0.001e3", "1000000000", "1000000000.0",
+           "1e9", "1000000001", "0.99999999999999999999", "1.00000000000000000001", "1e-400", "1e400",
+           "1e99999999999999999999", "0e5000", "1e5000", "1e-5000", "-1", "-1e3", "1.5", "9" * 4301, "1" + "0" * 5000,
+           "1." + "0" * 5000, "0." + "0" * 5000 + "1", "1e" + "9" * 5000, "0e" + "9" * 5000, "5e-" + "9" * 400]
+    for _ in range(120):
+        sign = rnd.choice(["", "", "-"])
+        ip = str(rnd.choice([0, 1, 5, 12345, 10 ** rnd.randint(0, 25)]))
+        fp = rnd.choice(["", "", ".0", "." + "0" * rnd.randint(1, 30), "." + str(rnd.randint(0, 99999))])
+        ex = rnd.choice(["", "", "e0", "e1", "e3", "e-3", "e+2", "E2", "e18", "e19", "e20", "e-18", "e-19", "e400",
+                         "e-400", "e5000", "e" + "9" * rnd.randint(1, 60)])
+        out.append(sign + ip + fp + ex)
+    return out
+
+
+class TestNumberFuzz(unittest.TestCase):
+    def test_amount_and_ignored(self):
+        reset(fixture(users=[user("ada", 10 ** 15), user("bob", 0)]))
+        ada = login("ada")
+        for lit in number_literals():
+            ok = expected_valid_int(lit, 1, 10 ** 9)
+            r = call("POST", "/payments", raw=('{"to_handle":"bob","amount":%s}' % lit).encode(), token=ada, key=nk())
+            self.assertEqual(r[0], 201 if ok else 422, lit[:40])
+            r = call("POST", "/requests", raw=('{"payer_handle":"bob","amount":%s}' % lit).encode(), token=ada, key=nk())
+            self.assertEqual(r[0], 201 if ok else 422, lit[:40])
+            r = call("POST", "/splits", raw=('{"participant_handles":["bob"],"amount":%s}' % lit).encode(), token=ada, key=nk())
+            self.assertEqual(r[0], 201 if ok else 422, lit[:40])
+            k = nk()
+            raw = ('{"to_handle":"bob","amount":1,"x":[%s],"y":{"z":%s}}' % (lit, lit)).encode()
+            self.assertEqual(call("POST", "/payments", raw=raw, token=ada, key=k)[0], 201, lit[:40])
+            self.assertEqual(call("POST", "/payments", raw=raw, token=ada, key=k)[0], 200, lit[:40])
+            for path, body in (("/auth/login", '{"email":"ada@example.com","password":"correct horse","x":%s}'),
+                               ("/auth/signup", '{"email":"nn%d@x.io","password":"longenough1","display_name":"d","x":%%s}' % (_n[0]))):
+                r = call("POST", path, raw=(body % lit).encode())
+                self.assertIn(r[0], (200, 201, 409), lit[:40])
+
+    def test_fixture_and_import(self):
+        for lit in number_literals():
+            ok = expected_valid_int(lit, 0, 2 ** 53)
+            raw = json.dumps(fixture()).replace('"balance": 10000', '"balance": %s' % lit).encode()
+            r = call("POST", "/_test/reset", raw=raw)
+            self.assertEqual(r[0], 204 if ok else 422, lit[:40])
+            raw = json.dumps(fixture(payments=[{"id": "p1", "from_user_id": "u_ada", "to_user_id": "u_bob",
+                                                "amount": 0, "note": "", "visibility": "public"}])).replace('"amount": 0', '"amount": %s' % lit).encode()
+            self.assertEqual(call("POST", "/_test/reset", raw=raw)[0], 204 if ok else 422, lit[:40])
+            raw = json.dumps(fixture(requests=[{"id": "r1", "requester_id": "u_ada", "payer_id": "u_bob",
+                                                "amount": 0, "status": "pending"}])).replace('"amount": 0', '"amount": %s' % lit).encode()
+            self.assertEqual(call("POST", "/_test/reset", raw=raw)[0], 204 if ok else 422, lit[:40])
+            raw = json.dumps(fixture()).replace('"note"', '"zz"').replace("}]", ',"q":%s}]' % lit).encode()
+            self.assertEqual(call("POST", "/_test/reset", raw=raw)[0], 204, lit[:40])
+        reset(fixture())
+        ada = login("ada")
+        for lit in number_literals():
+            for q in ("limit", "offset"):
+                r = call("GET", "/activity?%s=%s" % (q, lit.replace("+", "%2B")), token=ada)
+                if re.fullmatch(r"[0-9]+", lit):
+                    lo = 1 if q == "limit" else 0
+                    hi = 200 if q == "limit" else 10 ** 400
+                    good = lo <= int(lit) <= hi if len(lit) < 400 else (q == "offset")
+                    self.assertEqual(r[0], 200 if good else 422, (q, lit[:40]))
+                else:
+                    self.assertEqual(r[0], 422, (q, lit[:40]))
+
+
+class TestClosure(unittest.TestCase):
+    def test_odd_corpus_export_import(self):
+        reset(fixture(users=[user("ada", 10 ** 12), user("bob", 10 ** 12), user("cy", 10 ** 12), user("op", 0)],
+                      settlement_operator_ids=["u_op"]))
+        t = {h: login(h) for h in ("ada", "bob", "cy", "op")}
+        calls = []  # (path, raw, token, key)
+
+        def do(path, body, tok, key=None, raw=None):
+            k = key or nk()
+            raw = raw if raw is not None else json.dumps(body).encode()
+            r = call("POST", path, raw=raw, token=tok, key=k)
+            self.assertEqual(r[0], 201, (path, r))
+            calls.append((path, raw, tok, k))
+            return r[1]
+        for depth in (1, 400, 898, 900):
+            do("/payments", None, t["ada"], raw=b'{"to_handle":"bob","amount":1,"d":' + b"[" * depth + b"]" * depth + b"}")
+        for lit in ("1e99999999999999999999", "52.52", "1.50", "0e5000", "9" * 4301, '{"$num":"5"}'):
+            do("/payments", None, t["ada"], raw=('{"to_handle":"bob","amount":2,"x":%s}' % lit).encode())
+        do("/payments", {"to_handle": "cy", "amount": 3, "note": "\U0001F600" * 200, "visibility": "private"}, t["ada"])
+        do("/payments", {"to_handle": "cy", "amount": 3}, t["ada"], key="k" * 255)
+        sp = do("/splits", {"amount": 1, "participant_handles": ["ada", "bob", "cy"], "note": "zero"}, t["ada"])
+        for r in sp["requests"]:
+            tok = t[r["payer_handle"]]
+            calls.append(("/requests/%s/pay" % r["request_id"], b"{}", tok, nk()))
+            self.assertEqual(call("POST", calls[-1][0], raw=b"{}", token=tok, key=calls[-1][3])[0], 201)
+        rq = do("/requests", {"payer_handle": "ada", "amount": 7}, t["bob"])
+        calls.append(("/requests/%s/pay" % rq["request_id"], b'{"visibility":"private"}', t["ada"], nk()))
+        self.assertEqual(call("POST", calls[-1][0], raw=calls[-1][1], token=t["ada"], key=calls[-1][3])[0], 201)
+        do("/settlements", {"transfers": [{"from_handle": "ada", "to_handle": "bob", "amount": i + 1, "note": "n%d" % i,
+                                           "visibility": "private" if i % 2 else "public", "q": 1.25} for i in range(32)]}, t["op"])
+        snap = lambda base: {h: [call("GET", "/me", token=tok, base=base)[1],
+                                 call("GET", "/activity?limit=200", token=tok, base=base)[1],
+                                 call("GET", "/requests?limit=200", token=tok, base=base)[1]] for h, tok in t.items()}
+        before = snap(None)
+        ex = call("GET", "/_test/export")[1]
+        targets = [None] + ([BASE2] if BASE2 else [])
+        for base in targets:
+            if base is None:
+                reset(fixture())
+            self.assertEqual(call("POST", "/_test/import", ex, base=base)[0], 204)
+            self.assertEqual(snap(base), before)
+            for path, raw, tok, k in calls:
+                r = call("POST", path, raw=raw, token=tok, key=k, base=base)
+                self.assertEqual(r[0], 200, (path, r))
+            self.assertEqual(snap(base), before)
+            self.assertEqual(call("GET", "/_test/export", base=base)[1]["state"]["idempotency"],
+                             ex["state"]["idempotency"])
 
 
 class TestFuzz(Base):

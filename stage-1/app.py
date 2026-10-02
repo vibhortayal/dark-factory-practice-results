@@ -13,16 +13,15 @@ import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
-from decimal import Decimal
+import unicodedata
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qsl, unquote, urlsplit
 
 MAX_AMOUNT = 1_000_000_000
 MAX_BALANCE = 2 ** 53
 HANDLE_RE = re.compile(r"[a-z0-9_]{1,20}")
-EMAIL_RE = re.compile(r"[^\s@]+@[^\s@]+")
 TS_RE = re.compile(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?(Z|[+-]\d\d:\d\d)")
-MAX_DEPTH = 900
+MAX_DEPTH = 901  # object + 900 nested arrays
 sys.setrecursionlimit(3000)
 DIGITS_RE = re.compile(r"[0-9]+")
 STATUSES = ("pending", "paid", "declined", "cancelled")
@@ -79,33 +78,50 @@ def is_int(v):
     return isinstance(v, int) and not isinstance(v, bool)
 
 
-def _big_default(o):
-    if isinstance(o, BigNum):
-        return {"$num": o.text}
-    raise TypeError("not serializable")
-
-
 class BigNum:
-    """A JSON number that is not a small exact integer (kept as its source text)."""
+    """A JSON number that is not a small exact integer, kept as a canonical text."""
     def __init__(self, text):
         self.text = text
 
 
-def _num(text):
-    return Decimal(text)
+NUM_RE = re.compile(r"(-?)([0-9]+)(?:\.([0-9]+))?(?:[eE]([+-]?)([0-9]+))?")
 
 
-def normalize(v, depth=0):
-    if depth > MAX_DEPTH:
-        raise malformed("body nested too deeply")
-    if isinstance(v, Decimal):
-        if v.is_finite() and v.adjusted() <= 30 and v.adjusted() > -400 and v == int(v):
-            return int(v)
-        return BigNum(str(v))
-    if isinstance(v, dict):
-        return {k: normalize(x, depth + 1) for k, x in v.items()}
-    if isinstance(v, list):
-        return [normalize(x, depth + 1) for x in v]
+def lex_number(text):
+    """Classify a JSON number literal lexically (no arithmetic on unbounded digit strings).
+
+    Returns an exact int when the value is an integer of at most 30 digits,
+    otherwise a BigNum whose text is a canonical form (equal values share a text).
+    """
+    m = NUM_RE.fullmatch(text)
+    if m is None:
+        return BigNum("?" + text)
+    sign, ip, fp, esign, ed = m.groups()
+    digits = (ip + (fp or "")).lstrip("0")
+    if not digits:
+        return 0
+    frac_len = len(fp or "")
+    stripped = digits.rstrip("0")
+    adjust = (len(digits) - len(stripped)) - frac_len  # exponent contribution of the mantissa
+    ed = (ed or "0").lstrip("0") or "0"
+    if len(ed) <= 12:
+        e = (-int(ed) if esign == "-" else int(ed)) + adjust
+        if e >= 0 and len(stripped) + e <= 30:
+            v = int(stripped) * 10 ** e
+            return -v if sign else v
+        return BigNum("%s%se%d" % (sign, stripped, e))
+    return BigNum("%s%se%s%sH%d" % (sign, stripped, esign or "+", ed, adjust))
+
+
+def check_depth(v):
+    """Reject bodies nested deeper than MAX_DEPTH (iterative)."""
+    stack = [(v, 1)]
+    while stack:
+        x, d = stack.pop()
+        if isinstance(x, (dict, list)):
+            if d > MAX_DEPTH:
+                raise malformed("body nested too deeply")
+            stack.extend((c, d + 1) for c in (x.values() if isinstance(x, dict) else x))
     return v
 
 
@@ -119,9 +135,6 @@ def json_eq(a, b):
                 return False
         elif isinstance(a, BigNum) or isinstance(b, BigNum):
             if not (isinstance(a, BigNum) and isinstance(b, BigNum) and a.text == b.text):
-                return False
-        elif isinstance(a, (int, float)) and isinstance(b, (int, float)):
-            if a != b:
                 return False
         elif isinstance(a, dict) and isinstance(b, dict):
             if a.keys() != b.keys():
@@ -142,8 +155,8 @@ def _bad_constant(name):
 
 def parse_json(raw):
     try:
-        return normalize(json.loads(raw.decode("utf-8"), parse_constant=_bad_constant,
-                                    parse_int=_num, parse_float=_num))
+        return check_depth(json.loads(raw.decode("utf-8"), parse_constant=_bad_constant,
+                                      parse_int=lex_number, parse_float=lex_number))
     except (ValueError, RecursionError, UnicodeDecodeError):
         raise malformed("body is not valid JSON")
 
@@ -200,6 +213,7 @@ def parse_int_param(q, name, default, lo):
     s = q[name]
     if not DIGITS_RE.fullmatch(s):
         raise invalid("%s must be plain decimal digits" % name)
+    s = s.lstrip("0") or "0"
     v = int(s) if len(s) <= 30 else 10 ** 30
     if v < lo:
         raise invalid("%s out of range" % name)
@@ -248,10 +262,11 @@ class Store:
             "users": list(self.users.values()), "tokens": self.tokens,
             "payments": self.payments, "requests": self.requests,
             "splits": self.splits, "settlements": self.settlements,
-            "idempotency": list(self.idem.values()), "operators": self.operators,
+            "idempotency": [{k: v for k, v in e.items() if k != "body"} for e in self.idem.values()],
+            "operators": self.operators,
             "counters": self.counters,
         }
-        return json.loads(json.dumps(st, default=_big_default))  # deep, atomic copy (caller holds the lock)
+        return json.loads(json.dumps(st))  # deep, atomic copy (caller holds the lock)
 
     def new_id(self, prefix, taken):
         while True:
@@ -312,8 +327,15 @@ def _str(v, maxlen=None, nonempty=True):
     return v
 
 
+_BAD_EMAIL_CATS = ("Cc", "Cf", "Zs", "Zl", "Zp", "Cs", "Co", "Cn")
+
+
 def _email_ok(e):
-    return isinstance(e, str) and e.count("@") == 1 and EMAIL_RE.fullmatch(e) is not None
+    if not isinstance(e, str) or e.count("@") != 1:
+        return False
+    local, domain = e.split("@")
+    return bool(local) and bool(domain) and not any(
+        unicodedata.category(c) in _BAD_EMAIL_CATS for c in e)
 
 
 def _ref(v, ids):
@@ -531,14 +553,20 @@ def _validate_state(st):
     for e in st["idempotency"]:
         if not (_ref(e["user_id"], ids) and isinstance(e["method"], str)
                 and isinstance(e["path"], str) and isinstance(e["key"], str)
-                and 1 <= len(e["key"]) <= 255 and e["status"] == 201 and isinstance(e["response"], dict)):
+                and 1 <= len(e["key"]) <= 255 and e["status"] == 201 and isinstance(e["response"], dict)
+                and isinstance(e["body_raw"], str)):
             raise invalid("bad idempotency record")
+        try:
+            parsed_body = parse_json(e["body_raw"].encode("utf-8"))
+        except ApiError:
+            raise invalid("bad idempotency body")
         k = (e["user_id"], e["method"], e["path"], e["key"])
         if k in seen:
             raise invalid("duplicate idempotency record")
         seen.add(k)
         idem.append({"user_id": e["user_id"], "method": e["method"], "path": e["path"],
-                     "key": e["key"], "body": e["body"], "status": 201, "response": e["response"]})
+                     "key": e["key"], "body": parsed_body, "body_raw": e["body_raw"], "status": 201,
+                     "response": e["response"]})
     ops = st["operators"]
     if not isinstance(ops, list) or any(not isinstance(o, str) or o not in ids for o in ops):
         raise invalid("bad operators")
@@ -580,7 +608,7 @@ def idempotent(user, method, path, headers, raw, fn, allow_empty=False):
         raise ApiError(409, "idempotency_key_reuse", "key already used with a different body")
     status, resp = fn(body)
     S.idem[k] = {"user_id": user["id"], "method": method, "path": path, "key": key,
-                 "body": body, "status": 201, "response": json.loads(json.dumps(resp))}
+                 "body": body, "body_raw": raw.decode("utf-8") if raw.strip() else "{}", "status": 201, "response": json.loads(json.dumps(resp))}
     return 201, resp
 
 
