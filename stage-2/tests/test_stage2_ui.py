@@ -1037,6 +1037,246 @@ class UI(unittest.TestCase):
         page.wait_for_selector(sel("pay-submit"), timeout=6000)
         page.close()
 
+    # ------------------------------------------------ ordering of reads (latest wins), every trigger pair
+    class Hold:
+        """Withhold the answers of GET reads of some paths (fetched at once, delivered on demand)."""
+        def __init__(self, page, paths):
+            self.held, self.on = [], True
+            self.paths = paths
+
+            def handler(route):
+                req = route.request
+                if self.on and req.resource_type in ("fetch", "xhr") and req.method == "GET" and urlsplit(req.url).path in self.paths:
+                    try:
+                        self.held.append((route, route.fetch()))
+                    except Exception:
+                        pass
+                    return
+                route.continue_()
+            page.route("**/*", handler)
+
+        def stop(self):
+            self.on = False
+
+        def deliver(self, mode):
+            for route, resp in self.held:
+                try:
+                    if mode == "ok":
+                        route.fulfill(response=resp)
+                    elif mode == "500":
+                        route.fulfill(status=500, body="boom")
+                    else:
+                        route.abort()
+                except Exception:
+                    pass
+            self.held = []
+
+    def new_page(self, width):
+        ctx = self.browser.new_context(base_url=BASE, viewport={"width": width, "height": 900})
+        page = ctx.new_page()
+        self.watch(page)
+        return ctx, page
+
+    def expect_wallet(self, page, token):
+        me = call("GET", "/me", token=token)[1]
+        page.wait_for_selector("%s[data-amount='%d']" % (sel("wallet-balance"), me["total"]), timeout=5000)
+        self.assertEqual(self.text("wallet-balance", page), money(me["total"]))
+        self.assertEqual(page.get_attribute(sel("wallet-available"), "data-amount"), str(me["available"]))
+        self.assertEqual(self.text("wallet-available", page), money(me["available"]))
+        if me["held"]:
+            self.assertEqual(page.get_attribute(sel("wallet-held"), "data-amount"), str(me["held"]))
+            self.assertEqual(self.text("wallet-held", page), money(me["held"]))
+        else:
+            self.assertIsNone(page.query_selector(sel("wallet-held")))
+        return me
+
+    def test_stale_reads_never_overwrite_newer_state_home(self):
+        """Every ordered pair of triggers on `/`, withheld answer delivered as success, 500 and abort, at both widths."""
+        for width in (375, 1280):
+            for first in ("load", "click", "pay"):
+                for second in ("click", "pay", "retry"):
+                    for mode in ("ok", "500", "abort"):
+                        label = (width, first, second, mode)
+                        with self.subTest(label=label):
+                            self.home_pair(width, first, second, mode)
+
+    def home_pair(self, width, first, second, mode):
+        reset(seed())
+        ctx, page = self.new_page(width)
+        tok = self.token("ada")
+        self.login("ada", page)
+        paths = {"/me", "/activity"}
+        n = [0]
+        if first == "load":
+            hold = self.Hold(page, paths)
+            page.goto("/")
+            page.wait_for_selector(sel("wallet-refresh"))
+        else:
+            page.goto("/")
+            page.wait_for_selector(sel("wallet-available"))
+            page.wait_for_selector(sel("empty-activity"))
+            hold = self.Hold(page, paths)
+            hold.on = False
+            if first == "click":
+                hold.on = True
+                page.click(sel("wallet-refresh"))
+            else:
+                page.fill(sel("pay-handle"), "cy")
+                page.fill(sel("pay-amount"), "1.00")
+                hold.on = True
+                page.click(sel("pay-submit"))
+        page.wait_for_timeout(300)
+        hold.stop()
+        # another client changes the state: a payment out and a new hold
+        call("POST", "/payments", {"to_handle": "bob", "amount": 2500}, tok, nk())
+        call("POST", "/authorizations", {"to_handle": "bob", "amount": 1000}, tok, nk())
+        if second == "retry":
+            # make the feed fail once, then use its retry control
+            fail_once = {"n": 0}
+
+            def failing(route):
+                if urlsplit(route.request.url).path == "/activity" and fail_once["n"] == 0 and route.request.resource_type in ("fetch", "xhr"):
+                    fail_once["n"] += 1
+                    return route.fulfill(status=500, body="boom")
+                route.continue_()
+            page.route("**/activity*", failing)
+            page.click(sel("wallet-refresh"))
+            page.wait_for_selector("main .msg.error button")
+            page.click("main .msg.error button")
+        elif second == "click":
+            page.click(sel("wallet-refresh"))
+        else:
+            page.fill(sel("pay-handle"), "cy")
+            page.fill(sel("pay-amount"), "2.00")
+            page.click(sel("pay-submit"))
+            page.wait_for_selector(sel("pay-success"))
+        me = self.expect_wallet(page, tok)
+        feed_ids = {x["payment_id"] for x in call("GET", "/activity", token=tok)[1]["payments"]}
+        page.wait_for_function("n => document.querySelectorAll(\"[data-testid^='activity-item-']\").length === n", arg=len(feed_ids), timeout=5000)
+        hold.deliver(mode)
+        page.wait_for_timeout(700)
+        self.expect_wallet(page, tok)
+        shown = set(page.eval_on_selector_all("[data-testid^='activity-item-']", "els => els.map(e => e.getAttribute('data-testid').slice(14))"))
+        self.assertEqual(shown, feed_ids)
+        self.assertIsNone(page.query_selector("main .msg.error"))
+        ctx.close()
+
+    def test_stale_reads_never_overwrite_newer_state_requests(self):
+        for width in (375, 1280):
+            for first in ("load", "action"):
+                for second in ("action", "retry"):
+                    for mode in ("ok", "500", "abort"):
+                        with self.subTest(label=(width, first, second, mode)):
+                            self.requests_pair(width, first, second, mode)
+
+    def requests_pair(self, width, first, second, mode):
+        reset(seed())
+        ada, bob = self.token("ada"), self.token("bob")
+        r1 = call("POST", "/requests", {"payer_handle": "ada", "amount": 100}, bob, nk())[1]["request_id"]
+        r2 = call("POST", "/requests", {"payer_handle": "ada", "amount": 200}, bob, nk())[1]["request_id"]
+        ctx, page = self.new_page(width)
+        self.login("ada", page)
+        paths = {"/requests"}
+        if first == "load":
+            hold = self.Hold(page, paths)
+            page.goto("/requests")
+            page.wait_for_selector(sel("incoming-list"), state="attached")
+        else:
+            page.goto("/requests")
+            page.wait_for_selector(sel("request-item-" + r1))
+            hold = self.Hold(page, paths)
+            page.click(sel("request-decline-" + r1))
+        page.wait_for_timeout(300)
+        hold.stop()
+        r3 = call("POST", "/requests", {"payer_handle": "ada", "amount": 300}, bob, nk())[1]["request_id"]
+        call("POST", "/requests/%s/cancel" % r2, None, bob)
+        if second == "retry":
+            fail_once = {"n": 0}
+
+            def failing(route):
+                if urlsplit(route.request.url).path == "/requests" and fail_once["n"] == 0 and route.request.resource_type in ("fetch", "xhr"):
+                    fail_once["n"] += 1
+                    return route.fulfill(status=500, body="boom")
+                route.continue_()
+            page.route("**/requests*", failing)
+            page.reload()
+            page.wait_for_selector("main .msg.error button")
+            page.click("main .msg.error button")
+        else:
+            page.goto("/requests") if first == "load" and False else None
+            btn = page.query_selector(sel("request-decline-" + r3))
+            if btn is None:
+                page.reload()
+                page.wait_for_selector(sel("request-decline-" + r3))
+                btn = page.query_selector(sel("request-decline-" + r3))
+            page.click(sel("request-decline-" + r3))
+            page.wait_for_selector("%s[data-status='declined']" % sel("request-item-" + r3))
+        mine = call("GET", "/requests?direction=incoming", token=ada)[1]["requests"]
+        want = {x["request_id"]: x["status"] for x in mine}
+        page.wait_for_function("n => document.querySelectorAll(\"[data-testid^='request-item-']\").length === n", arg=len(want), timeout=5000)
+        hold.deliver(mode)
+        page.wait_for_timeout(700)
+        got = {t[len("request-item-"):]: s for t, s in zip(
+            page.eval_on_selector_all("[data-testid^='request-item-']", "els => els.map(e => e.getAttribute('data-testid'))"),
+            page.eval_on_selector_all("[data-testid^='request-item-']", "els => els.map(e => e.getAttribute('data-status'))"))}
+        self.assertEqual(got, want)
+        ctx.close()
+
+    def test_stale_reads_never_overwrite_newer_state_authorizations(self):
+        for width in (375, 1280):
+            for first in ("load", "action"):
+                for second in ("action", "timer"):
+                    if first == "load" and second == "timer":
+                        continue  # the expiry timer is only armed once a list has been shown
+                    for mode in ("ok", "500", "abort"):
+                        with self.subTest(label=(width, first, second, mode)):
+                            self.auth_pair(width, first, second, mode)
+
+    def auth_pair(self, width, first, second, mode):
+        reset(seed(authorization_ttl_seconds=3))
+        ada = self.token("ada")
+        a1 = call("POST", "/authorizations", {"to_handle": "bob", "amount": 500}, ada, nk())[1]["authorization_id"]
+        ctx, page = self.new_page(width)
+        self.login("ada", page)
+        paths = {"/me", "/authorizations"}
+        if first == "load":
+            hold = self.Hold(page, paths)
+            page.goto("/authorizations")
+            page.wait_for_selector(sel("authorize-submit"))
+        else:
+            page.goto("/authorizations")
+            page.wait_for_selector(sel("authorization-item-" + a1))
+            hold = self.Hold(page, paths)
+            page.fill(sel("authorize-handle"), "cy")
+            page.fill(sel("authorize-amount"), "1.00")
+            page.click(sel("authorize-submit"))
+        page.wait_for_timeout(300)
+        hold.stop()
+        call("POST", "/authorizations", {"to_handle": "cy", "amount": 700}, ada, nk())
+        call("POST", "/payments", {"to_handle": "bob", "amount": 1000}, ada, nk())
+        if second == "action":
+            page.fill(sel("authorize-handle"), "bob")
+            page.fill(sel("authorize-amount"), "2.00")
+            page.click(sel("authorize-submit"))
+            page.wait_for_selector(sel("authorize-success"))
+        else:
+            page.wait_for_selector("%s[data-status='expired']" % sel("authorization-item-" + a1), timeout=9000)
+        page.wait_for_timeout(500)
+        now = call("GET", "/authorizations", token=ada)[1]["authorizations"]
+        page.wait_for_function("n => document.querySelectorAll(\"[data-testid^='authorization-item-']\").length === n", arg=len(now), timeout=5000)
+        me = self.expect_wallet(page, ada)
+        hold.deliver(mode)
+        page.wait_for_timeout(700)
+        me2 = call("GET", "/me", token=ada)[1]
+        self.expect_wallet(page, ada)
+        now2 = call("GET", "/authorizations", token=ada)[1]["authorizations"]
+        shown = page.eval_on_selector_all("[data-testid^='authorization-item-']", "els => els.map(e => [e.getAttribute('data-testid').slice(19), e.getAttribute('data-status')])")
+        self.assertEqual(sorted(shown), sorted([[x["authorization_id"], x["status"]] for x in now2]))
+        ctx.close()
+
+    def test_stale_initial_load_does_not_overwrite_a_refresh(self):
+        self.home_pair(1280, "load", "click", "ok")
+
     def test_accept_header_and_icon(self):
         self.login()
         r = self.ctx.request.get("/requests", headers={"Accept": "text/htmlx"})

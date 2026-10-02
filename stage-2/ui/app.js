@@ -235,13 +235,21 @@
     var bar = document.querySelector('.topbar');
     if (bar && S.token) bar.replaceWith(header());
   }
+  /* A read of /me made to learn who is signed in (header, currency): stamped like every other read; a stale
+   * answer may still fill an empty header but never replaces newer state. */
+  function bootMe() {
+    var id = ++refreshSeq;
+    return loadMe().then(function (r) {
+      if (r.me && (id >= (APPLIED.me || 0) || !S.me)) {
+        if (id >= (APPLIED.me || 0)) APPLIED.me = id;
+        setMe(r.me);
+      }
+      return r;
+    });
+  }
   function signIn(token) {
     S.token = token; save(TOKEN_KEY, token);
-    return loadMe().then(function (r) {
-      if (!r.me) return false;
-      setMe(r.me);
-      return true;
-    });
+    return bootMe().then(function (r) { return !!r.me; });
   }
 
   // ----------------------------------------------------------------- layout
@@ -321,8 +329,11 @@
   /* A panel owns one region and one loader. Latest refresh wins per panel: a result is applied only
    * if no later refresh has already been applied to that panel. */
   var refreshSeq = 0;
-  function Panel(loader, render, fail) {
-    this.loader = loader; this.render = render; this.fail = fail; this.applied = 0; this.ok = false;
+  /* The single gate: every read is stamped from one counter when it is SENT, and its answer (success or failure)
+   * is shown only if no read of the same resource with a higher stamp has already been shown. */
+  var APPLIED = {};
+  function Panel(resource, loader, render, fail) {
+    this.resource = resource; this.loader = loader; this.render = render; this.fail = fail; this.ok = false;
   }
   Panel.prototype.fetch = function () {
     var done;
@@ -330,8 +341,8 @@
     return done.then(function (res) { return res; }, function () { return { fail: null }; });
   };
   Panel.prototype.apply = function (id, res) {
-    if (id < this.applied) return false;
-    this.applied = id;
+    if (id < (APPLIED[this.resource] || 0)) return false;
+    APPLIED[this.resource] = id;
     try {
       if (res && !res.fail) { this.ok = true; this.render(res); return true; }
       this.fail(res ? res.fail : null, this.ok);
@@ -588,6 +599,9 @@
     var page = { built: false };
     var wallet = walletCard(function () { page.reload(); });
     var feed, panels = [];
+    // the wallet panel exists from the start so that the page-load read takes part in the same ordering as every refresh
+    var walletPanel = new Panel('me', loadMe, function (res) { setMe(res.me); wallet.clearFail(); wallet.update(res.me); },
+      function (r, had) { wallet.fail(r, had, function () { page.reload(); }); });
     m.appendChild(wallet.el);
 
     function build() {
@@ -599,19 +613,15 @@
         h('div', { cls: 'span-2' }, [wallet.el]),
         payCard(page), requestCard(page), authorizeCard(page), feed.el
       ]));
-      panels = [
-        new Panel(loadMe, function (res) { setMe(res.me); wallet.clearFail(); wallet.update(res.me); },
-          function (r, had) { wallet.fail(r, had, function () { page.reload(); }); }),
-        new Panel(function () { return loadAll('/activity', 'payments'); }, function (res) { feed.update(res.items); },
-          function () { feed.fail(); })
-      ];
+      panels = [walletPanel, new Panel('activity', function () { return loadAll('/activity', 'payments'); },
+        function (res) { feed.update(res.items); }, function () { feed.fail(); })];
     }
     function start() {
-      return loadMe().then(function (r) {
-        if (r.me) { setMe(r.me); wallet.update(r.me); } else { wallet.fail(r.fail, false, function () { page.reload(); }); }
-        build();
-        if (r.me) { panels[0].applied = ++refreshSeq; panels[0].ok = true; }
-        return refreshPanels(r.me ? panels.slice(1) : panels);
+      var id = ++refreshSeq;
+      return walletPanel.fetch().then(function (res) {
+        walletPanel.apply(id, res);  // skipped when a later refresh has already been shown
+        if (!page.built) build();
+        return refreshPanels([panels[1]]);
       });
     }
     page.reload = function () {
@@ -688,7 +698,7 @@
       }
     }
     function listPanel(path, ul, hint, side, label, empty) {
-      return new Panel(function () { return loadAll(path, 'requests'); }, function (res) {
+      return new Panel(side ? 'requests_in' : 'requests_out', function () { return loadAll(path, 'requests'); }, function (res) {
         ul.textContent = '';
         res.items.forEach(function (r) { ul.appendChild(item(r, side)); });
         hint.textContent = '';
@@ -734,15 +744,14 @@
       h('section', { cls: 'card', 'aria-labelledby': 'in-title' }, [h('header', {}, [h('h2', { id: 'in-title', text: 'Incoming' }), h('p', { cls: 'sub', text: 'People asking you for money.' })]), incoming, inHint]),
       h('section', { cls: 'card', 'aria-labelledby': 'out-title' }, [h('header', {}, [h('h2', { id: 'out-title', text: 'Outgoing' }), h('p', { cls: 'sub', text: 'Money you have asked for.' })]), outgoing, outHint])
     ]));
-    loadMe().then(function (r) { if (r.me) setMe(r.me); }).then(reload);
+    bootMe().then(reload);
   }
 
   // ------------------------------------------------------------- page: split
   function splitPage() {
     var m = shell('Split a bill', 'Share an amount you already paid. Everyone else gets a request for their share.');
     m.appendChild(loadingState());
-    loadMe().then(function (r) {
-      if (r.me) setMe(r.me);
+    bootMe().then(function (r) {
       var amount = textInput('split-amount', { inputmode: 'decimal', placeholder: '30.00' });
       var handles = textInput('split-handles', { placeholder: 'ada, bob, cy', autocapitalize: 'none' });
       var note = textInput('split-note', { placeholder: 'What is it for? (optional)' });
@@ -879,9 +888,9 @@
     }
 
     panels = [
-      new Panel(loadMe, function (res) { setMe(res.me); wallet.clearFail(); wallet.update(res.me); },
+      new Panel('me', loadMe, function (res) { setMe(res.me); wallet.clearFail(); wallet.update(res.me); },
         function (r, had) { wallet.fail(r, had, function () { page.reload(); }); }),
-      new Panel(function () { return loadAll('/authorizations', 'authorizations'); }, function (res) {
+      new Panel('authorizations', function () { return loadAll('/authorizations', 'authorizations'); }, function (res) {
         listBox.textContent = '';
         if (!res.items.length) {
           listBox.appendChild(emptyState('empty-authorizations', 'No authorizations yet', 'Holds you place or receive will appear here.'));
@@ -904,10 +913,7 @@
         h('header', {}, [h('h2', { id: 'auth-list-title', text: 'Your holds' }), h('p', { cls: 'sub', text: 'Newest first.' })]), box, listBox])
     ]));
     // currency and decimals first (labels and the amount rule depend on them), then every panel on its own
-    loadMe().then(function (r) {
-      if (r.me) setMe(r.me);
-      return page.reload();
-    });
+    bootMe().then(function () { return page.reload(); });
   }
 
   // ----------------------------------------------------------- page: auth
@@ -949,7 +955,7 @@
     var other = signup ? h('p', { cls: 'sub' }, ['Already have an account? ', h('a', { href: '/login', text: 'Sign in' })])
       : h('p', { cls: 'sub' }, ['New here? ', h('a', { href: '/signup', text: 'Create an account' })]);
     m.appendChild(h('section', { cls: 'card narrow', 'aria-label': signup ? 'Sign up' : 'Sign in' }, [form, other]));
-    if (S.token && !S.user) loadMe().then(function (r) { if (r.me) setMe(r.me); });
+    if (S.token && !S.user) bootMe();
   }
 
   // ------------------------------------------------------------------ start
