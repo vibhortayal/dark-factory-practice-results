@@ -56,7 +56,7 @@ every row must be checked whether or not the harness covers it.
 | C16 | Seeded payments appear in the feed under the feed rule with full payment shape (handles, currency, `request_id` null, `settlement_id` null, `created_at`) | Seed public and private payments; read `/activity` as party and third party |
 | C17 | Seeded requests appear in `GET /requests` for their two parties only, with full request shape; seeded pending requests can be paid/declined/cancelled; seeded non-pending obey G rows | HTTP |
 | C18 | Fixture `settlement_operator_ids` (default `[]`) grants operator permission | See K rows |
-| C19 | Other malformed fixtures (unparseable → 400 `malformed_request`; structurally invalid → 4xx error body) never 5xx and change nothing | Send `[]`, `{}`, missing `users`, duplicate handles |
+| C19 | Other malformed fixtures never 5xx and change nothing. Unparseable body or body not a JSON object → 400 `malformed_request`. A fixture field of the wrong JSON type → 400 `malformed_request` (`users`/`payments`/`requests`/`settlement_operator_ids` not an array; an element of those of the wrong type; a user's `id`/`email`/`password`/`display_name`/`handle` not a string; `currency` not a string; `minor_units` not a number; ids inside payments/requests not strings). Right type but bad value or required member missing → 422 `validation_failed` (negative `balance`, `minor_units` not 0/2/3, `users` missing, duplicate handle/id/email, handle not matching the pattern, payment/request referring to an unknown user id, unknown request `status`). A `balance` or seeded `amount` of the wrong JSON type may be 400 or 422. (Revised after Verifier round 1, finding 1: §5 wrong-type rule applies to reset.) | Table of bad fixtures after a good reset; assert status+code and that the old token, balances and feed are untouched |
 
 ## D. Errors (§5)
 
@@ -151,7 +151,7 @@ every row must be checked whether or not the harness covers it.
 | I5 | Preserved: all completed idempotent request bodies and original responses → replays after import return 200 original body; changed body → 409; failed keys remain reusable | Each of five write paths |
 | I6 | Balances are not regenerated or replayed (payments not re-applied to net balances) | Balances identical after import |
 | I7 | Import removes all previous destination data and credentials (old destination tokens → 401) | HTTP |
-| I8 | Invalid JSON → 400 `malformed_request`; missing `track`/`format_version`/`state`, wrong track, wrong version, invalid state → 422 `validation_failed`; destination unchanged in all these cases | HTTP, then verify old state intact |
+| I8 | Invalid JSON → 400 `malformed_request`; missing `track`/`format_version`/`state`, wrong track, wrong version, invalid state → 422 `validation_failed`; destination unchanged in all these cases. "Invalid state" includes a `state` that is not an object, a state member that is missing, and a state member whose container type is wrong (e.g. an object where the service's own export has an array, or the reverse): import validates the whole state before replacing anything and never loads a wrong-typed member as empty. An unchanged export is always accepted. (Clarified after Verifier round 1, note N3.) | HTTP with mutated exports, then verify old state intact |
 | I9 | Reset clears everything including imported state; ids generated after import do not collide with imported ids | HTTP |
 | I10 | Export/import/reset complete within 10 s at ordinary populated state | Time them |
 
