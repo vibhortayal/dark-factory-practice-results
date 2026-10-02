@@ -51,6 +51,8 @@ def captures(authorization):
 def release_time(authorization, known=None):
     """When the remainder stops being held, given what is known (all, if known is None)."""
     expires = store.expiries[authorization["authorization_id"]]
+    if authorization.get("seeded_closed"):   # a hold seeded as closed never held anything
+        return parse_iso(authorization["created_at"])
     if authorization["status"] in ("captured", "voided") and authorization.get("closed_at"):
         closed = parse_iso(authorization["closed_at"])
         if known is None or closed <= known:

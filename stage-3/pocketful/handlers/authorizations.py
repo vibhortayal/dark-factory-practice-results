@@ -8,7 +8,9 @@ from ..validation import (AUTH_STATUSES, integral, page_params, parse_amount, pa
 
 
 def _view(authorization):
-    return {**authorization, "payment_ids": list(authorization["payment_ids"])}
+    view = {**authorization, "payment_ids": list(authorization["payment_ids"])}
+    view.pop("seeded_closed", None)   # internal: a hold seeded as closed holds nothing in any view
+    return view
 
 
 def create_authorization(req):

@@ -108,3 +108,53 @@ class HoldHistoryTests(World):
         # an increase needs ada's available (0 now): insufficient_funds takes precedence
         r = self.post("ada", "/payments/p1/corrections", {"expected_revision": 2, "amount": 350, "effective_at": at(-2 * H), "reason": "r"})
         self.assertErr(r, 409, "insufficient_funds")
+
+
+class SeededClosedTests(World):
+    def test_seeded_expired_with_future_deadline_holds_nothing(self):
+        from .test_history import HistoryBase
+        call("POST", "/_test/reset", fixture(users=[user("u_ada", "ada", 3500), user("u_bob", "bob", 0), user("u_cy", "cy", 0)],
+                                             authorizations=[{"id": "a_exp", "from_user_id": "u_ada", "to_user_id": "u_bob", "amount": 3000,
+                                                              "status": "expired", "expires_at": at(2 * H)}]))
+        self.tok = {h: call("POST", "/auth/login", {"email": f"{h}@example.com", "password": "correct horse"}).json["token"] for h in ("ada", "bob", "cy")}
+        for ts in (datetime.now(timezone.utc).isoformat(), at(30 * timedelta(minutes=1)), at(-1 * H)):
+            v = self.get("ada", "/me?as_of=" + quote(ts, safe="")).json
+            self.assertEqual((v["held"], v["available"]), (0, 3500))
+        p = self.post("ada", "/payments", {"to_handle": "bob", "amount": 1000}).json
+        r = self.post("ada", f"/payments/{p['payment_id']}/corrections", {"expected_revision": 1, "amount": 1000, "effective_at": p["created_at"], "reason": "same"})
+        self.assertEqual(r.status, 201, r.raw)
+        a = self.get("ada", "/authorizations").json["authorizations"][0]
+        self.assertNotIn("seeded_closed", a)
+        self.assertEqual(a["status"], "expired")
+
+
+class SeededStatusMatrixTests(World):
+    def test_every_seeded_status_with_past_and_future_deadline(self):
+        for status in ("open", "captured", "voided", "expired"):
+            for hours in (-2, 2):
+                call("POST", "/_test/reset", fixture(users=[user("u_ada", "ada", 3500), user("u_bob", "bob", 0), user("u_cy", "cy", 0)],
+                                                     authorizations=[{"id": "a1", "from_user_id": "u_ada", "to_user_id": "u_bob", "amount": 3000,
+                                                                      "status": status, "expires_at": at(hours * H)}]))
+                self.tok = {h: call("POST", "/auth/login", {"email": f"{h}@example.com", "password": "correct horse"}).json["token"] for h in ("ada", "bob", "cy")}
+                holds_now = status == "open" and hours > 0
+                want = 3000 if holds_now else 0
+                label = (status, hours)
+                self.assertEqual(self.get("ada", "/me").json["held"], want, label)
+                now = datetime.now(timezone.utc)
+                for delta in (timedelta(), timedelta(hours=1), timedelta(hours=3), timedelta(hours=-1)):
+                    ts = (now + delta).isoformat()
+                    for known in (None, ts, now.isoformat()):
+                        q = "as_of=" + quote(ts, safe="") + ("&known_at=" + quote(known, safe="") if known else "")
+                        v = self.get("ada", "/me?" + q).json
+                        expected = 3000 if (holds_now and delta < timedelta(hours=2) and delta >= timedelta()) else 0
+                        self.assertEqual(v["held"], expected, (label, delta, known))
+                        self.assertEqual(v["available"], v["total"] - v["held"])
+                a = self.get("ada", "/authorizations").json["authorizations"][0]
+                if status == "open" and hours > 0:
+                    self.assertIsNone(a["closed_at"])
+                else:
+                    self.assertLessEqual(datetime.fromisoformat(a["closed_at"]), datetime.now(timezone.utc), label)
+                p = self.post("ada", "/payments", {"to_handle": "bob", "amount": 500}).json
+                r = self.post("ada", f"/payments/{p['payment_id']}/corrections",
+                              {"expected_revision": 1, "amount": 500, "effective_at": p["created_at"], "reason": "same"})
+                self.assertEqual(r.status, 201, (label, r.raw))

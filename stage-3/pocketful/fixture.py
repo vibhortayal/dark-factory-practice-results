@@ -133,7 +133,9 @@ def _closed_at(entry, status, expires_at, now):
     supplied = _instant(entry, "closed_at", now)
     if supplied is not None:
         return supplied
-    return expires_at if status == "expired" else fmt(now)
+    if status == "expired" and parse_iso(expires_at) <= now:
+        return expires_at
+    return fmt(now)   # never in the future
 
 
 def _fixture_authorizations(entries, users, currency, now):
@@ -158,7 +160,8 @@ def _fixture_authorizations(entries, users, currency, now):
             "currency": currency, "note": note, "visibility": visibility, "status": status,
             "expires_at": expires, "payment_id": _optional_id(e, "payment_id"),
             "payment_ids": list(payment_ids), "created_at": _instant(e, "created_at", now, fmt(now)),
-            "closed_at": _closed_at(e, status, expires, now)})
+            "closed_at": _closed_at(e, status, expires, now),
+            **({"seeded_closed": True} if status != "open" else {})})
     return out
 
 
