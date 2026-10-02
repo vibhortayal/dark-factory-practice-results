@@ -45,7 +45,7 @@ Check it: `curl localhost:8080/health` -> `{"status": "ok"}`.
 
 ## Size limits and protocol-level errors
 
-Request line and each header line: 64 KiB; at most 100 headers; body: 64 MiB.
+Request line and each header line: 64 KiB; at most 100 headers; body: 64 MiB; 30 s to receive a request. Requests are decoded in `server.py` phase 1, routed in phase 2.
 Anything over a limit (including an over-long `Idempotency-Key`) is answered
 `422 validation_failed` with the JSON error body; an unsupported method is
 `405 method_not_allowed`; malformed framing is `400 malformed_request`. JSON
