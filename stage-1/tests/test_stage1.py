@@ -764,6 +764,161 @@ class TestExportImport(unittest.TestCase):
             [x.join() for x in th]
 
 
+def rawsock(data, base=None):
+    import socket
+    u = urlsplit(base or BASE)
+    c = socket.create_connection((u.hostname, u.port), timeout=10)
+    c.sendall(data)
+    out = b""
+    try:
+        while True:
+            b = c.recv(65536)
+            if not b:
+                break
+            out += b
+            if b"\r\n\r\n" in out and len(out) > 20:
+                head, _, body = out.partition(b"\r\n\r\n")
+                m = re.search(rb"(?i)content-length: *(\d+)", head)
+                if m and len(body) >= int(m.group(1)):
+                    break
+    except OSError:
+        pass
+    c.close()
+    return out
+
+
+class TestHardening(Base):
+    def check_json_4xx(self, out):
+        head, _, body = out.partition(b"\r\n\r\n")
+        status = int(head.split()[1])
+        self.assertTrue(400 <= status < 500, head)
+        self.assertIn(b"application/json; charset=utf-8", head)
+        self.assertIn("error", json.loads(body))
+
+    def test_methods(self):
+        for m in ("OPTIONS", "TRACE", "PROPFIND", "CONNECT", "FOO"):
+            self.check_json_4xx(rawsock(("%s /payments HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n" % m).encode()))
+        out = rawsock(b"HEAD /health HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
+        head, _, body = out.partition(b"\r\n\r\n")
+        self.assertTrue(400 <= int(head.split()[1]) < 500)
+        self.assertEqual(body, b"")
+
+    def test_transport_errors(self):
+        self.check_json_4xx(rawsock(b"GET /" + b"a" * 70000 + b" HTTP/1.1\r\nHost: x\r\n\r\n"))
+        self.check_json_4xx(rawsock(b"GET /me HTTP/1.1\r\nHost: x\r\n" + b"X: y\r\n" * 150 + b"\r\n"))
+        self.check_json_4xx(rawsock(b"GET /me HTTP/1.1\r\nHost: x\r\nX: " + b"a" * 70000 + b"\r\n\r\n"))
+        self.check_json_4xx(rawsock(b"GARBAGE\r\n\r\n"))
+        self.check_json_4xx(rawsock(b"GET /me HTTP/9.9\r\nHost: x\r\n\r\n"))
+        self.check_json_4xx(rawsock(b"GET http://[bad/me HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"))
+        self.check_json_4xx(rawsock(b"POST /payments HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n7FFFFFFFFFFF\r\n"))
+        self.check_json_4xx(rawsock(b"POST /payments HTTP/1.1\r\nHost: x\r\nContent-Length: 2000000\r\nConnection: close\r\n\r\n"))
+        out = rawsock(b"GET http://host/health HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
+        self.assertIn(b" 200 ", out.split(b"\r\n")[0])
+        self.assertEqual(call("GET", "/health")[0], 200)
+
+    def test_huge_query_ints(self):
+        for p in ("/activity", "/requests"):
+            err(call("GET", p + "?limit=" + "9" * 4301, token=self.ada), 422, "validation_failed")
+            self.assertEqual(call("GET", p + "?offset=" + "9" * 4301, token=self.ada)[0], 200)
+            err(call("GET", p + "?offset=" + "9" * 4301 + "x", token=self.ada), 422, "validation_failed")
+
+    def test_reset_bad_refs(self):
+        for f in ("from_user_id", "to_user_id"):
+            for bad in ([ "u_ada"], {}, 5, None):
+                p = {"id": "p1", "from_user_id": "u_ada", "to_user_id": "u_bob", "amount": 1, "note": "", "visibility": "public"}
+                p[f] = bad
+                err(call("POST", "/_test/reset", fixture(payments=[p])), 422, "validation_failed")
+        for f in ("requester_id", "payer_id"):
+            for bad in ([ "u_ada"], {}):
+                r = {"id": "r1", "requester_id": "u_ada", "payer_id": "u_bob", "amount": 1, "status": "pending"}
+                r[f] = bad
+                err(call("POST", "/_test/reset", fixture(requests=[r])), 422, "validation_failed")
+        err(call("POST", "/_test/reset", fixture(settlement_operator_ids=[["u_ada"]])), 422, "validation_failed")
+        self.assertEqual(bal(self.ada), 10000)
+
+    def test_deep_replay(self):
+        for depth in (400, 500, 800):
+            body = b'{"to_handle":"bob","amount":1,"x":' + b"[" * depth + b"]" * depth + b"}"
+            k = nk()
+            r1 = call("POST", "/payments", raw=body, token=self.ada, key=k)
+            r2 = call("POST", "/payments", raw=body, token=self.ada, key=k)
+            self.assertEqual((r1[0], r2[0], r1[1]), (201, 200, r2[1]), depth)
+        body = b'{"to_handle":"bob","amount":1,"x":' + b"[" * 5000 + b"]" * 5000 + b"}"
+        for _ in range(2):
+            err(call("POST", "/payments", raw=body, token=self.ada, key="deep"), 400, "malformed_request")
+
+    def test_exact_numbers(self):
+        for lit in ("0.99999999999999999999", "1.00000000000000000001", "1000000000.0000000001", "1e-400", "1.5",
+                    "9" * 4301, "1" + "0" * 40, "1e999999999", "-1"):
+            r = call("POST", "/payments", raw=('{"to_handle":"bob","amount":%s}' % lit).encode(), token=self.ada, key=nk())
+            err(r, 422, "validation_failed")
+            r = call("POST", "/requests", raw=('{"payer_handle":"bob","amount":%s}' % lit).encode(), token=self.ada, key=nk())
+            err(r, 422, "validation_failed")
+            r = call("POST", "/splits", raw=('{"participant_handles":["bob"],"amount":%s}' % lit).encode(), token=self.ada, key=nk())
+            err(r, 422, "validation_failed")
+        self.assertEqual(bal(self.ada), 10000)
+        for lit in ("1.0", "1e0", "1E0", "1.000000000000000000000000000", "10e-1"):
+            r = call("POST", "/payments", raw=('{"to_handle":"bob","amount":%s}' % lit).encode(), token=self.ada, key=nk())
+            self.assertEqual((r[0], r[1]["amount"]), (201, 1), lit)
+        fx = fixture()
+        fx["users"][0]["balance"] = json.loads("0.99999999999999999999")
+        err(call("POST", "/_test/reset", raw=json.dumps(fixture()).replace("10000", "0.99999999999999999999").encode()), 422, "validation_failed")
+        ok = call("POST", "/_test/reset", raw=json.dumps(fixture()).replace("10000", "1e4").encode())
+        self.assertEqual(ok[0], 204)
+
+    def test_import_validation(self):
+        ex = call("GET", "/_test/export")[1]
+        self.pay(self.ada, "bob", 5)
+        ex = call("GET", "/_test/export")[1]
+        before = call("GET", "/activity", token=self.ada)[1]
+
+        def mut(f):
+            e = json.loads(json.dumps(ex))
+            f(e["state"])
+            return e
+        cases = [
+            lambda st: st["payments"][0].update(amount=-5),
+            lambda st: st["payments"][0].update(created_at="yesterday"),
+            lambda st: st["payments"][0].update(id="p" * 100),
+            lambda st: st["payments"][0].update(request_id=5),
+            lambda st: st["payments"][0].update(request_id="nope"),
+            lambda st: st["payments"][0].update(settlement_id="nope"),
+            lambda st: st["payments"][0].update(amount=1.5),
+            lambda st: st["users"][0].update(id="u" * 100),
+            lambda st: st["users"][0].update(handle="ada\n"),
+            lambda st: st["users"][0].update(email="a b@x.io"),
+            lambda st: st["payments"][0].update(from_user_id=["u_ada"]),
+            lambda st: st["idempotency"][0].update(key=""),
+            lambda st: st["idempotency"][0].update(response=5),
+            lambda st: st.update(operators=[["x"]]),
+        ]
+        for i, f in enumerate(cases):
+            err(call("POST", "/_test/import", mut(f)), 422, "validation_failed")
+        self.assertEqual(call("GET", "/activity", token=self.ada)[1], before)
+
+    def test_handle_newline_and_path_spelling(self):
+        err(call("POST", "/_test/reset", fixture(users=[user("ada\n", 1)])), 422, "validation_failed")
+        reset(fixture())
+        self.ada, self.bob = login("ada"), login("bob")
+        err(call("POST", "/auth/signup", {"email": "a b@x.io", "password": "12345678", "display_name": "Q"}), 422, "validation_failed")
+        err(call("POST", "/auth/signup", {"email": "a\n@x.io", "password": "12345678", "display_name": "Q"}), 422, "validation_failed")
+        rid = call("POST", "/requests", {"payer_handle": "ada", "amount": 5}, self.bob, nk())[1]["request_id"]
+        k = nk()
+        r1 = call("POST", "/requests/%s/pay" % rid, {}, self.ada, k)
+        enc = rid.replace("_", "%5F")
+        r2 = call("POST", "/requests/%s/pay" % enc, {}, self.ada, k)
+        self.assertEqual((r1[0], r2[0], r1[1]), (201, 200, r2[1]))
+
+    def test_body_cap(self):
+        big = b'{"to_handle":"bob","amount":1,"note":"' + b"x" * 1100000 + b'"}'
+        try:
+            r = call("POST", "/payments", raw=big, token=self.ada, key=nk())
+            self.assertTrue(400 <= r[0] < 500)
+        except (ConnectionError, OSError):
+            pass
+        self.assertEqual(call("GET", "/health")[0], 200)
+
+
 class TestFuzz(Base):
     def test_no_5xx(self):
         bodies = [b"", b"null", b"1", b'"x"', b"[]", b"{}", b"{", b'{"amount":NaN}', b'{"amount":Infinity}',

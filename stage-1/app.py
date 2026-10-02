@@ -9,19 +9,26 @@ import json
 import os
 import re
 import secrets
+import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qsl, unquote, urlsplit
 
 MAX_AMOUNT = 1_000_000_000
 MAX_BALANCE = 2 ** 53
-HANDLE_RE = re.compile(r"^[a-z0-9_]{1,20}$")
+HANDLE_RE = re.compile(r"[a-z0-9_]{1,20}")
+EMAIL_RE = re.compile(r"[^\s@]+@[^\s@]+")
+TS_RE = re.compile(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?(Z|[+-]\d\d:\d\d)")
+MAX_DEPTH = 900
+sys.setrecursionlimit(3000)
 DIGITS_RE = re.compile(r"[0-9]+")
 STATUSES = ("pending", "paid", "declined", "cancelled")
 VISIBILITIES = ("public", "private")
-MAX_BODY = 32 * 1024 * 1024
+MAX_BODY = 32 * 1024 * 1024  # /_test/* (state exports can be large)
+MAX_API_BODY = 1024 * 1024
 
 # scrypt cost: affordable for a reset with many users inside 10 s on 2 vCPU.
 SCRYPT_N, SCRYPT_R, SCRYPT_P = 4096, 8, 1
@@ -72,17 +79,61 @@ def is_int(v):
     return isinstance(v, int) and not isinstance(v, bool)
 
 
+def _big_default(o):
+    if isinstance(o, BigNum):
+        return {"$num": o.text}
+    raise TypeError("not serializable")
+
+
+class BigNum:
+    """A JSON number that is not a small exact integer (kept as its source text)."""
+    def __init__(self, text):
+        self.text = text
+
+
+def _num(text):
+    return Decimal(text)
+
+
+def normalize(v, depth=0):
+    if depth > MAX_DEPTH:
+        raise malformed("body nested too deeply")
+    if isinstance(v, Decimal):
+        if v.is_finite() and v.adjusted() <= 30 and v.adjusted() > -400 and v == int(v):
+            return int(v)
+        return BigNum(str(v))
+    if isinstance(v, dict):
+        return {k: normalize(x, depth + 1) for k, x in v.items()}
+    if isinstance(v, list):
+        return [normalize(x, depth + 1) for x in v]
+    return v
+
+
 def json_eq(a, b):
-    """Equality of parsed JSON values; booleans are not numbers."""
-    if isinstance(a, bool) or isinstance(b, bool):
-        return isinstance(a, bool) and isinstance(b, bool) and a == b
-    if isinstance(a, (int, float)) and isinstance(b, (int, float)):
-        return a == b
-    if isinstance(a, dict) and isinstance(b, dict):
-        return a.keys() == b.keys() and all(json_eq(a[k], b[k]) for k in a)
-    if isinstance(a, list) and isinstance(b, list):
-        return len(a) == len(b) and all(json_eq(x, y) for x, y in zip(a, b))
-    return type(a) is type(b) and a == b
+    """Equality of parsed JSON values; booleans are not numbers. Iterative (bodies may nest deeply)."""
+    stack = [(a, b)]
+    while stack:
+        a, b = stack.pop()
+        if isinstance(a, bool) or isinstance(b, bool):
+            if not (isinstance(a, bool) and isinstance(b, bool) and a == b):
+                return False
+        elif isinstance(a, BigNum) or isinstance(b, BigNum):
+            if not (isinstance(a, BigNum) and isinstance(b, BigNum) and a.text == b.text):
+                return False
+        elif isinstance(a, (int, float)) and isinstance(b, (int, float)):
+            if a != b:
+                return False
+        elif isinstance(a, dict) and isinstance(b, dict):
+            if a.keys() != b.keys():
+                return False
+            stack.extend((a[k], b[k]) for k in a)
+        elif isinstance(a, list) and isinstance(b, list):
+            if len(a) != len(b):
+                return False
+            stack.extend(zip(a, b))
+        elif type(a) is not type(b) or a != b:
+            return False
+    return True
 
 
 def _bad_constant(name):
@@ -91,7 +142,8 @@ def _bad_constant(name):
 
 def parse_json(raw):
     try:
-        return json.loads(raw.decode("utf-8"), parse_constant=_bad_constant)
+        return normalize(json.loads(raw.decode("utf-8"), parse_constant=_bad_constant,
+                                    parse_int=_num, parse_float=_num))
     except (ValueError, RecursionError, UnicodeDecodeError):
         raise malformed("body is not valid JSON")
 
@@ -106,12 +158,8 @@ def parse_object(raw, allow_empty=False):
 
 
 def check_amount(v, lo=1):
-    if isinstance(v, bool) or not isinstance(v, (int, float)):
+    if isinstance(v, bool) or not isinstance(v, int):
         raise invalid("amount must be an integer")
-    if isinstance(v, float):
-        if v != v or v in (float("inf"), float("-inf")) or not v.is_integer():
-            raise invalid("amount must be an integer")
-        v = int(v)
     if v < lo or v > MAX_AMOUNT:
         raise invalid("amount out of range")
     return v
@@ -152,7 +200,7 @@ def parse_int_param(q, name, default, lo):
     s = q[name]
     if not DIGITS_RE.fullmatch(s):
         raise invalid("%s must be plain decimal digits" % name)
-    v = int(s)
+    v = int(s) if len(s) <= 30 else 10 ** 30
     if v < lo:
         raise invalid("%s out of range" % name)
     return v
@@ -203,7 +251,7 @@ class Store:
             "idempotency": list(self.idem.values()), "operators": self.operators,
             "counters": self.counters,
         }
-        return json.loads(json.dumps(st))  # deep, atomic copy (caller holds the lock)
+        return json.loads(json.dumps(st, default=_big_default))  # deep, atomic copy (caller holds the lock)
 
     def new_id(self, prefix, taken):
         while True:
@@ -234,7 +282,7 @@ class Store:
         }
 
     def lookup_handle(self, h):
-        u = self.by_handle.get(h) if HANDLE_RE.match(h) else None
+        u = self.by_handle.get(h) if HANDLE_RE.fullmatch(h) else None
         if u is None:
             raise ApiError(404, "not_found", "no such user")
         return u
@@ -265,20 +313,20 @@ def _str(v, maxlen=None, nonempty=True):
 
 
 def _email_ok(e):
-    return isinstance(e, str) and e.count("@") == 1 and all(e.split("@"))
+    return isinstance(e, str) and e.count("@") == 1 and EMAIL_RE.fullmatch(e) is not None
+
+
+def _ref(v, ids):
+    return isinstance(v, str) and v in ids
 
 
 def _bal(v):
-    if isinstance(v, float) and v.is_integer():
-        v = int(v)
     if not is_int(v) or v < 0 or v > MAX_BALANCE:
         raise invalid("bad balance")
     return v
 
 
 def _money(v):
-    if isinstance(v, float) and v.is_integer():
-        v = int(v)
     if not is_int(v) or v < 0 or v > MAX_BALANCE:
         raise invalid("bad amount")
     return v
@@ -312,7 +360,7 @@ def build_fixture(fx):
         if not isinstance(dn, str):
             raise invalid("bad display_name")
         h = u.get("handle")
-        if not isinstance(h, str) or not HANDLE_RE.match(h):
+        if not isinstance(h, str) or not HANDLE_RE.fullmatch(h):
             raise invalid("bad handle")
         bal = _bal(u.get("balance"))
         if uid in ids or h in handles or email in emails:
@@ -340,7 +388,7 @@ def build_fixture(fx):
         if pid in pids:
             raise invalid("duplicate payment id")
         pids.add(pid)
-        if p.get("from_user_id") not in ids or p.get("to_user_id") not in ids:
+        if not _ref(p.get("from_user_id"), ids) or not _ref(p.get("to_user_id"), ids):
             raise invalid("payment refers to unknown user")
         note = p.get("note", "")
         vis = p.get("visibility", "public")
@@ -359,7 +407,7 @@ def build_fixture(fx):
         if rid in rids:
             raise invalid("duplicate request id")
         rids.add(rid)
-        if r.get("requester_id") not in ids or r.get("payer_id") not in ids:
+        if not _ref(r.get("requester_id"), ids) or not _ref(r.get("payer_id"), ids):
             raise invalid("request refers to unknown user")
         note = r.get("note", "")
         st = r.get("status", "pending")
@@ -384,7 +432,10 @@ _POOL = ThreadPoolExecutor(max_workers=max(2, os.cpu_count() or 2))
 
 
 def do_reset(fx):
-    state, pws = build_fixture(fx)
+    try:
+        state, pws = build_fixture(fx)
+    except (TypeError, ValueError, AttributeError, KeyError, RecursionError):
+        raise invalid("invalid fixture")
     for u, h in zip(state["users"], _POOL.map(hash_password, pws)):
         u["pw_hash"] = h
     with LOCK:
@@ -397,21 +448,29 @@ def validate_state(st):
         return _validate_state(st)
     except ApiError:
         raise
-    except (KeyError, TypeError, ValueError, AttributeError, IndexError):
+    except (KeyError, TypeError, ValueError, AttributeError, IndexError, RecursionError):
         raise invalid("invalid state")
+
+
+def _id(v):
+    return isinstance(v, str) and 0 < len(v) <= 64
+
+
+def _opt_id(v):
+    return v is None or _id(v)
 
 
 def _validate_state(st):
     if not isinstance(st, dict):
         raise invalid("state must be an object")
-    if not isinstance(st["currency"], str) or st["minor_units"] not in (0, 2, 3) \
-            or not is_int(st["minor_units"]):
+    if not isinstance(st["currency"], str) or not is_int(st["minor_units"]) \
+            or st["minor_units"] not in (0, 2, 3):
         raise invalid("bad currency")
     users, ids, handles, emails = [], set(), set(), set()
     for u in st["users"]:
-        if not (isinstance(u["id"], str) and isinstance(u["email"], str)
+        if not (_id(u["id"]) and _email_ok(u["email"])
                 and isinstance(u["pw_hash"], str) and isinstance(u["display_name"], str)
-                and isinstance(u["handle"], str) and HANDLE_RE.match(u["handle"])
+                and isinstance(u["handle"], str) and HANDLE_RE.fullmatch(u["handle"])
                 and is_int(u["balance"]) and 0 <= u["balance"] <= MAX_BALANCE):
             raise invalid("bad user")
         if u["id"] in ids or u["handle"] in handles or u["email"] in emails:
@@ -419,13 +478,16 @@ def _validate_state(st):
         ids.add(u["id"]), handles.add(u["handle"]), emails.add(u["email"])
         users.append({k: u[k] for k in ("id", "email", "pw_hash", "display_name", "handle", "balance")})
     tokens = st["tokens"]
-    if not isinstance(tokens, dict) or any(v not in ids for v in tokens.values()):
+    if not isinstance(tokens, dict) or any(not isinstance(v, str) or v not in ids for v in tokens.values()):
         raise invalid("bad tokens")
     payments, pids = [], set()
     for p in st["payments"]:
-        if not (isinstance(p["id"], str) and p["from_user_id"] in ids and p["to_user_id"] in ids
-                and is_int(p["amount"]) and isinstance(p["note"], str)
-                and p["visibility"] in VISIBILITIES and isinstance(p["created_at"], str)):
+        if not (_id(p["id"]) and _ref(p["from_user_id"], ids) and _ref(p["to_user_id"], ids)
+                and is_int(p["amount"]) and 0 <= p["amount"] <= MAX_BALANCE
+                and isinstance(p["note"], str) and len(p["note"]) <= 200
+                and p["visibility"] in VISIBILITIES and isinstance(p["visibility"], str)
+                and isinstance(p["created_at"], str) and TS_RE.fullmatch(p["created_at"])
+                and _opt_id(p.get("request_id")) and _opt_id(p.get("settlement_id"))):
             raise invalid("bad payment")
         if p["id"] in pids:
             raise invalid("duplicate payment")
@@ -434,31 +496,42 @@ def _validate_state(st):
                                                 "visibility", "request_id", "settlement_id", "created_at")})
     requests, rids = [], set()
     for r in st["requests"]:
-        if not (isinstance(r["id"], str) and r["requester_id"] in ids and r["payer_id"] in ids
-                and is_int(r["amount"]) and isinstance(r["note"], str)
-                and r["status"] in STATUSES and isinstance(r["created_at"], str)):
+        if not (_id(r["id"]) and _ref(r["requester_id"], ids) and _ref(r["payer_id"], ids)
+                and is_int(r["amount"]) and 0 <= r["amount"] <= MAX_BALANCE
+                and isinstance(r["note"], str) and len(r["note"]) <= 200
+                and isinstance(r["status"], str) and r["status"] in STATUSES
+                and isinstance(r["created_at"], str) and TS_RE.fullmatch(r["created_at"])
+                and _opt_id(r.get("payment_id"))):
             raise invalid("bad request")
         if r["id"] in rids:
             raise invalid("duplicate request")
         rids.add(r["id"])
         requests.append({k: r.get(k) for k in ("id", "requester_id", "payer_id", "amount", "note",
                                                 "status", "payment_id", "created_at")})
+    if any(p["request_id"] is not None and p["request_id"] not in rids for p in payments) \
+            or any(r["payment_id"] is not None and r["payment_id"] not in pids for r in requests):
+        raise invalid("dangling reference")
     splits = []
     for s in st["splits"]:
-        if not (isinstance(s["id"], str) and isinstance(s["shares"], list)
-                and isinstance(s["request_ids"], list)):
+        if not (_id(s["id"]) and isinstance(s["shares"], list) and isinstance(s["request_ids"], list)
+                and all(isinstance(x, str) and x in rids for x in s["request_ids"])):
             raise invalid("bad split")
         splits.append(json.loads(json.dumps(s)))
-    settlements = []
+    settlements, sids = [], set()
     for s in st["settlements"]:
-        if not (isinstance(s["id"], str) and isinstance(s["payment_ids"], list)):
+        if not (_id(s["id"]) and isinstance(s["payment_ids"], list)
+                and all(isinstance(x, str) and x in pids for x in s["payment_ids"])
+                and isinstance(s["committed_at"], str) and TS_RE.fullmatch(s["committed_at"])):
             raise invalid("bad settlement")
+        sids.add(s["id"])
         settlements.append(json.loads(json.dumps(s)))
+    if any(p["settlement_id"] is not None and p["settlement_id"] not in sids for p in payments):
+        raise invalid("dangling settlement reference")
     idem, seen = [], set()
     for e in st["idempotency"]:
-        if not (isinstance(e["user_id"], str) and isinstance(e["method"], str)
+        if not (_ref(e["user_id"], ids) and isinstance(e["method"], str)
                 and isinstance(e["path"], str) and isinstance(e["key"], str)
-                and e["status"] == 201 and isinstance(e["body"], (dict, list, str, int, float, bool, type(None)))):
+                and 1 <= len(e["key"]) <= 255 and e["status"] == 201 and isinstance(e["response"], dict)):
             raise invalid("bad idempotency record")
         k = (e["user_id"], e["method"], e["path"], e["key"])
         if k in seen:
@@ -467,7 +540,7 @@ def _validate_state(st):
         idem.append({"user_id": e["user_id"], "method": e["method"], "path": e["path"],
                      "key": e["key"], "body": e["body"], "status": 201, "response": e["response"]})
     ops = st["operators"]
-    if not isinstance(ops, list) or any(o not in ids for o in ops):
+    if not isinstance(ops, list) or any(not isinstance(o, str) or o not in ids for o in ops):
         raise invalid("bad operators")
     counters = st["counters"]
     if not isinstance(counters, dict) or any(not is_int(v) for v in counters.values()):
@@ -751,25 +824,26 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
     def read_body(self):
+        limit = MAX_BODY if self.path.startswith("/_test/") else MAX_API_BODY
         te = (self.headers.get("Transfer-Encoding") or "").lower()
         if "chunked" in te:
             data = b""
             while True:
                 size = int(self.rfile.readline().split(b";")[0].strip() or b"0", 16)
+                if size < 0 or size > limit or len(data) + size > limit:
+                    raise malformed("body too large")
                 if size == 0:
                     while self.rfile.readline().strip():
                         pass
                     break
                 data += self.rfile.read(size)
                 self.rfile.readline()
-                if len(data) > MAX_BODY:
-                    raise malformed("body too large")
             return data
         try:
             n = int(self.headers.get("Content-Length") or 0)
         except ValueError:
             raise malformed("bad Content-Length")
-        if n < 0 or n > MAX_BODY:
+        if n < 0 or n > limit:
             raise malformed("bad Content-Length")
         return self.rfile.read(n) if n else b""
 
@@ -784,17 +858,24 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
-        self.wfile.write(data)
+        if self.command != "HEAD":
+            self.wfile.write(data)
 
     def handle_any(self, method):
         close = False
         try:
             try:
                 raw = self.read_body()
-            except (ValueError, OSError) as e:
+            except ApiError:
                 close = True
-                raise e if isinstance(e, ApiError) else malformed("bad body framing")
-            parts = urlsplit(self.path)
+                raise
+            except (ValueError, OSError):
+                close = True
+                raise malformed("bad body framing")
+            try:
+                parts = urlsplit(self.path)
+            except ValueError:
+                raise malformed("bad request target")
             path = parts.path
             q = {}
             for k, v in parse_qsl(parts.query, keep_blank_values=True):
@@ -812,11 +893,29 @@ class Handler(BaseHTTPRequestHandler):
         except OSError:
             self.close_connection = True
 
-    do_GET = lambda self: self.handle_any("GET")
-    do_POST = lambda self: self.handle_any("POST")
-    do_PUT = lambda self: self.handle_any("PUT")
-    do_PATCH = lambda self: self.handle_any("PATCH")
-    do_DELETE = lambda self: self.handle_any("DELETE")
+    def __getattr__(self, name):
+        # any HTTP method reaches handle_any, which answers with the JSON error body
+        if name.startswith("do_"):
+            return lambda: self.handle_any(name[3:])
+        raise AttributeError(name)
+
+    def send_error(self, code, message=None, explain=None):
+        """Replace the built-in HTML error pages with the §5 JSON error body (never a 5xx)."""
+        status = 400 if code >= 500 else code
+        err = {400: "malformed_request", 404: "not_found"}.get(status, "malformed_request")
+        data = json.dumps({"error": {"code": err, "message": message or "bad request"}}).encode("ascii")
+        self.close_connection = True
+        self.request_version = "HTTP/1.1"  # always answer with a status line and headers
+        try:
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Connection", "close")
+            self.end_headers()
+            if self.command != "HEAD":
+                self.wfile.write(data)
+        except OSError:
+            pass
 
     def route(self, method, path, q, raw):
         H = self.headers
@@ -882,7 +981,7 @@ class Handler(BaseHTTPRequestHandler):
                 return idempotent(user, method, path, H, raw, lambda b: create_settlement(user, b))
             rid, action = segs[1], segs[2]
             if action == "pay":
-                return idempotent(user, method, path, H, raw,
+                return idempotent(user, method, "/requests/" + rid + "/pay", H, raw,
                                   lambda b: pay_request(user, rid, b), allow_empty=True)
             if action == "decline":
                 return close_request(user, rid, "declined", "payer_id")
