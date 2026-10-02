@@ -49,6 +49,7 @@ Run: `verify.sh up <rev> <out>`, `verify.sh checks <rev> <out>`, `verify.sh down
 | FX-05 | §4 feed contract + fixture payments | C16 | seeded payments appear in the feed with the full payment shape | yes |
 | FX-06 | §4 requests + fixture requests; §8 pay/decline/cancel | C17 | seeded requests listed for their two parties and actionable | yes |
 | FX-07 | §5 '400 malformed_request: Unparseable body, or a field of the wrong JSON type'; 'Reserve 400 malformed_request for a body that does not parse or a field of the wrong type' | C19,D2 | reset fixture with a field of the wrong JSON type -> 400 malformed_request, state untouched | yes |
+| FX-08 | §5 'invalid amount values (including strings and booleans), non-string note values (including null), and any visibility other than public or private are 422 validation_failed. Omission alone selects the optional-field defaults' | C19,D4 | seeded payment / request with a bad note, visibility or amount -> 422, state untouched; omission takes the defaults | yes |
 
 ## Model (§4)
 
@@ -225,4 +226,4 @@ Run: `verify.sh up <rev> <out>`, `verify.sh checks <rev> <out>`, `verify.sh down
 | GL-ids | §3.4 ids <= 64 chars | B9 | every *_id seen in any response | yes |
 | GL-ts | §3.4 timestamps | B6 | every created_at / committed_at seen in any response | yes |
 
-Total: 12 delivery/reading items, 129 scripted HTTP checks, 7 whole-run assertions.
+Total: 12 delivery/reading items, 130 scripted HTTP checks, 7 whole-run assertions.
