@@ -140,3 +140,7 @@ Map change b1636b35fce9cc902ce694fbddeb7455614bae78 (rows D7, A11): NT-01 now ex
 | NT-03 | [note only: size no ordinary user sends] §5 `limit`/`offset` as plain decimal digits: a value written with more than 18 digits through leading zeros | D7 |
 
 Further one-off probes of the changed code (protocol-level errors over a raw socket, the 18-digit rule, huge integer literals, the rewritten canonical form, wrong-typed values in an import): `probes3.py`, 80 probes.
+
+## Fix round 2 (code changed between 38f2970 and d02b8f6b1eb8e0511b9a7e07f0bb02342d8b5a47)
+
+No new list checks. One-off probes of the changed code: `probes4.py` (44 probes: request targets, request lines, body framing, keep-alive reuse, the 30 s receive timeout, zero-padded `limit`/`offset`) and `probes3.py` again (80 probes).
