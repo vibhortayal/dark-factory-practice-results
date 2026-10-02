@@ -129,3 +129,14 @@ These were added once the first full run and the code read were done; they run a
 | LM-04 | §5 requests must not produce 5xx responses; a field of the wrong JSON type is a client error: reset with wrong-typed ids in the fixture | C11 A11 |
 | NT-01 | [note only: size no ordinary user sends] §3.4 unknown fields are ignored / §5 no 5xx: an unknown field nested 985, 990 and 2000 levels deep | A9 A11 |
 | NT-02 | [note only: size no ordinary user sends] §5 `offset` integer 0 or more: an offset of 4301 digits | D7 |
+
+Map change b1636b35fce9cc902ce694fbddeb7455614bae78 (rows D7, A11): NT-01 now expects 201 or 400 `malformed_request` for nested unknown fields, NT-02 expects 200 with an empty page for a 4301-digit offset on `/activity` and `/requests`. Both remain [reading] checks recorded as notes.
+
+## Checks added in fix round 1 (code changed between 03b5470 and 38f2970c0c1395ee1338ef6326948332609a45de)
+
+| Check | Specification statement | Map rows |
+|---|---|---|
+| LM-05 | §5 requests must not produce 5xx responses: an absolute-form request target with a malformed host (`GET http://[bad/health`) is a client error | A11 |
+| NT-03 | [note only: size no ordinary user sends] §5 `limit`/`offset` as plain decimal digits: a value written with more than 18 digits through leading zeros | D7 |
+
+Further one-off probes of the changed code (protocol-level errors over a raw socket, the 18-digit rule, huge integer literals, the rewritten canonical form, wrong-typed values in an import): `probes3.py`, 80 probes.
