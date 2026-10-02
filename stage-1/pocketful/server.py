@@ -70,9 +70,13 @@ class Handler(BaseHTTPRequestHandler):
         try:
             try:
                 raw = self._read_body()
-                parts = urlsplit(self.path)
+                try:
+                    parts = urlsplit(self.path)
+                    pairs = parse_qsl(parts.query, keep_blank_values=True)
+                except ValueError:  # e.g. an absolute target with an unbalanced "[" host
+                    raise ApiError(400, "malformed_request", "malformed request target")
                 query = {}
-                for name, value in parse_qsl(parts.query, keep_blank_values=True):
+                for name, value in pairs:
                     query.setdefault(name, value)
                 req = Request(self.command, unquote(parts.path), query, self.headers, raw)
                 status, payload = dispatch(req)

@@ -191,3 +191,24 @@ class VerifierFindingTests(World):
             self.assertTrue(400 <= status < 500, (data[:30], head))
             self.assertIn(b"application/json; charset=utf-8", head)
             self.assertIn(b'"error"', body)
+
+    def test_b5_malformed_absolute_target(self):
+        import socket
+        from .helpers import server_port
+        for target in (b"http://[bad/health", b"http://[::1/me", b"http://["):
+            with socket.create_connection(("127.0.0.1", server_port()), timeout=10) as s:
+                s.sendall(b"GET " + target + b" HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
+                reply = b""
+                while True:
+                    c = s.recv(65536)
+                    if not c:
+                        break
+                    reply += c
+            self.assertIn(b" 400 ", reply.split(b"\r\n")[0])
+            self.assertIn(b"malformed_request", reply)
+        self.assertEqual(call("GET", "/health").status, 200)
+
+    def test_n9_leading_zero_numbers(self):
+        self.assertEqual(self.get("ada", "/activity?limit=" + "0" * 17 + "50").status, 200)
+        self.assertEqual(self.get("ada", "/activity?offset=" + "0" * 30).status, 200)
+        self.assertErr(self.get("ada", "/activity?limit=" + "0" * 30), 422, "validation_failed")
