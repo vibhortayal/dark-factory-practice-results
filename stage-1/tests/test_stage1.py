@@ -638,13 +638,58 @@ class TestExactNumbers(Base):
         self.err(call("POST", "/payments", raw=b'{"to_handle":"bob","amount":101,"x":1e400}', token=self.ada, key=key),
                  409, "idempotency_key_reuse")
 
+    def test_extremes_and_non_json(self):
+        for lit in ("1e999999999", "-1e999999999", "1e99999999999999999999999"):
+            t0 = time.time()
+            self.err(call("POST", "/payments", raw=('{"to_handle":"bob","amount":%s}' % lit).encode(),
+                          token=self.ada, key=k()), 422, "validation_failed")
+            self.assertLess(time.time() - t0, 2)
+            s = call("POST", "/payments", raw=('{"to_handle":"bob","amount":1,"u":%s}' % lit).encode(),
+                     token=self.ada, key=k())[0]
+            self.assertEqual(s, 201)
+        for lit in ("NaN", "Infinity", "-Infinity"):
+            self.err(call("POST", "/payments", raw=('{"to_handle":"bob","amount":1,"u":%s}' % lit).encode(),
+                          token=self.ada, key=k()), 400, "malformed_request")
+        for a in ("1e3", "1.0e3", "100000e-2", "1000.0"):
+            self.assertEqual(call("POST", "/payments", raw=('{"to_handle":"bob","amount":%s}' % a).encode(),
+                                  token=self.ada, key=k())[1]["amount"], 1000)
+        for a in ("1e-1", "0.5"):
+            self.err(call("POST", "/payments", raw=('{"to_handle":"bob","amount":%s}' % a).encode(),
+                          token=self.ada, key=k()), 422, "validation_failed")
+        key = k()
+        call("POST", "/payments", raw=b'{"to_handle":"bob","amount":100,"u":1}', token=self.ada, key=key)
+        self.err(call("POST", "/payments", raw=b'{"to_handle":"bob","amount":100,"u":1.0000000000000001}',
+                      token=self.ada, key=key), 409, "idempotency_key_reuse")
+        self.assertEqual(call("POST", "/payments", raw=b'{"to_handle":"bob","amount":1e2,"u":1.0}',
+                              token=self.ada, key=key)[0], 200)
+
+    def test_reset_race_no_5xx(self):
+        out = []
+        stop = []
+
+        def writer():
+            while not stop:
+                out.append(call("POST", "/payments", {"to_handle": "bob", "amount": 1}, self.ada, k())[0])
+        ts = [threading.Thread(target=writer) for _ in range(8)]
+        [t.start() for t in ts]
+        for _ in range(15):
+            reset(fixture(settlement_operator_ids=["u_cy"]))
+        stop.append(1)
+        [t.join() for t in ts]
+        self.assertTrue(out and max(out) < 500, sorted(set(out)))
+
     def test_deep_and_key_chars(self):
         key = k()
         call("POST", "/payments", {"to_handle": "bob", "amount": 1}, self.ada, key)
         deep = b'{"to_handle":"bob","amount":1,"z":' + b"[" * 600 + b"]" * 600 + b"}"
         s = call("POST", "/payments", raw=deep, token=self.ada, key=key)[0]
-        self.assertLess(s, 500)
+        self.assertEqual(s, 409)
+        deep2 = b'{"to_handle":"bob","amount":1,"z":' + b"[" * 600 + b"]" * 600 + b"}"
+        k5 = k()
+        self.assertEqual(call("POST", "/payments", raw=deep2, token=self.ada, key=k5)[0], 201)
+        self.assertEqual(call("POST", "/payments", raw=deep2, token=self.ada, key=k5)[0], 200)
         self.assertEqual(call("POST", "/payments", {"to_handle": "bob", "amount": 1}, self.ada, "é" * 128)[0], 201)
+        self.err(call("POST", "/payments", {"to_handle": "bob", "amount": 1}, self.ada, "é" * 256), 422, "validation_failed")
         self.assertEqual(call("GET", "/activity?offset=" + "9" * 30, token=self.ada)[0], 200)
 
 

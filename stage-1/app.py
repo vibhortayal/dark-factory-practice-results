@@ -6,6 +6,7 @@ import math
 import os
 import re
 import secrets
+import sys
 import threading
 from decimal import Decimal
 from concurrent.futures import ThreadPoolExecutor
@@ -97,7 +98,10 @@ def canon(v):
 
 
 def _parse_float(s):
-    return Decimal(s)  # exact: no binary rounding of number literals
+    try:
+        return Decimal(s)  # exact: no binary rounding of number literals
+    except ArithmeticError:  # exponent beyond Decimal's range: far outside any amount
+        return Decimal("-Infinity" if s.startswith("-") else "Infinity")
 
 
 def _parse_int(s):
@@ -854,6 +858,7 @@ ROUTES = {
     "/activity": {"GET": h_activity},
     "/settlements": {"POST": h_settlements},
 }
+UNLOCKED = {h_signup, h_login, h_reset, h_import}
 REQ_ACTION = re.compile(r"^/requests/([^/]+)/(pay|decline|cancel)$")
 
 
@@ -863,15 +868,19 @@ def dispatch(method, path, query, headers, raw):
         fn = routes.get(method)
         if fn is None:
             raise ApiError(405, "method_not_allowed", "method not allowed")
-        return fn(headers, query, raw)
+        if fn in UNLOCKED:
+            return fn(headers, query, raw)
+        with LOCK:  # authentication and the operation see one state (reset/import swap under LOCK)
+            return fn(headers, query, raw)
     m = REQ_ACTION.match(path)
     if m:
         if method != "POST":
             raise ApiError(405, "method_not_allowed", "method not allowed")
         rid, action = unquote(m.group(1)), m.group(2)
-        if action == "pay":
-            return h_pay(headers, query, raw, rid)
-        return h_transition(headers, query, raw, rid, action)
+        with LOCK:  # authentication and the operation see one state
+            if action == "pay":
+                return h_pay(headers, query, raw, rid)
+            return h_transition(headers, query, raw, rid, action)
     raise ApiError(404, "not_found", "no such route")
 
 
@@ -971,6 +980,8 @@ class Server(ThreadingHTTPServer):
 
 
 def main():
+    sys.setrecursionlimit(5000)  # deeply nested but valid JSON must not turn into an error
+    threading.stack_size(64 * 1024 * 1024)
     port = int(os.environ.get("PORT") or 8080)
     Server(("0.0.0.0", port), Handler).serve_forever()
 
