@@ -2,10 +2,26 @@
 
 let last = 0;
 
-/** Monotonic wall clock in epoch milliseconds. */
+let frozen = null;
+
+/**
+ * Monotonic wall clock in epoch milliseconds. While a request's synchronous part runs the clock
+ * is frozen (see `freeze`), so the expiry sweep, the handler's decisions and every timestamp it
+ * writes use one and the same instant.
+ */
 function nowMs() {
+  if (frozen !== null) return frozen;
   last = Math.max(last, Date.now());
   return last;
+}
+
+function freeze() {
+  frozen = null;
+  frozen = nowMs();
+}
+
+function unfreeze() {
+  frozen = null;
 }
 
 /** RFC 3339 with millisecond precision and an explicit +00:00 offset. */
@@ -24,4 +40,4 @@ function parseTimestamp(text) {
   return Number.isNaN(ms) ? null : ms;
 }
 
-module.exports = { nowMs, formatTimestamp, nowTimestamp, parseTimestamp };
+module.exports = { freeze, unfreeze, nowMs, formatTimestamp, nowTimestamp, parseTimestamp };

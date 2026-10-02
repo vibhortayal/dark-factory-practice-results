@@ -372,3 +372,54 @@ def test_stage1_payload_shape_is_tolerated(page):
     page.goto("/")
     page.wait_for_selector(sel("wallet-available"))
     assert amount(page, "wallet-available") == "10000" and page.query_selector(sel("wallet-held")) is None
+
+
+def test_added_test_ids_stay_out_of_the_specified_item_families(page):
+    """A request whose id is `visibility` must still own `request-pay-visibility` alone."""
+    reset(fixture(requests=[{"id": "visibility", "requester_id": "u_bob", "payer_id": "u_ada",
+                             "amount": 100, "note": "n", "status": "pending"}]))
+    log_in(page)
+    page.goto("/requests")
+    page.wait_for_selector(sel("request-item-visibility"))
+    tags = page.evaluate("Array.from(document.querySelectorAll('[data-testid=\"request-pay-visibility\"]')).map(e => e.tagName)")
+    assert tags == ["BUTTON"]
+    ids = page.evaluate("Array.from(document.querySelectorAll('[data-testid]')).map(e => e.dataset.testid)")
+    assert len(ids) == len(set(ids)), "a test id appears twice"
+
+
+def test_loading_states_are_visible_while_the_first_read_is_slow(page):
+    reset()
+    log_in(page)
+    held = []
+
+    def hold(route):
+        if route.request.resource_type == "fetch" and not route.request.url.endswith("/me"):
+            held.append(route)          # the read is neither answered nor failed: still loading
+        else:
+            route.continue_()
+
+    page.route("**/*", hold)
+    for route, hint in [("/", "Loading activity"), ("/requests", "Loading requests"), ("/authorizations", "Loading holds")]:
+        page.goto(route)
+        page.wait_for_selector(".loading-block")
+        assert hint in page.inner_text(".loading-block")
+        assert page.query_selector(".skeleton-line")
+        for r in held:
+            r.continue_()
+        held.clear()
+        page.wait_for_selector(".loading-block", state="detached")
+
+
+def test_feed_row_with_a_huge_amount_stays_readable_at_375(browser):
+    reset(fixture(users=[user("ada", "ada", "Ada", 9_000_000_000_000), user("bob", "bob", "Bob", 0), user("cy", "cy", "Cy", 0)],
+                  payments=[{"id": "p_1", "from_user_id": "u_ada", "to_user_id": "u_bob", "amount": 1_000_000_000,
+                             "note": "A normal sentence for a note", "visibility": "public"}]))
+    ctx = browser.new_context(base_url=BASE, viewport={"width": 375, "height": 800})
+    pg = ctx.new_page()
+    log_in(pg)
+    pg.goto("/")
+    pg.wait_for_selector(sel("activity-note-p_1"))
+    widths = pg.evaluate("""() => { const n = document.querySelector('[data-testid=activity-note-p_1]').getBoundingClientRect().width;
+        return [n, document.documentElement.scrollWidth, document.documentElement.clientWidth]; }""")
+    assert widths[0] > 200 and widths[1] == widths[2]
+    ctx.close()

@@ -97,7 +97,7 @@ a { color: var(--brand-strong); text-underline-offset: 2px; }
 .subtotals { display: flex; flex-wrap: wrap; gap: var(--s-2) var(--s-6); color: var(--ink-2); font-size: var(--fs-sm); }
 .subtotals dt { font-size: var(--fs-xs); }
 .subtotals dd { font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-.subtotals .held dd::before { content: "▮ "; color: var(--warn-ink); }
+.subtotals .held { border-left: 3px solid var(--warn-line); padding-left: var(--s-2); }
 
 /* Forms */
 .field { display: flex; flex-direction: column; gap: var(--s-1); min-width: 0; }
@@ -183,7 +183,18 @@ input[type="checkbox"] { width: 1.25rem; height: 1.25rem; accent-color: var(--br
 .auth { max-width: 26rem; width: 100%; margin: var(--s-5) auto 0; display: flex; flex-direction: column; gap: var(--s-4); }
 .problem:empty { display: none; }
 
+/* Loading placeholders */
+.skeleton { display: flex; flex-direction: column; gap: var(--s-3); margin-top: var(--s-3); }
+.skeleton-line { height: 0.875rem; border-radius: 6px; background: linear-gradient(90deg, var(--line), #e9efed, var(--line)); background-size: 200% 100%; animation: shimmer 1.4s ease-in-out infinite; }
+.skeleton-line:nth-child(2) { width: 80%; }
+.skeleton-line:nth-child(3) { width: 60%; }
+@keyframes shimmer { to { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) { .skeleton-line { animation: none; } }
+.boot { display: flex; justify-content: center; align-items: center; gap: var(--s-2); }
+
 @media (max-width: 30rem) {
+  .feed-item { grid-template-columns: auto minmax(0, 1fr); }
+  .feed-amount { grid-column: 2; text-align: left; font-size: var(--fs-lg); }
   :root { --fs-display: 2rem; }
   .card { padding: var(--s-4); }
   .identity { width: 100%; margin-left: 0; justify-content: space-between; }

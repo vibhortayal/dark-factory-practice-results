@@ -76,7 +76,6 @@ the export/import upgrade without a page reload.
 - **Export**: the `state` holds users (with password hashes), tokens, payments, requests,
   settlements, operator grants, idempotency records and id counters, plus opening balances so that
   import can verify every balance against history. Tampered state is rejected with 422.
-- **Timestamps**: whole seconds with `+00:00`, non-decreasing across the process.
 - **Limits**: heads up to 1 MiB, bodies up to 8 MiB (128 MiB for reset/import) and JSON nested up
   to 1000 levels are processed. Beyond a cap the answer is `422 validation_failed` with the standard
   error body (after authentication where the route needs it); `400 malformed_request` is only for
@@ -88,7 +87,7 @@ the export/import upgrade without a page reload.
   `available`; a capture spends the money reserved for it. Expiry is derived from the clock: every
   request first closes open authorizations whose deadline has passed, so no timer is involved.
   Idempotent handlers stay synchronous so lookup, effect and record are one uninterrupted step.
-- **Timestamps** now carry milliseconds (`...:00.123+00:00`) so `expires_at` is exactly `created_at`
+- **Timestamps** carry milliseconds (`...:00.123+00:00`) so `expires_at` is exactly `created_at`
   plus the lifetime; seeded and imported timestamps are returned as given.
 - **UI**: plain ES modules and one stylesheet, routed by URL with real navigation. The browser is a
   client of the documented JSON API only. An idempotency key belongs to the content of a form:

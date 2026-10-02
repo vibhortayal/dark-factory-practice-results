@@ -22,7 +22,7 @@ function item(me, p) {
 }
 
 export function renderFeed(host, me, feed) {
-  if (!feed) return setChildren(host);
+  if (!feed) return; // still loading: keep the placeholder
   if (feed.payments.length === 0) {
     setChildren(host, empty('empty-activity', 'No payments to show yet', 'Public payments and the ones you send or receive will appear here.'));
     return;

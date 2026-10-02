@@ -1,5 +1,7 @@
 'use strict';
 
+const { newestFirst } = require('../ordering');
+
 const { notFound, forbidden, conflict, selfRequest, invalid } = require('../errors');
 const {
   assertTypes, requireField, checkAmount, checkNote, checkVisibility, pagination, page,
@@ -70,8 +72,7 @@ function listRequests({ state, user, query }) {
   if (direction !== null && direction !== 'incoming' && direction !== 'outgoing') throw invalid('unknown direction');
   if (status !== null && !STATUSES.includes(status)) throw invalid('unknown status');
   const mine = [];
-  for (let i = state.requests.length - 1; i >= 0; i--) {
-    const r = state.requests[i];
+  for (const r of newestFirst(state.requests)) {
     const incoming = r.payer === user.id;
     const outgoing = r.requester === user.id;
     if (!incoming && !outgoing) continue;

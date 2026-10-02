@@ -287,3 +287,53 @@ test('malformed JSON is 400 at any depth; valid but too deep is 422', async () =
     assert.equal(r.status, 422, `valid depth ${n}`);
   }
 });
+
+test('lists are newest first by the records own created_at, not insertion order', async () => {
+  const entry = (id, created_at) => ({ id, from_user_id: 'u_ada', to_user_id: 'u_bob', amount: 10, note: id, visibility: 'public', status: 'open', expires_at: future(2 * HOUR), created_at });
+  await h.reset({ ...h.FIXTURE, authorizations: [entry('a_old', '2026-01-02T00:00:00.000+00:00'), entry('a_new', '2026-03-01T00:00:00.000+00:00'), entry('a_mid', '2026-02-01T00:00:00+00:00')] });
+  t = await h.tokens();
+  const l = (await call('GET', '/authorizations', { token: t.ada })).body.authorizations;
+  assert.deepEqual(l.map((a) => a.authorization_id), ['a_new', 'a_mid', 'a_old']);
+  // payments and requests carried by an import are ordered by their stored times too
+  await call('POST', '/payments', { token: t.ada, key: 'o1', body: { to_handle: 'bob', amount: 1 } });
+  await call('POST', '/payments', { token: t.ada, key: 'o2', body: { to_handle: 'bob', amount: 2 } });
+  const doc = (await call('GET', '/_test/export')).body;
+  const [p1, p2] = doc.state.payments.filter((p) => !p.seeded);
+  p1.created_at = '2030-01-01T00:00:00.000+00:00';
+  p2.created_at = '2029-01-01T00:00:00+00:00';
+  doc.state.requests[0].created_at = '2001-01-01T00:00:00+00:00';
+  assert.equal((await call('POST', '/_test/import', { body: doc })).status, 204);
+  const feed = (await call('GET', '/activity', { token: t.ada })).body.payments;
+  assert.deepEqual(feed.slice(0, 2).map((p) => p.payment_id), [p1.id, p2.id]);
+});
+
+test('import types every leaf: non-boolean seeded and bad timestamps are rejected', async () => {
+  await call('POST', '/payments', { token: t.ada, key: 'x', body: { to_handle: 'bob', amount: 5 } });
+  const exp = (await call('GET', '/_test/export')).text;
+  const before = await me(t.ada);
+  const mutations = [
+    (d) => { d.state.payments[d.state.payments.length - 1].seeded = 'yes'; },
+    (d) => { d.state.payments[0].seeded = 1; },
+    (d) => { d.state.payments[0].created_at = 'yesterday'; },
+    (d) => { d.state.requests[0].created_at = 5; },
+    (d) => { d.state.settlements = [{ id: 's', committed_at: 'x', payment_ids: [] }]; },
+  ];
+  for (const mutate of mutations) {
+    const d = JSON.parse(exp);
+    mutate(d);
+    err(await call('POST', '/_test/import', { body: d }), 422, 'validation_failed');
+  }
+  assert.deepEqual(await me(t.ada), before);
+});
+
+test('a capture is never stamped at or after the hold expiry', async () => {
+  await h.reset({ ...h.FIXTURE, authorization_ttl_seconds: 1 });
+  t = await h.tokens();
+  for (let i = 0; i < 5; i++) {
+    const a = (await authorize(t.ada, { to_handle: 'bob', amount: 10 })).body;
+    const deadline = Date.parse(a.expires_at);
+    await new Promise((r) => setTimeout(r, 1000 - (Date.now() - Date.parse(a.created_at)) - 3));
+    const rs = await Promise.all(Array.from({ length: 8 }, (_, j) => call('POST', `/authorizations/${a.authorization_id}/capture`, { token: t.bob, key: `c${i}-${j}`, body: {} })));
+    for (const r of rs.filter((x) => x.status === 201)) assert.ok(Date.parse(r.body.created_at) < deadline, 'capture stamped after expiry');
+  }
+});

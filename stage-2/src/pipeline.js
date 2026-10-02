@@ -13,7 +13,7 @@ const idempotency = require('./idempotency');
 const { codePoints } = require('./validation');
 const { match } = require('./routes');
 const { sweep } = require('./holds');
-const { nowMs } = require('./clock');
+const { nowMs, freeze, unfreeze } = require('./clock');
 
 const isThenable = (v) => v !== null && typeof v === 'object' && typeof v.then === 'function';
 
@@ -45,7 +45,19 @@ function idempotencyKey(headers) {
 }
 
 /** Runs one request; returns {status, body?}. Handlers may be async (hashing, reset). */
-async function handle({ method, pathname, query, headers, buffer }) {
+async function handle(request) {
+  // The clock is read once: the synchronous part of the request sees a single instant.
+  freeze();
+  let result;
+  try {
+    result = prepareAndRun(request);
+  } finally {
+    unfreeze();
+  }
+  return result;
+}
+
+function prepareAndRun({ method, pathname, query, headers, buffer }) {
   sweep(getState(), nowMs()); // expiry is derived from the clock on every request
   // buffer === null means the body exceeded the service's size cap and was not read.
   const { route, params, needsAuth, scopePath } = match(pathname);
@@ -73,10 +85,10 @@ async function handle({ method, pathname, query, headers, buffer }) {
 
   // Idempotent handlers must stay synchronous: lookup, effect and store then run in one
   // uninterrupted step, so concurrent same-key requests cannot interleave.
-  let result = spec.fn({ state: getState(), user, body, params, query });
+  const result = spec.fn({ state: getState(), user, body, params, query });
   if (isThenable(result)) {
     if (spec.idem) throw new Error('idempotent handlers must be synchronous');
-    result = await result;
+    return result; // async handlers (login, signup, reset) finish after the instant is released
   }
   if (spec.idem && result.status === 201) {
     idempotency.store(getState(), user.id, method, scope, key, body, result.body);

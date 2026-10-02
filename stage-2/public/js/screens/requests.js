@@ -24,7 +24,7 @@ export function mountRequests({ api, me, main }) {
   const feedback = createFeedback(messages, { error: 'request-error', uncertain: 'request-uncertain', success: 'request-success' });
   const privacy = selectField({
     label: 'When you pay a request, who can see the payment',
-    testid: 'request-pay-visibility',
+    testid: 'incoming-visibility',
     options: [['public', 'Public (in the feed)'], ['private', 'Private (just you two)']],
     value: 'public',
   });

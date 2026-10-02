@@ -46,6 +46,14 @@ const money = (v, what) => {
   if (!Number.isInteger(v) || v < 0 || v > MAX_BALANCE) throw fail(what);
   return v;
 };
+const bool = (v, what) => {
+  if (v !== undefined && typeof v !== 'boolean') throw fail(what);
+  return v === true;
+};
+const stamp = (v, what) => {
+  if (parseTimestamp(str(v, what)) === null) throw fail(what);
+  return v;
+};
 const arr = (v, what) => {
   if (!Array.isArray(v)) throw fail(what);
   return v;
@@ -114,7 +122,7 @@ function buildFromDocument(s) {
       id: str(p.id, 'payment id'), from: str(p.from, 'from'), to: str(p.to, 'to'), amount: money(p.amount, 'amount'),
       note: str(p.note, 'note'), visibility: p.visibility, request_id: p.request_id, settlement_id: p.settlement_id,
       authorization_id: p.authorization_id === undefined ? null : p.authorization_id,
-      created_at: str(p.created_at, 'created_at'), seeded: p.seeded === true,
+      created_at: stamp(p.created_at, 'created_at'), seeded: bool(p.seeded, 'seeded'),
     };
     if (!state.users.has(payment.from) || !state.users.has(payment.to)) throw fail('payment parties');
     if (payment.visibility !== 'public' && payment.visibility !== 'private') throw fail('visibility');
@@ -131,7 +139,7 @@ function buildFromDocument(s) {
     const request = {
       id: str(r.id, 'request id'), requester: str(r.requester, 'requester'), payer: str(r.payer, 'payer'),
       amount: money(r.amount, 'amount'), note: str(r.note, 'note'), status: r.status,
-      payment_id: r.payment_id, created_at: str(r.created_at, 'created_at'),
+      payment_id: r.payment_id, created_at: stamp(r.created_at, 'created_at'),
     };
     if (!state.users.has(request.requester) || !state.users.has(request.payer)) throw fail('request parties');
     if (!STATUSES.includes(request.status)) throw fail('request status');
@@ -146,7 +154,7 @@ function buildFromDocument(s) {
     const ids = arr(st.payment_ids, 'payment_ids');
     if (!ids.every((id) => state.paymentsById.has(id))) throw fail('settlement members');
     unique(state.settlements, str(st.id, 'settlement id'), 'settlement id');
-    state.settlements.set(st.id, { id: st.id, committed_at: str(st.committed_at, 'committed_at'), payment_ids: ids });
+    state.settlements.set(st.id, { id: st.id, committed_at: stamp(st.committed_at, 'committed_at'), payment_ids: ids });
   }
   for (const p of state.payments) {
     if (p.settlement_id !== null && !state.settlements.has(p.settlement_id)) throw fail('settlement link');
@@ -159,7 +167,7 @@ function buildFromDocument(s) {
       amount: money(a.amount, 'amount'), captured_amount: money(a.captured_amount, 'captured_amount'),
       status: a.status, note: str(a.note, 'note'), visibility: a.visibility, expires_at: str(a.expires_at, 'expires_at'),
       expires_ms: parseTimestamp(a.expires_at), payment_id: a.payment_id,
-      payment_ids: arr(a.payment_ids, 'payment_ids'), seeded: a.seeded === true, created_at: str(a.created_at, 'created_at'),
+      payment_ids: arr(a.payment_ids, 'payment_ids'), seeded: bool(a.seeded, 'seeded'), created_at: stamp(a.created_at, 'created_at'),
     };
     if (!state.users.has(auth.from) || !state.users.has(auth.to)) throw fail('authorization parties');
     if (!AUTH_STATUSES.includes(auth.status) || auth.expires_ms === null) throw fail('authorization status or expiry');

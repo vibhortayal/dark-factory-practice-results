@@ -1,5 +1,7 @@
 'use strict';
 
+const { newestFirst } = require('../ordering');
+
 const { pagination, page } = require('../validation');
 const { paymentJson } = require('../serializers');
 
@@ -7,8 +9,7 @@ const { paymentJson } = require('../serializers');
 function activity({ state, user, query }) {
   const paging = pagination(query);
   const visible = [];
-  for (let i = state.payments.length - 1; i >= 0; i--) {
-    const p = state.payments[i];
+  for (const p of newestFirst(state.payments)) {
     if (p.visibility === 'public' || p.from === user.id || p.to === user.id) visible.push(p);
   }
   const { items, hasMore } = page(visible, paging);

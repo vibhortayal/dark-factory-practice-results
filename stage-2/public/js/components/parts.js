@@ -47,7 +47,10 @@ export function renderBalance(host, me, { onRefresh } = {}) {
 export const empty = (testid, title, text) =>
   h('div', { class: 'empty', testid }, h('p', { class: 'empty-title' }, title), h('p', { class: 'muted' }, text));
 
-export const loading = (text) => h('p', { class: 'loading', role: 'status' }, h('span', { class: 'spinner', 'aria-hidden': 'true' }), text);
+export const loading = (text) =>
+  h('div', { class: 'loading-block', role: 'status', 'aria-live': 'polite' },
+    h('p', { class: 'loading' }, h('span', { class: 'spinner', 'aria-hidden': 'true' }), text),
+    h('div', { class: 'skeleton', 'aria-hidden': 'true' }, h('span', { class: 'skeleton-line' }), h('span', { class: 'skeleton-line' }), h('span', { class: 'skeleton-line' })));
 
 export function loadFailure(text, onRetry) {
   return h('div', { class: 'notice notice-error', role: 'alert', testid: 'load-error' },

@@ -1,5 +1,7 @@
 'use strict';
 
+const { newestFirst } = require('../ordering');
+
 const { notFound, forbidden, conflict, selfPayment, malformed, invalid, ApiError } = require('../errors');
 const { assertTypes, requireField, paymentFields, pagination, page } = require('../validation');
 const { nowMs, formatTimestamp } = require('../clock');
@@ -75,8 +77,7 @@ function listAuthorizations({ state, user, query }) {
   if (direction !== null && direction !== 'incoming' && direction !== 'outgoing') throw invalid('unknown direction');
   if (status !== null && !STATUSES.includes(status)) throw invalid('unknown status');
   const mine = [];
-  for (let i = state.authorizations.length - 1; i >= 0; i--) {
-    const a = state.authorizations[i];
+  for (const a of newestFirst(state.authorizations)) {
     const outgoing = a.from === user.id;
     const incoming = a.to === user.id;
     if (!outgoing && !incoming) continue;
