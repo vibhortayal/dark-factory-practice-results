@@ -7,7 +7,7 @@ check-report timestamps.
 | Unit | State | Accepted revision | Fix rounds (BLOCK verdicts) | Elapsed |
 |---|---|---|---|---|
 | stage-1 | DONE | 43ecb3c9d24e89b47ea00c98828bf3999bb0a5cc | 3 | 04:11Z to 05:57Z (1 h 46 min) |
-| stage-2 | BUILDING | n/a | 0 | started 05:57Z |
+| stage-2 | BUILDING (fix round 1) | n/a | 1 | started 05:57Z |
 | stage-3 | PLANNED | n/a | 0 | n/a |
 | stage-4 | PLANNED | n/a | 0 | n/a |
 
@@ -23,6 +23,8 @@ check-report timestamps.
 - 05:38Z Implementer committed 43ecb3c9d24e89b47ea00c98828bf3999bb0a5cc (fix round 3; 147/147 isolated in ../checks/s1-impl-final-04, own 61 OK); complete handoff sent to Verifier.
 - ~05:56Z Verifier PASS on 43ecb3c9d24e89b47ea00c98828bf3999bb0a5cc (head of main at that time, tree clean): supplied checks isolated 147 collected / 147 passed / 0 failed / 0 skipped (../checks/s1-ver-04), stage-2 probe on stage-1/ fails 0 of 35 as required; own list 900/900 under --cpus 2 --memory 2g on an internal network, 19,389 requests, no status >= 500, slowest request 0.423 s, slowest reset/export/import 0.414 s, first healthy response 0.43 s. No Blocker, Severity 1, 2 or 3 finding open. **Stage 1 accepted at 43ecb3c.**
 - 05:57Z stage-2 spec read; acceptance map acceptance/stage-2.md written; stage-2 handoff sent to both seats.
+- 06:33Z Implementer committed 3ba327652d0fa62e939ae0d773bd845c96b58a6d (stage 2; supplied checks isolated 147 + 35 passed in ../checks/s2-impl-final-02, stage-3 probe fails; own API 24 OK, stage-1 own suite 61 OK, own browser suite 28 OK); complete handoff sent to Verifier.
+- ~07:10Z Verifier BLOCK #1 (stage 2) on 3ba3276: supplied checks isolated 147/147 and 35/35 (../checks/s2-ver-01), stage-3 probe fails; own list 1,338 check executions all passed after the finding was isolated; visual rows V1-V4 accepted from screenshots. One Severity 2 finding: with the page's API calls answered by the stage-1 service (the pre-upgrade situation of rows M2/M4), `/` throws a script error (`BigInt(undefined)` on the missing `available`) and shows no balance, no refresh button and no feed; `/authorizations` throws too. Routed to Implementer with notes T2-T5 to fix.
 
 ## Verifier notes (Severity 3 and 4)
 
@@ -41,3 +43,13 @@ Stage 1, remaining risk stated by the Verifier (not findings): the supplied chec
 single process behind one lock measured only up to 500 users / about 300 payments; import proves
 each candidate state by a second export and validation (largest timed: 60 users, 300 payments);
 a login overlapping a reset was not examined; wallets above 2^53 not exercised.
+
+Stage 2, from BLOCK #1 on 3ba3276 (all Severity 4; no Severity 3):
+- T1 (S4) a seeded authorisation without `status` is accepted and treated as `open`. Kept (Architect: lenient reading, no statement requires the member).
+- T2 (S4) capture without any body returns 400; `{}` works and request pay accepts a missing body. To fix in fix round 1.
+- T3 (S4) while the first read of `/` is pending the loading state replaces the wallet, so `wallet-refresh` is absent. To fix in fix round 1.
+- T4 (S4) `Accept` matched as a substring (`text/htmlx` gets HTML). To fix in fix round 1.
+- T5 (S4) `/favicon.ico` answers 404. To fix in fix round 1.
+- T6 (S4) at 375 px a 17-digit amount breaks inside the number; text exact, no sideways scroll. Kept.
+- T7 (S4) forms lower-case and trim a typed handle and drop empty split entries. Kept.
+- Unexplained observation by the Verifier: 4 log lines matching `traceback|internal error` in one stage-2 container of the first run, text not captured, no request received a 5xx, not reproduced in a full re-run. Implementer asked to look for the cause.
