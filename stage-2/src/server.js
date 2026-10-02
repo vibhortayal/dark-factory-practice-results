@@ -3,6 +3,7 @@
 const http = require('http');
 const { ApiError } = require('./errors');
 const { handle } = require('./pipeline');
+const { serve } = require('./ui');
 
 // Generous caps: an over-long value must reach validation and get its 422, not a transport error.
 const MAX_BODY = 8 * 1024 * 1024;
@@ -64,6 +65,13 @@ async function onRequest(req, res) {
       url = new URL(req.url, 'http://localhost');
     } catch (_) {
       throw new ApiError(404, 'not_found', 'no such route');
+    }
+    const page = serve(req.method, url.pathname, req.headers);
+    if (page) {
+      req.resume();
+      res.writeHead(page.status, { ...page.headers, 'Content-Length': page.body.length });
+      res.end(page.body);
+      return;
     }
     const large = url.pathname === '/_test/reset' || url.pathname === '/_test/import';
     const buffer = await collect(req, large ? MAX_TEST_BODY : MAX_BODY);
