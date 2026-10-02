@@ -11,16 +11,34 @@ from .store import store
 
 
 def canonical(value):
-    """A string equal for equal JSON values (1, 1.0 and 1e3 are one number)."""
-    def norm(v):
-        if isinstance(v, dict):
-            return {k: norm(x) for k, x in v.items()}
-        if isinstance(v, list):
-            return [norm(x) for x in v]
-        if isinstance(v, float) and v == v and abs(v) != float("inf") and v.is_integer():
-            return int(v)
-        return v
-    return json.dumps(norm(value), sort_keys=True, ensure_ascii=True)
+    """A string equal for equal JSON values (1, 1.0 and 1e3 are one number).
+
+    Iterative, so any nesting depth the JSON parser accepts is handled.
+    """
+    out = []
+    stack = [(False, value)]  # (is_literal, item)
+    while stack:
+        literal, item = stack.pop()
+        if literal:
+            out.append(item)
+        elif isinstance(item, dict):
+            out.append("{")
+            stack.append((True, "}"))
+            for i, key in reversed(list(enumerate(sorted(item)))):
+                stack.append((False, item[key]))
+                stack.append((True, ("," if i else "") + json.dumps(key) + ":"))
+        elif isinstance(item, list):
+            out.append("[")
+            stack.append((True, "]"))
+            for i in range(len(item) - 1, -1, -1):
+                stack.append((False, item[i]))
+                if i:
+                    stack.append((True, ","))
+        else:
+            if isinstance(item, float) and item == item and abs(item) != float("inf") and item.is_integer():
+                item = int(item)
+            out.append(json.dumps(item))
+    return "".join(out)
 
 
 def run_idempotent(req, execute, allow_empty_body=False):

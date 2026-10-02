@@ -1,6 +1,4 @@
 """Unauthenticated test endpoints: reset, export, import (spec §3.3, §10)."""
-import json
-
 from ..errors import invalid
 from ..statecodec import build_state, check_export
 from ..store import store
@@ -21,5 +19,5 @@ def export_state(req):
 def import_state(req):
     document = req.json_body()
     state = check_export(document)
-    store.load(json.loads(json.dumps(state)))
+    store.load(state)
     return 204, None

@@ -111,3 +111,83 @@ class HostileInputTests(World):
                     self.assertLess(r.status, 500, (path, raw[:20], r.raw))
                     self.assertTrue(r.json is None or "error" in r.json or r.status < 300)
         self.assertEqual(self.balance("ada"), 10000)
+
+
+class VerifierFindingTests(World):
+    """B1-B4 and notes N1, N2 from the stage-1 BLOCK verdict."""
+
+    def test_b1_wrong_typed_ids_in_fixture(self):
+        u = [user("u_ada", "ada", 1)]
+        bad = [fixture(users=u, settlement_operator_ids=[["u_ada"]]),
+               fixture(users=u, settlement_operator_ids=[{"id": "u_ada"}]),
+               fixture(users=u, payments=[{"id": "p", "from_user_id": [1], "to_user_id": "u_ada", "amount": 1}]),
+               fixture(users=u, payments=[{"id": "p", "from_user_id": "u_ada", "to_user_id": {}, "amount": 1}]),
+               fixture(users=u, requests=[{"id": "r", "requester_id": [], "payer_id": "u_ada", "amount": 1}]),
+               fixture(users=u, requests=[{"id": "r", "requester_id": "u_ada", "payer_id": {"a": 1}, "amount": 1}])]
+        for fx in bad:
+            self.assertErr(call("POST", "/_test/reset", fx), 422, "validation_failed")
+        self.assertEqual(self.balance("ada"), 10000)
+
+    def test_b2_huge_limit_and_offset(self):
+        huge = "9" * 5000
+        self.assertErr(self.get("ada", "/requests?limit=" + huge), 422, "validation_failed")
+        self.assertErr(self.get("ada", "/activity?limit=" + huge), 422, "validation_failed")
+        r = self.get("ada", "/activity?offset=" + huge)
+        self.assertEqual((r.status, r.json["payments"]), (200, []))
+
+    def test_b3_huge_amount(self):
+        huge = "9" * 5000
+        for path, body in (("/payments", '{"to_handle":"bob","amount":%s}'),
+                           ("/requests", '{"payer_handle":"bob","amount":%s}'),
+                           ("/splits", '{"participant_handles":["bob"],"amount":%s}')):
+            self.assertErr(self.post("ada", path, raw=(body % huge).encode()), 422, "validation_failed")
+        t = '{"transfers":[{"from_handle":"ada","to_handle":"bob","amount":%s}]}' % huge
+        self.fixture_extra  # settlements need an operator; non-operator is 403 first
+        self.assertErr(self.post("ada", "/settlements", raw=t.encode()), 403, "forbidden")
+
+    def test_b4_oversized_header(self):
+        r = self.post("ada", "/payments", {"to_handle": "bob", "amount": 1}, key="k" * 65520)
+        self.assertErr(r, 422, "validation_failed")
+        self.assertEqual(r.headers["Content-Type"], "application/json; charset=utf-8")
+
+    def test_n1_deeply_nested_unknown_field(self):
+        deep = '{"to_handle":"bob","amount":1,"x":' + "[" * 990 + "]" * 990 + "}"
+        self.assertEqual(self.post("ada", "/payments", raw=deep.encode()).status, 201)
+        too_deep = '{"to_handle":"bob","amount":1,"x":' + "[" * 100000 + "}"
+        self.assertErr(self.post("ada", "/payments", raw=too_deep.encode()), 400, "malformed_request")
+        self.assertErr(call("POST", "/_test/reset", raw=too_deep.encode()), 400, "malformed_request")
+
+    def test_huge_numbers_everywhere(self):
+        for amount in ("1e999999", "0." + "0" * 5000 + "1", "-" + "9" * 5000):
+            r = self.post("ada", "/payments", raw=('{"to_handle":"bob","amount":%s}' % amount).encode())
+            self.assertErr(r, 422, "validation_failed")
+        r = self.post("ada", "/payments", raw=('{"to_handle":"bob","amount":1,"x":%s}' % ("9" * 5000)).encode())
+        self.assertEqual(r.status, 201)
+        self.assertErr(call("POST", "/_test/reset", raw=('{"users":[{"id":"a","email":"a@x.io","password":"p","handle":"a","balance":%s}]}' % ("9" * 5000)).encode()), 422, "validation_failed")
+
+    def test_http_layer_errors_carry_json(self):
+        import socket
+        from .helpers import server_port
+
+        def raw_exchange(data):
+            with socket.create_connection(("127.0.0.1", server_port()), timeout=10) as s:
+                s.sendall(data)
+                chunks = b""
+                while True:
+                    c = s.recv(65536)
+                    if not c:
+                        return chunks
+                    chunks += c
+                    if b"\r\n\r\n" in chunks and b"}" in chunks:
+                        return chunks
+        cases = [b"PROPFIND /me HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n",
+                 b"GET /activity?x=" + b"a" * 70000 + b" HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n",
+                 b"GET /me HTTP/1.1\r\nHost: x\r\n" + b"".join(b"H%d: v\r\n" % i for i in range(150)) + b"Connection: close\r\n\r\n",
+                 b"POST /payments HTTP/1.1\r\nHost: x\r\nContent-Length: abc\r\nConnection: close\r\n\r\n"]
+        for data in cases:
+            reply = raw_exchange(data)
+            head, _, body = reply.partition(b"\r\n\r\n")
+            status = int(head.split()[1])
+            self.assertTrue(400 <= status < 500, (data[:30], head))
+            self.assertIn(b"application/json; charset=utf-8", head)
+            self.assertIn(b'"error"', body)

@@ -8,6 +8,11 @@ def _reject_constant(name):
     raise ValueError(name)
 
 
+def _parse_int(text):
+    """Integers beyond Python's digit limit still parse (as infinity: out of every range)."""
+    return int(text) if len(text) <= 4000 else float(text)
+
+
 class Request:
     def __init__(self, method, path, query, headers, raw):
         self.method = method
@@ -28,7 +33,8 @@ class Request:
                 return {}
             raise malformed("a JSON body is required")
         try:
-            value = json.loads(self.raw.decode("utf-8"), parse_constant=_reject_constant)
+            value = json.loads(self.raw.decode("utf-8"), parse_constant=_reject_constant,
+                              parse_int=_parse_int)
         except (ValueError, RecursionError):
             raise malformed("body is not valid JSON")
         if not isinstance(value, dict):

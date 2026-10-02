@@ -42,3 +42,13 @@ Check it: `curl localhost:8080/health` -> `{"status": "ok"}`.
   and the original response; they are part of the exported state.
 * Passwords: scrypt (N=4096, r=8, p=1, per-user salt) so 50 concurrent logins and
   a few hundred seeded users stay well within 5 s / 10 s on 2 vCPU.
+
+## Size limits and protocol-level errors
+
+Request line and each header line: 64 KiB; at most 100 headers; body: 64 MiB.
+Anything over a limit (including an over-long `Idempotency-Key`) is answered
+`422 validation_failed` with the JSON error body; an unsupported method is
+`405 method_not_allowed`; malformed framing is `400 malformed_request`. JSON
+integers of any length parse (huge ones are simply out of range); nesting the
+parser refuses is `400 malformed_request`. `HEAD` is answered like any
+unsupported method, with headers only (HTTP forbids a body there).

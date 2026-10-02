@@ -70,7 +70,7 @@ def query_int(query, name, default, minimum, maximum=None):
         return default
     if not DIGITS_RE.fullmatch(raw):
         raise invalid(f"{name} must be plain decimal digits")
-    value = int(raw)
+    value = int(raw) if len(raw) <= 18 else 10 ** 18  # longer: beyond any limit or page
     if value < minimum or (maximum is not None and value > maximum):
         raise invalid(f"{name} is out of range")
     return value

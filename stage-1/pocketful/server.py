@@ -9,6 +9,8 @@ from .errors import ApiError
 from .request import Request
 from .router import dispatch
 
+# Documented limits: request line and each header line 64 KiB and at most 100
+# headers (http.server), body 64 MiB. Each excess is answered with a JSON error.
 MAX_BODY = 64 * 1024 * 1024
 
 
@@ -19,20 +21,40 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
     def _read_body(self):
-        if "chunked" in (self.headers.get("Transfer-Encoding") or "").lower():
-            chunks = []
-            while True:
-                size = int(self.rfile.readline().split(b";")[0].strip() or b"0", 16)
-                if size == 0:
-                    while self.rfile.readline().strip():
-                        pass
-                    return b"".join(chunks)
-                chunks.append(self.rfile.read(size))
-                self.rfile.readline()
-        length = int(self.headers.get("Content-Length") or 0)
+        try:
+            if "chunked" in (self.headers.get("Transfer-Encoding") or "").lower():
+                return self._read_chunked()
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            raise ApiError(400, "malformed_request", "bad Content-Length or chunk framing")
         if length > MAX_BODY:
-            raise ApiError(413, "validation_failed", "body too large")
+            raise ApiError(422, "validation_failed", "body too large")
         return self.rfile.read(length) if length > 0 else b""
+
+    def _read_chunked(self):
+        chunks, total = [], 0
+        while True:
+            size = int(self.rfile.readline(65537).split(b";")[0].strip() or b"0", 16)
+            total += size
+            if total > MAX_BODY:
+                raise ApiError(422, "validation_failed", "body too large")
+            if size == 0:
+                while self.rfile.readline(65537).strip():
+                    pass
+                return b"".join(chunks)
+            chunks.append(self.rfile.read(size))
+            self.rfile.readline(65537)
+
+    def send_error(self, code, message=None, explain=None):
+        """Protocol-level refusals (oversized line/header) still use the §5 body."""
+        if code in (413, 414, 431):      # oversized body, URL or header: out of range
+            status, name = 422, "validation_failed"
+        elif code in (405, 501):         # a method this service does not serve
+            status, name = 405, "method_not_allowed"
+        else:                            # bad request line, HTTP version, ...
+            status, name = (code if 400 <= code < 500 else 400), "malformed_request"
+        self.close_connection = True
+        self._send(status, {"error": {"code": name, "message": message or "bad request"}})
 
     def _send(self, status, payload):
         body = b"" if payload is None else json.dumps(payload).encode("utf-8")
@@ -56,7 +78,7 @@ class Handler(BaseHTTPRequestHandler):
                 status, payload = dispatch(req)
             except ApiError as err:
                 status, payload = err.status, {"error": {"code": err.code, "message": err.message}}
-            except (ValueError, UnicodeError):
+            except RecursionError:
                 status, payload = 400, {"error": {"code": "malformed_request",
                                                   "message": "unreadable request"}}
             except Exception as err:  # never leak a traceback; log and answer 500

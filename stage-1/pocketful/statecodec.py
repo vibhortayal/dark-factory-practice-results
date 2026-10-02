@@ -23,8 +23,26 @@ def _is_id(value):
     return isinstance(value, str) and 1 <= len(value) <= MAX_ID
 
 
+def _known(table, key):
+    """table[key] for a string key, else None (JSON values may be unhashable)."""
+    return table.get(key) if isinstance(key, str) else None
+
+
 def _is_int(value):
     return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _shallow(value, limit=32):
+    """True when the JSON value nests at most `limit` levels (checked iteratively)."""
+    stack = [(value, 1)]
+    while stack:
+        item, depth = stack.pop()
+        if isinstance(item, (dict, list)):
+            if depth > limit:
+                return False
+            children = item.values() if isinstance(item, dict) else item
+            stack.extend((child, depth + 1) for child in children)
+    return True
 
 
 def _unique_ids(items, key, seen):
@@ -58,13 +76,13 @@ def check_state(state):
         seen.add(uid)
     users = state["users"]
     for token, uid in state["tokens"].items():
-        _need(isinstance(token, str) and uid in users, "token")
-    _need(all(uid in users for uid in state["operators"]), "operators")
+        _need(isinstance(token, str) and _known(users, uid), "token")
+    _need(all(_known(users, uid) for uid in state["operators"]), "operators")
     for p in state["payments"]:
         _need(isinstance(p, dict), "payment")
     _unique_ids(state["payments"], "payment_id", seen)
     for p in state["payments"]:
-        _need(p.get("from_user_id") in users and p.get("to_user_id") in users, "payment parties")
+        _need(_known(users, p.get("from_user_id")) and _known(users, p.get("to_user_id")), "payment parties")
         _need(p["from_handle"] == users[p["from_user_id"]]["handle"]
               and p["to_handle"] == users[p["to_user_id"]]["handle"], "payment handles")
         _need(_is_int(p.get("amount")) and p["amount"] >= 0, "payment amount")
@@ -77,7 +95,7 @@ def check_state(state):
         _need(isinstance(r, dict), "request")
     _unique_ids(state["requests"], "request_id", seen)
     for r in state["requests"]:
-        _need(r.get("requester_id") in users and r.get("payer_id") in users, "request parties")
+        _need(_known(users, r.get("requester_id")) and _known(users, r.get("payer_id")), "request parties")
         _need(r["requester_handle"] == users[r["requester_id"]]["handle"]
               and r["payer_handle"] == users[r["payer_id"]]["handle"], "request handles")
         _need(_is_int(r.get("amount")) and r["amount"] >= 0, "request amount")
@@ -92,7 +110,8 @@ def check_state(state):
         _need(isinstance(rec, dict), "idempotency record")
         for name in ("user_id", "path", "key", "fingerprint"):
             _need(isinstance(rec.get(name), str), "idempotency record")
-        _need(rec["user_id"] in users and isinstance(rec.get("response"), dict), "idempotency record")
+        _need(_known(users, rec["user_id"]) and isinstance(rec.get("response"), dict)
+              and _shallow(rec["response"]), "idempotency record")
         ident = (rec["user_id"], rec["path"], rec["key"])
         _need(ident not in keys, "duplicate idempotency record")
         keys.add(ident)
@@ -171,7 +190,7 @@ def _optional_id(entry, name):
 def _fixture_payments(entries, users, currency, now):
     out = []
     for e in entries:
-        sender, receiver = users.get(e.get("from_user_id")), users.get(e.get("to_user_id"))
+        sender, receiver = _known(users, e.get("from_user_id")), _known(users, e.get("to_user_id"))
         _need(sender and receiver, "payment references an unknown user")
         visibility = e.get("visibility", "public")
         _need(visibility in VISIBILITIES and isinstance(visibility, str), "payment visibility")
@@ -190,7 +209,7 @@ def _fixture_payments(entries, users, currency, now):
 def _fixture_requests(entries, users, currency, now):
     out = []
     for e in entries:
-        requester, payer = users.get(e.get("requester_id")), users.get(e.get("payer_id"))
+        requester, payer = _known(users, e.get("requester_id")), _known(users, e.get("payer_id"))
         _need(requester and payer, "request references an unknown user")
         note = e.get("note", "")
         _need(isinstance(note, str), "request note must be a string")
@@ -212,6 +231,13 @@ def _by_time(items):
 
 def build_state(fixture, now):
     """Turn a reset fixture into a validated state dict."""
+    try:
+        return _build_state(fixture, now)
+    except (KeyError, TypeError, AttributeError, ValueError):
+        raise invalid("fixture is not valid")
+
+
+def _build_state(fixture, now):
     currency = fixture.get("currency", "EUR")
     _need(isinstance(currency, str) and currency, "currency must be a string")
     minor_units = fixture.get("minor_units", 2)
@@ -219,7 +245,7 @@ def build_state(fixture, now):
     _need(isinstance(fixture.get("users"), list), "users must be an array")
     users = _fixture_users(_fixture_list(fixture, "users"))
     operators = fixture.get("settlement_operator_ids", [])
-    _need(isinstance(operators, list) and all(o in users for o in operators),
+    _need(isinstance(operators, list) and all(_known(users, o) for o in operators),
           "settlement_operator_ids must name seeded users")
     payments = _fixture_payments(_fixture_list(fixture, "payments"), users, currency, now)
     requests = _fixture_requests(_fixture_list(fixture, "requests"), users, currency, now)
