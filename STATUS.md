@@ -6,8 +6,8 @@ Run started: 2026-10-02T16:47Z (dispatch received by the Architect).
 |---|---|---|---|---|---|
 | stage-1 | DONE | 77409dda43334b784ca1125d2d990ba51478abf6 | 1 | 0h36 (16:47Z to 17:23Z) | Verifier PASS after one fix round. Final isolated check: `checks/s1-ver-04` (147 passed, `claimed stage: 1`). |
 | stage-2 | DONE | 88b9223d3e56cd9a668499f3cd5b87575d0ea114 | 1 | 0h53 (17:23Z to 18:16Z) | Verifier PASS after one fix round. Final isolated check: `checks/s2-ver-04` (147 + 35 passed, `claimed stage: 2`). |
-| stage-3 | DONE | aedbe2c666e7b1b97661ad869d77f002bb103eca | 0 | 0h41 (18:16Z to 18:57Z) | Verifier PASS on the first revision. Final isolated check: `checks/s3-ver-02` (147 + 35 + 6 passed, `claimed stage: 3`). |
-| stage-4 | PLANNED | n/a | 0 | n/a | Acceptance map in preparation. |
+| stage-3 | DONE | aedbe2c666e7b1b97661ad869d77f002bb103eca | 0 | 0h33 (18:16Z to 18:49Z) | Verifier PASS on the first revision. Final isolated check: `checks/s3-ver-02` (147 + 35 + 6 passed, `claimed stage: 3`). |
+| stage-4 | BUILDING | n/a | 0 | started 18:49Z | Acceptance map: `acceptance/stage-4.md`. Handed to Implementer and Verifier. |
 
 ## Decisions
 
@@ -16,6 +16,7 @@ Run started: 2026-10-02T16:47Z (dispatch received by the Architect).
 - Map clarification after the stage 1 handoff (sent to both seats): row C1 applies to the authenticated API; a non-object JSON body on reset/import is 422 (B8, J6); an empty body on the pay path may be read as `{}`.
 - Stage 2 open choices are resolved in `acceptance/stage-2.md`, rows marked **[D]** (UI as a pure client of the documented API, millisecond timestamps, capture error precedence, seeded authorisation defaults, authorise form on two screens).
 - Stage 3 open choices are resolved in `acceptance/stage-3.md`, rows marked **[D]** (exact instants and echoes, default `to` just after the current clock tick, id order as strings, 422 for every invalid correction field, historical overdraft only for boundaries the correction makes worse, close times for imported holds, snapshots kept in the export).
+- Stage 4 open choices are resolved in `acceptance/stage-4.md`, rows marked **[D]** (snapshots rendered in the layout they were taken under, refund and batch error precedence, `refund_exceeds_payment` placed before funds).
 - Language, framework and storage are left to the Implementer within the delivery limits (rows A1..A5).
 
 ## Verifier notes
@@ -72,7 +73,7 @@ Non-blocking notes: (1) the first-load state is a bare page with a spinner and o
 Architect's acceptance: stage-2 accepted at 88b9223d3e56cd9a668499f3cd5b87575d0ea114.
 
 
-### stage-3, verdict 1: PASS on aedbe2c666e7b1b97661ad869d77f002bb103eca (18:56Z)
+### stage-3, verdict 1: PASS on aedbe2c666e7b1b97661ad869d77f002bb103eca (18:49Z)
 
 No blocking finding and no deviation on a [D] row.
 
