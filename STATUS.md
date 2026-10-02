@@ -4,7 +4,7 @@ Run started: 2026-10-02T19:45Z (dispatch received by Architect).
 
 | Unit | State | Fix rounds (BLOCK verdicts) | Accepted revision | Elapsed |
 |---|---|---|---|---|
-| stage-1 | BUILDING (map change after PASS of 9f7cba3; awaiting new revision and verdict) | 1 | — (PASS held for 9f7cba3c0bba5b5b747ea078240a6aeba45c6abc) | 37 min at 20:22Z |
+| stage-1 | DONE | 1 | 76497f32a1e1cf9015d7b696827cfed4dfe81fcd | 42 min (19:45Z → 20:27Z) |
 
 ## Log
 
@@ -25,6 +25,22 @@ Run started: 2026-10-02T19:45Z (dispatch received by Architect).
   `visibility`/`amount` give 422): §5 names the three fields, not endpoints, so 422 is required for all three in
   seeded records. Map row C19 revised and sent to both seats (`handoffs/stage-1/change-after-round-2.md`). Not a
   BLOCK; fix-round count stays 1. Acceptance waits for a verdict on the revision that carries this change.
+- 2026-10-02T20:23Z Implementer committed 76497f32a1e1cf9015d7b696827cfed4dfe81fcd (seeded `note` must be a string
+  of at most 200 characters → 422).
+- 2026-10-02T20:25Z Verifier PASS for 76497f3 (verification commit d61bd09): harness host 147/147 (ver-5), isolated
+  147/147 (ver-6); own checks 137/137; 7,804 requests, no 5xx; clean no-cache build; healthy in 0.43 s; 2 vCPU / 2 GiB;
+  1,500 mixed operations at 50 in flight conserved, no negative balance. N7 closed.
+- 2026-10-02T20:26Z Architect final check, isolated mode, HEAD d61bd09 (stage-1/ identical to 76497f3):
+  `.venv/bin/python -m harness run --track pocketful --repo ../band-work/result --stage 1 --mode isolated --out ../band-work/checks/arch-final-1`
+  → stage 1 pass, 147 collected / 147 passed / 0 failed / 0 errors / 0 skipped. (The harness's stage-2 probe fails,
+  as expected: stage 2 is not built.)
+- 2026-10-02T20:27Z stage-1 ACCEPTED at 76497f32a1e1cf9015d7b696827cfed4dfe81fcd. No blocking finding open.
+
+## Open non-blocking notes at acceptance (Verifier, round 3): N1, N2, N4, N5 below. N3 and N7 closed.
+
+Remaining risk not tested (Verifier): the judge's full check set is larger than the supplied sample; behaviour
+above 50 requests in flight and a wall clock stepping backwards; import exercised only with this service's own
+states plus the Verifier's mutations of them.
 
 ## Verifier notes (round 2 adds N7; N3 closed)
 
