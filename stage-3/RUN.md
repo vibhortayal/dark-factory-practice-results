@@ -1,13 +1,14 @@
-# Pocketful stage 2 — run instructions
+# Pocketful stage 3 — run instructions
 
-Wallet screens in the browser plus payment authorizations (holds and captures).
+Stage 2 (wallet screens, authorizations) plus statements, historical balances and
+payment corrections. The UI is unchanged from stage 2 (no new screen).
 Pure Python 3.12 standard library on the server; the UI is plain ES modules and CSS
 with system fonts. Nothing is fetched from another origin, and no network is
 needed at run time.
 
 ## Build and start
 
-    docker build -t pocketful-stage-2 . && docker run --rm -e PORT=8080 -p 8080:8080 pocketful-stage-2
+    docker build -t pocketful-stage-3 . && docker run --rm -e PORT=8080 -p 8080:8080 pocketful-stage-3
 
 `PORT` defaults to `8080`; the service listens on `0.0.0.0:$PORT`. Open
 `http://localhost:8080/` for the UI (`/`, `/requests`, `/split`, `/authorizations`,
@@ -18,7 +19,9 @@ needed at run time.
 
     python3 -m unittest discover -s tests -t . -v          # API tests (in-process server)
     python3 tests/load_check.py http://127.0.0.1:8080 [second-url]   # limits, 50-way bursts, export -> import
-    <python with playwright> tests/ui_check.py STAGE2_URL [STAGE1_URL] [screenshot-dir]   # browser checks
+    <python with playwright> tests/ui_check.py STAGE3_URL [STAGE1_URL] [screenshot-dir]   # browser checks (stage-2 UI)
+    python3 tests/upgrade_check.py STAGE3_URL STAGE2_URL STAGE1_URL   # exports of stage-1/2 services import into stage 3
+    python3 tests/perf_check.py STAGE3_URL                 # 5000 payments, 50 mixed history requests
 
 `ui_check.py` needs Chromium through Playwright (the kickoff checkout's `.venv` has it);
 the optional stage-1 URL enables the upgrade scenario (a browser signed in against a
@@ -33,12 +36,14 @@ stage-1 service keeps working after export -> import into stage 2).
 | `pocketful/request.py`, `errors.py`, `validation.py`, `timefmt.py`, `passwords.py` | request object, errors, field rules, timestamps, scrypt |
 | `pocketful/store.py` | the one JSON-shaped state dict, its lock, lookup indexes |
 | `pocketful/clock.py`, `operation.py` | monotonic clock; start of every locked operation (one clock read + expiry) |
-| `pocketful/holds.py` | holds: `held`, `available = total - held`, closing and clock expiry |
+| `pocketful/holds.py` | holds: `held`, `available = total - held`, closing, clock expiry, and the hold history (`held_at`, `hold_steps`) |
+| `pocketful/history.py` | the one function behind `/me?as_of`, `/statement` and the overdraft check: a user's movements in a view (T, K) from revisions |
 | `pocketful/ledger.py` | moving money; payment and request records (funds checks use `available`) |
 | `pocketful/idempotency.py` | the seven idempotent write paths |
 | `pocketful/fixture.py` | reset fixture -> state (users, payments, requests, authorizations, TTL) |
-| `pocketful/statecheck.py`, `statebase.py` | validation of exported/imported state (stage-1 exports are upgraded with defaults) |
-| `pocketful/handlers/` | one module per API area: `auth`, `me`, `payments`, `requests`, `splits`, `settlements`, `activity`, `authorizations`, `testctl`, `ui` |
+| `pocketful/statecheck.py`, `statebase.py` | validation of exported/imported state |
+| `pocketful/stateupgrade.py` | brings a stage-1 / stage-2 export up to the current shape (revision 1 of every payment, opening balances, `closed_at`) |
+| `pocketful/handlers/` | one module per API area: `auth`, `me`, `payments`, `requests`, `splits`, `settlements`, `activity`, `authorizations`, `statement`, `corrections`, `testctl`, `ui` |
 | `pocketful/ui/index.html`, `styles.css` | the page shell and the visual system |
 | `pocketful/ui/js/app.js` | client router and bootstrap; `header.js` navigation and current user |
 | `pocketful/ui/js/api.js` | the only network code: bearer token, result kinds (ok / refused / uncertain), idempotency keys |
@@ -50,7 +55,23 @@ stage-1 service keeps working after export -> import into stage 2).
 ## Design notes
 
 * One process-wide lock serialises every state change; `available` is derived from
-  open holds on every read, and clock expiry is applied at the start of every request.
+  open holds on every read. `store.locked()` begins every operation itself (one clock read,
+  clock expiry), so a handler cannot forget; `auth.py` and the settlement permission check
+  use the raw lock because they read no time.
+* History: every payment has revisions (`state.revisions`), revision 1 = original with
+  effective = recorded = created_at. A view (T, K) takes each payment's latest revision recorded
+  at or before K and counts it at its effective time <= T. Opening balances are fixed at
+  reset/import (ending balance minus the seeded payments' net effect); new accounts open at 0.
+  A correction moves the difference between the same two wallets in one step and is refused
+  (`stale_revision`, `insufficient_funds`, `historical_overdraft`, in that order) before anything changes;
+  `historical_overdraft` is a sweep over every past boundary (payment effective times and hold
+  events, all movements of one instant applied together).
+* Snapshots (`state.snapshots`) store only their parameters (user, window, resolved `to`,
+  `known_at` clamped to the read instant); a view with K at or before the read never changes later,
+  so pages are recomputed and stay frozen. Tokens last until reset and are part of export/import.
+* Imports of older exports: revision 1 for every payment; opening = balance minus net payments;
+  a hold closed by a final capture closes at that capture, an expired one at `expires_at`, a voided one
+  at its last capture or (none) its creation.
 * Time: each locked operation reads a monotonic clock once (`clock.py`, `operation.begin`);
   every server-assigned timestamp is a fixed-width microsecond instant
   (`2026-09-24T13:10:00.123456+00:00`), `expires_at = created_at + ttl` exactly, and a hold is open

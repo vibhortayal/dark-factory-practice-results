@@ -15,7 +15,7 @@ def authenticate(req):
     scheme, _, token = header.partition(" ")
     if scheme.lower() != "bearer" or not token or " " in token:
         raise unauthenticated("a bearer token is required")
-    with store.locked():
+    with store.lock:   # no timestamps or expiry involved: not an operation
         user = store.user_for_token(token)
     if user is None:
         raise unauthenticated("unknown token")
@@ -55,10 +55,10 @@ def signup(req):
     if not display_name:
         raise invalid("display_name must not be empty")
     handle = derive_handle(email)
-    with store.locked():
+    with store.lock:   # no timestamps or expiry involved: not an operation
         _check_available(email, handle)
     password_hash = hash_password(password)  # slow: kept outside the lock
-    with store.locked():
+    with store.lock:   # no timestamps or expiry involved: not an operation
         _check_available(email, handle)
         user = {"id": store.new_id("u"), "email": email, "display_name": display_name,
                 "handle": handle, "password_hash": password_hash, "balance": 0}
@@ -70,12 +70,12 @@ def login(req):
     body = req.json_body()
     email = string_field(body, "email")
     password = string_field(body, "password")
-    with store.locked():
+    with store.lock:   # no timestamps or expiry involved: not an operation
         user = store.by_email.get(email)
         stored_hash = user["password_hash"] if user else None
     if stored_hash is None or not verify_password(password, stored_hash):
         raise unauthenticated("wrong email or password")
-    with store.locked():
+    with store.lock:   # no timestamps or expiry involved: not an operation
         if store.state["users"].get(user["id"]) is not user:
             raise unauthenticated("wrong email or password")
         return 200, _session(user, store.issue_token(user["id"]))

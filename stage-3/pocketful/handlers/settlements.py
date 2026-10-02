@@ -11,7 +11,7 @@ MAX_TRANSFERS = 32
 
 
 def create_settlement(req):
-    with store.locked():
+    with store.lock:   # a permission check only: the operation begins in run_idempotent
         if req.user_id not in store.state["operators"]:
             raise forbidden("settlements require an operator")
     return run_idempotent(req, _execute)
