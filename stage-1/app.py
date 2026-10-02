@@ -313,7 +313,7 @@ def req_int(d, key, minimum=0):
     if isinstance(v, bool) or not isinstance(v, (int, Decimal)):
         raise bad(message="%s must be an integer" % key)
     if isinstance(v, Decimal):
-        if v.adjusted() > 40 or v != v.to_integral_value():
+        if not v.is_finite() or v.adjusted() > 40 or v != v.to_integral_value():
             raise bad(message="%s must be an integer" % key)
         v = int(v)
     if v < minimum:
@@ -421,7 +421,7 @@ def build_from_export(obj, pool=None):
         return _load_state(d)
     except ApiError:
         raise
-    except (KeyError, TypeError, ValueError, AttributeError, RecursionError):
+    except Exception:  # any malformed state is a validation failure, never a 5xx
         raise bad(message="invalid state")
 
 
@@ -817,7 +817,12 @@ def h_settlements(headers, query, raw):
 
 def h_reset(headers, query, raw):
     fx = parse_object(raw)
-    st = build_from_fixture(fx, POOL)
+    try:
+        st = build_from_fixture(fx, POOL)
+    except ApiError:
+        raise
+    except Exception:  # any malformed fixture is a validation failure, never a 5xx
+        raise bad(message="invalid fixture")
     global S
     with LOCK:
         S = st

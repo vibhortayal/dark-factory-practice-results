@@ -663,6 +663,19 @@ class TestExactNumbers(Base):
         self.assertEqual(call("POST", "/payments", raw=b'{"to_handle":"bob","amount":1e2,"u":1.0}',
                               token=self.ada, key=key)[0], 200)
 
+    def test_fixture_and_import_odd_numbers(self):
+        for lit in ("-1e99999999999999999999999", "1e99999999999999999999999", "1e1000000000000000000", "-1e400", "-1"):
+            f = fixture()
+            raw = json.dumps(f).replace('"balance": 10000', '"balance": ' + lit).encode()
+            self.err(call("POST", "/_test/reset", raw=raw), 422, "validation_failed")
+            f = fixture(payments=[{"id": "p", "from_user_id": "u_ada", "to_user_id": "u_bob", "amount": 0}])
+            raw = json.dumps(f).replace('"amount": 0', '"amount": ' + lit).encode()
+            self.err(call("POST", "/_test/reset", raw=raw), 422, "validation_failed")
+            exp = json.dumps(call("GET", "/_test/export")[1])
+            self.err(call("POST", "/_test/import", raw=exp.replace('"balance": 10000', '"balance": ' + lit).encode()),
+                     422, "validation_failed")
+        self.assertEqual(self.bal(self.ada), 10000)
+
     def test_reset_race_no_5xx(self):
         out = []
         stop = []
