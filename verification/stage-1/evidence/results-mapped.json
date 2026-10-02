@@ -1,0 +1,1091 @@
+[
+ {
+  "id": "B2",
+  "clause": "\u00a73.2",
+  "title": "GET /health -> 200 {\"status\":\"ok\"}",
+  "status": "PASS",
+  "detail": "",
+  "requests": 1,
+  "seconds": 0.04
+ },
+ {
+  "id": "B3",
+  "clause": "\u00a73.3",
+  "title": "POST /_test/reset -> 204, empty body, no authentication",
+  "status": "PASS",
+  "detail": "",
+  "requests": 1,
+  "seconds": 0.03
+ },
+ {
+  "id": "B4",
+  "clause": "\u00a73.3 'Replace all service state ... subsequent requests must see only that fixture'",
+  "title": "reset drops users, tokens, restaurants, reservations and idempotency records",
+  "status": "PASS",
+  "detail": "",
+  "requests": 21,
+  "seconds": 0.95
+ },
+ {
+  "id": "B5",
+  "clause": "\u00a73.3 'Repeated resets are supported'",
+  "title": "same fixture twice and alternating fixtures; nothing duplicated",
+  "status": "PASS",
+  "detail": "",
+  "requests": 17,
+  "seconds": 0.7
+ },
+ {
+  "id": "B6a",
+  "clause": "\u00a73.4 'IDs ... at most 64 characters ... also applies to IDs supplied in reset fixtures' + \u00a75 exceeding a stated length -> 422",
+  "title": "65-character fixture ids (user, restaurant, table, reservation) -> 422 validation_failed; previous state kept",
+  "status": "PASS",
+  "detail": "",
+  "requests": 15,
+  "seconds": 0.63
+ },
+ {
+  "id": "B6b",
+  "clause": "\u00a75 malformed_request",
+  "title": "reset with unparseable body -> 400 malformed_request; state kept",
+  "status": "PASS",
+  "detail": "",
+  "requests": 4,
+  "seconds": 0.17
+ },
+ {
+  "id": "B6c",
+  "clause": "\u00a78 'reference is 6 to 12 characters of A-Z0-9, unique across all reservations' + \u00a75 invalid format -> 422",
+  "title": "seeded reference of wrong length/alphabet, or duplicated -> 422 validation_failed",
+  "status": "PASS",
+  "detail": "",
+  "requests": 15,
+  "seconds": 0.64
+ },
+ {
+  "id": "B11",
+  "clause": "\u00a73.4 IDs at most 64 characters",
+  "title": "64-character fixture ids accepted and usable; service ids are strings <= 64",
+  "status": "PASS",
+  "detail": "",
+  "requests": 7,
+  "seconds": 0.31
+ },
+ {
+  "id": "B9r",
+  "clause": "\u00a73.4 'Unknown fields in a request body are ignored'",
+  "title": "unknown fields in the reset fixture are ignored",
+  "status": "PASS",
+  "detail": "",
+  "requests": 3,
+  "seconds": 0.13
+ },
+ {
+  "id": "C2",
+  "clause": "\u00a74 fixture format / \u00a78 GET /restaurants/{id} 'in the fixture's shape'",
+  "title": "restaurant returned with fixture values",
+  "status": "PASS",
+  "detail": "",
+  "requests": 3,
+  "seconds": 0.12
+ },
+ {
+  "id": "C5",
+  "clause": "\u00a74 'Seeded users must be able to log in with the given password immediately'",
+  "title": "seeded login; user_id and display_name from fixture",
+  "status": "PASS",
+  "detail": "",
+  "requests": 3,
+  "seconds": 0.13
+ },
+ {
+  "id": "C6",
+  "clause": "\u00a74 'reservations may seed confirmed bookings ... plus id, reference and user_id'",
+  "title": "seeded booking is confirmed, owned, occupies its table, and behaves like an API-made one",
+  "status": "PASS",
+  "detail": "",
+  "requests": 11,
+  "seconds": 0.47
+ },
+ {
+  "id": "C7",
+  "clause": "\u00a74 'A booking must not be rejected solely because its start is in the past'",
+  "title": "create, seed and PATCH-target in the past succeed",
+  "status": "PASS",
+  "detail": "",
+  "requests": 7,
+  "seconds": 0.29
+ },
+ {
+  "id": "C8",
+  "clause": "\u00a74 'the cancellation and amendment cutoff rules still apply' / \u00a78 cancel 'or later'",
+  "title": "cancel and PATCH of a past booking -> 409 cutoff_passed",
+  "status": "PASS",
+  "detail": "",
+  "requests": 11,
+  "seconds": 0.46
+ },
+ {
+  "id": "B10",
+  "clause": "\u00a73.4 'Unknown query parameters are ignored'",
+  "title": "extra query parameters on GET endpoints",
+  "status": "PASS",
+  "detail": "",
+  "requests": 8,
+  "seconds": 0.34
+ },
+ {
+  "id": "A7r",
+  "clause": "\u00a72 per-request timeout 10 s for POST /_test/reset",
+  "title": "reset with an ordinary-size fixture (30 users, 4 restaurants x 12 tables, 120 bookings) < 10 s",
+  "status": "PASS",
+  "detail": "",
+  "requests": 3,
+  "seconds": 0.41
+ },
+ {
+  "id": "E1",
+  "clause": "\u00a76 POST /auth/signup",
+  "title": "201 {user_id, display_name, token}; token usable at once",
+  "status": "PASS",
+  "detail": "",
+  "requests": 4,
+  "seconds": 0.17
+ },
+ {
+  "id": "E2",
+  "clause": "\u00a76 POST /auth/login",
+  "title": "200 {user_id, display_name, token} for a signed-up account",
+  "status": "PASS",
+  "detail": "",
+  "requests": 4,
+  "seconds": 0.19
+ },
+ {
+  "id": "E3",
+  "clause": "\u00a76 'Email already registered -> 409 email_taken'",
+  "title": "duplicate of a signed-up and of a seeded email",
+  "status": "PASS",
+  "detail": "",
+  "requests": 6,
+  "seconds": 0.33
+ },
+ {
+  "id": "E4",
+  "clause": "\u00a76 'Password shorter than 8 characters -> 422'",
+  "title": "7 characters rejected, 8 accepted, empty rejected",
+  "status": "PASS",
+  "detail": "",
+  "requests": 6,
+  "seconds": 0.29
+ },
+ {
+  "id": "E5",
+  "clause": "\u00a76 'email not of the form local@domain -> 422'",
+  "title": "no @, empty local part, empty domain, empty string",
+  "status": "PASS",
+  "detail": "",
+  "requests": 7,
+  "seconds": 0.3
+ },
+ {
+  "id": "E6",
+  "clause": "\u00a75 validation_failed 'A required field ... is missing' / malformed_request 'a field of the wrong JSON type'",
+  "title": "signup/login: missing field -> 422; wrong JSON type -> 400; unparseable -> 400",
+  "status": "PASS",
+  "detail": "",
+  "requests": 19,
+  "seconds": 0.79
+ },
+ {
+  "id": "E7",
+  "clause": "\u00a76 'Wrong password or unknown email on login -> 401 unauthenticated'",
+  "title": "both cases",
+  "status": "PASS",
+  "detail": "",
+  "requests": 4,
+  "seconds": 0.2
+ },
+ {
+  "id": "E8",
+  "clause": "\u00a76 exceptions list / \u00a78 'public - no bearer token'",
+  "title": "public endpoints answer without a token",
+  "status": "PASS",
+  "detail": "",
+  "requests": 6,
+  "seconds": 0.19
+ },
+ {
+  "id": "E9",
+  "clause": "\u00a75 401 'Missing, malformed or unknown bearer token' / \u00a76 'Every other endpoint requires a bearer token'",
+  "title": "each protected endpoint x {missing, wrong scheme, no token after Bearer, unknown token} -> 401 unauthenticated",
+  "status": "PASS",
+  "detail": "",
+  "requests": 40,
+  "seconds": 1.66
+ },
+ {
+  "id": "E10",
+  "clause": "\u00a76 'Tokens do not expire. An account may have multiple valid tokens and concurrent sessions'",
+  "title": "several tokens valid together",
+  "status": "PASS",
+  "detail": "",
+  "requests": 14,
+  "seconds": 0.65
+ },
+ {
+  "id": "E11",
+  "clause": "\u00a76 'Plaintext password storage is not permitted'",
+  "title": "no plaintext password in the export document (code read covers the hash function)",
+  "status": "PASS",
+  "detail": "",
+  "requests": 4,
+  "seconds": 0.15
+ },
+ {
+  "id": "B9a",
+  "clause": "\u00a73.4 'Unknown fields in a request body are ignored'",
+  "title": "signup and login with extra fields",
+  "status": "PASS",
+  "detail": "",
+  "requests": 3,
+  "seconds": 0.15
+ },
+ {
+  "id": "D6",
+  "clause": "\u00a75 404 not_found / every 4xx carries the envelope",
+  "title": "unknown resources -> 404 not_found; unknown routes and methods answer 4xx with the envelope",
+  "status": "PASS",
+  "detail": "",
+  "requests": 13,
+  "seconds": 0.54
+ },
+ {
+  "id": "D3",
+  "clause": "\u00a75/\u00a77 'Header absent or empty -> 400 missing_idempotency_key'",
+  "title": "POST /reservations and /reservation-moves without / with empty key",
+  "status": "PASS",
+  "detail": "",
+  "requests": 7,
+  "seconds": 0.29
+ },
+ {
+  "id": "D12",
+  "clause": "\u00a75 shared ranges 'Idempotency-Key 1 to 255 characters, otherwise 422' / \u00a77",
+  "title": "1 and 255 accepted, 256 -> 422, on both keyed paths",
+  "status": "PASS",
+  "detail": "",
+  "requests": 11,
+  "seconds": 0.46
+ },
+ {
+  "id": "F1F2",
+  "clause": "\u00a77 'First use -> 201' / 'Replay: same key, same body -> 200, body identical ... as a JSON value'",
+  "title": "replay returns the original and changes nothing",
+  "status": "PASS",
+  "detail": "",
+  "requests": 9,
+  "seconds": 0.4
+ },
+ {
+  "id": "F3",
+  "clause": "\u00a77 '\"Same body\" means the same JSON value after parsing - key order and whitespace do not matter'",
+  "title": "reordered / re-spaced body is a replay",
+  "status": "PASS",
+  "detail": "",
+  "requests": 5,
+  "seconds": 0.21
+ },
+ {
+  "id": "F4",
+  "clause": "\u00a77 'Same key, different body -> 409 idempotency_key_reuse' / 'even when that new body would otherwise be invalid'",
+  "title": "different valid body, invalid bodies, wrong types, unknown ids, extra unknown field",
+  "status": "PASS",
+  "detail": "",
+  "requests": 21,
+  "seconds": 0.87
+ },
+ {
+  "id": "F5",
+  "clause": "\u00a77 'The key is scoped to the authenticated user ... no interaction between them'",
+  "title": "two users, one key string",
+  "status": "PASS",
+  "detail": "",
+  "requests": 10,
+  "seconds": 0.47
+ },
+ {
+  "id": "F6",
+  "clause": "\u00a77 'The same key with the same body on a different path is a different request, not a replay, and must succeed normally'",
+  "title": "one key and one body on POST /reservations then POST /reservation-moves",
+  "status": "PASS",
+  "detail": "",
+  "requests": 7,
+  "seconds": 0.29
+ },
+ {
+  "id": "F7",
+  "clause": "\u00a77 'Key reused after the original request failed with 4xx -> Treated as a first use'",
+  "title": "after 422, 404 and 409 failures; same and different body",
+  "status": "PASS",
+  "detail": "",
+  "requests": 15,
+  "seconds": 0.65
+ },
+ {
+  "id": "F8",
+  "clause": "\u00a77 'A successful replay returns the original response, even after the resource changes or is cancelled. It makes no further state changes'",
+  "title": "replay after PATCH and after cancel",
+  "status": "PASS",
+  "detail": "",
+  "requests": 13,
+  "seconds": 0.56
+ },
+ {
+  "id": "F10",
+  "clause": "\u00a77 'After the body has been parsed as a JSON object and the caller authenticated, idempotency is resolved before endpoint-specific field validation'",
+  "title": "unparseable body with a used key is 400, unauthenticated is 401, otherwise 409",
+  "status": "PASS",
+  "detail": "",
+  "requests": 6,
+  "seconds": 0.25
+ },
+ {
+  "id": "F11",
+  "clause": "\u00a71 'Retries and rejected requests must not create duplicate or partial bookings'",
+  "title": "reservation count after a mix of failures and replays",
+  "status": "PASS",
+  "detail": "",
+  "requests": 18,
+  "seconds": 0.76
+ },
+ {
+  "id": "G1",
+  "clause": "\u00a78 GET /restaurants",
+  "title": "list of {id, name, timezone}; public",
+  "status": "PASS",
+  "detail": "",
+  "requests": 2,
+  "seconds": 0.06
+ },
+ {
+  "id": "G2",
+  "clause": "\u00a78 GET /restaurants/{id} '404 if unknown'",
+  "title": "known restaurant has all configuration fields; unknown -> 404 not_found",
+  "status": "PASS",
+  "detail": "",
+  "requests": 3,
+  "seconds": 0.1
+ },
+ {
+  "id": "G3",
+  "clause": "\u00a78 'All three parameters are required; a missing one is 422 validation_failed'",
+  "title": "each parameter missing, and all missing",
+  "status": "PASS",
+  "detail": "",
+  "requests": 5,
+  "seconds": 0.19
+ },
+ {
+  "id": "G4",
+  "clause": "\u00a75 'invalid format or out-of-range value gives 422 ... This includes invalid dates'",
+  "title": "date not a real YYYY-MM-DD -> 422",
+  "status": "PASS",
+  "detail": "",
+  "requests": 10,
+  "seconds": 0.39
+ },
+ {
+  "id": "D11",
+  "clause": "\u00a75 'An integer-valued query parameter is written as plain decimal digits: 1e9, 4.0 and +4 are 422' / 'negative counts'",
+  "title": "party_size query values",
+  "status": "PASS",
+  "detail": "",
+  "requests": 17,
+  "seconds": 0.69
+ },
+ {
+  "id": "G5",
+  "clause": "\u00a75 404 not_found 'No such resource'",
+  "title": "availability for an unknown restaurant -> 404 not_found",
+  "status": "PASS",
+  "detail": "",
+  "requests": 2,
+  "seconds": 0.07
+ },
+ {
+  "id": "G6G7",
+  "clause": "\u00a78 'A slot appears for every slot_minutes step from opens such that slot + reservation_duration_minutes <= closes'",
+  "title": "response shape, slot grid and both ends of the window",
+  "status": "PASS",
+  "detail": "",
+  "requests": 6,
+  "seconds": 0.23
+ },
+ {
+  "id": "G8",
+  "clause": "\u00a78 'available_table_ids lists the tables of that restaurant with capacity >= party_size ... in fixture order'",
+  "title": "capacity boundary, fixture order, only this restaurant's tables",
+  "status": "PASS",
+  "detail": "",
+  "requests": 7,
+  "seconds": 0.28
+ },
+ {
+  "id": "G9",
+  "clause": "\u00a78 'A slot with no available table still appears, with an empty list'",
+  "title": "party larger than every table; all tables booked",
+  "status": "PASS",
+  "detail": "",
+  "requests": 6,
+  "seconds": 0.25
+ },
+ {
+  "id": "G10",
+  "clause": "\u00a78 'A closed day returns \"slots\": []' / \u00a74 'A day with no entry is closed'",
+  "title": "weekday without opening hours",
+  "status": "PASS",
+  "detail": "",
+  "requests": 5,
+  "seconds": 0.18
+ },
+ {
+  "id": "G11",
+  "clause": "\u00a71 'Occupancy is the half-open interval [starts_at, starts_at + reservation_duration)' / \u00a78 'no overlapping confirmed reservation'",
+  "title": "a 90-minute booking hides its table from every overlapping slot and not from adjacent ones",
+  "status": "PASS",
+  "detail": "",
+  "requests": 5,
+  "seconds": 0.21
+ },
+ {
+  "id": "G12",
+  "clause": "\u00a78 cancel 'Frees the table immediately: the next GET /availability must offer that slot again'",
+  "title": "cancelled reservations do not occupy",
+  "status": "PASS",
+  "detail": "",
+  "requests": 8,
+  "seconds": 0.35
+ },
+ {
+  "id": "E8b",
+  "clause": "\u00a78 'public - no bearer token'",
+  "title": "NOTE-level: a stale/garbage Authorization header on public endpoints is not an error",
+  "status": "PASS",
+  "detail": "",
+  "requests": 5,
+  "seconds": 0.19
+ },
+ {
+  "id": "H1H2",
+  "clause": "\u00a78 POST /reservations 201 body / 'reservation_duration_minutes'",
+  "title": "response fields, types, offsets, ends_at = starts_at + duration, created_at now",
+  "status": "PASS",
+  "detail": "",
+  "requests": 4,
+  "seconds": 0.17
+ },
+ {
+  "id": "H3",
+  "clause": "\u00a78 'reference is 6 to 12 characters of A-Z0-9, unique across all reservations'",
+  "title": "280 creations next to 40 seeded references: format and uniqueness of references and ids",
+  "status": "PASS",
+  "detail": "",
+  "requests": 283,
+  "seconds": 11.77
+ },
+ {
+  "id": "H4",
+  "clause": "\u00a78 'The table is taken for an overlapping interval -> 409 table_unavailable' / \u00a71 half-open interval",
+  "title": "every overlapping start refused; adjacent starts and other tables accepted",
+  "status": "PASS",
+  "detail": "",
+  "requests": 21,
+  "seconds": 0.89
+ },
+ {
+  "id": "H5",
+  "clause": "\u00a78 'starts_at_local is not on the slot grid -> 422 not_on_slot_grid' / \u00a74 'grid of this many minutes from opening time'",
+  "title": "off-grid starts inside opening hours",
+  "status": "PASS",
+  "detail": "",
+  "requests": 9,
+  "seconds": 0.37
+ },
+ {
+  "id": "H6",
+  "clause": "\u00a78 'Slot outside opening hours, or the reservation would end after closes -> 422 outside_opening_hours'",
+  "title": "before opens, at/after closes, ending after closes, closed weekday; last allowed start accepted",
+  "status": "PASS",
+  "detail": "",
+  "requests": 14,
+  "seconds": 0.58
+ },
+ {
+  "id": "H7",
+  "clause": "\u00a78 'party_size exceeds the table's capacity -> 422 party_exceeds_capacity'",
+  "title": "capacity + 1 refused, capacity accepted, 1 accepted",
+  "status": "PASS",
+  "detail": "",
+  "requests": 7,
+  "seconds": 0.29
+ },
+ {
+  "id": "H8",
+  "clause": "\u00a78 'party_size below 1, or not an integer -> 422 validation_failed' / \u00a75 'invalid party_size values (including strings and booleans)'",
+  "title": "0, negative, fraction, string, boolean, null, array, object",
+  "status": "PASS",
+  "detail": "",
+  "requests": 15,
+  "seconds": 0.62
+ },
+ {
+  "id": "H10",
+  "clause": "\u00a78 'Unknown restaurant, unknown table, or the table belongs to another restaurant -> 404 not_found'",
+  "title": "three cases",
+  "status": "PASS",
+  "detail": "",
+  "requests": 7,
+  "seconds": 0.29
+ },
+ {
+  "id": "H11",
+  "clause": "\u00a75 422 'A required field ... is missing'",
+  "title": "each of the four create fields missing; empty object",
+  "status": "PASS",
+  "detail": "",
+  "requests": 8,
+  "seconds": 0.33
+ },
+ {
+  "id": "D2",
+  "clause": "\u00a75 400 malformed_request 'Unparseable body, or a field of the wrong JSON type'",
+  "title": "create/PATCH: unparseable, non-object, wrong-typed string fields",
+  "status": "PASS",
+  "detail": "",
+  "requests": 34,
+  "seconds": 1.42
+ },
+ {
+  "id": "D10",
+  "clause": "\u00a75 'starts_at_local strings that are not a bare local YYYY-MM-DDTHH:MM are 422 validation_failed' / \u00a78 'with no offset and no Z'",
+  "title": "offset, Z, seconds, space separator, impossible dates and times - create and PATCH",
+  "status": "PASS",
+  "detail": "",
+  "requests": 38,
+  "seconds": 1.58
+ },
+ {
+  "id": "B9b",
+  "clause": "\u00a73.4 'Unknown fields in a request body are ignored, never an error'",
+  "title": "create and PATCH with extra fields; they cannot set protected values",
+  "status": "PASS",
+  "detail": "",
+  "requests": 6,
+  "seconds": 0.27
+ },
+ {
+  "id": "I1",
+  "clause": "\u00a78 GET /reservations 'The caller's reservations, starts_at descending, confirmed and cancelled alike'",
+  "title": "empty list, ownership, ordering by instant across zones, cancelled included, entry shape",
+  "status": "PASS",
+  "detail": "",
+  "requests": 16,
+  "seconds": 0.67
+ },
+ {
+  "id": "I2",
+  "clause": "\u00a78 GET /reservations/{reference} '404 if it is not the caller's'",
+  "title": "own -> 200 same body as create; other user's and unknown -> 404 not_found",
+  "status": "PASS",
+  "detail": "",
+  "requests": 9,
+  "seconds": 0.39
+ },
+ {
+  "id": "I3I4",
+  "clause": "\u00a78 cancel '200 {reference, status: cancelled, ...}' / 'Already cancelled -> 200 with the current state'",
+  "title": "cancel, table free and bookable, second cancel 200",
+  "status": "PASS",
+  "detail": "",
+  "requests": 11,
+  "seconds": 0.47
+ },
+ {
+  "id": "I5",
+  "clause": "\u00a78 cancel 'Now is within cancellation_cutoff_minutes of starts_at, or later -> 409 cutoff_passed' / \u00a74 cancellation_cutoff_minutes",
+  "title": "both sides of the cutoff, about one minute from the boundary; state unchanged on refusal",
+  "status": "PASS",
+  "detail": "",
+  "requests": 17,
+  "seconds": 0.63
+ },
+ {
+  "id": "I4b",
+  "clause": "\u00a78 'Already cancelled -> 200 with the current state - cancelling twice is not an error'",
+  "title": "cancel repeated five more times: 200 with the same state each time",
+  "status": "PASS",
+  "detail": "",
+  "requests": 10,
+  "seconds": 0.42
+ },
+ {
+  "id": "I6",
+  "clause": "\u00a78 cancel 'Not the caller's reservation -> 404 not_found'",
+  "title": "other user's and unknown reference; booking stays confirmed",
+  "status": "PASS",
+  "detail": "",
+  "requests": 7,
+  "seconds": 0.31
+ },
+ {
+  "id": "I7",
+  "clause": "\u00a78 PATCH 'Change the time, the table or the party size. Any subset ... No idempotency key is required'",
+  "title": "each single field, pairs, all three; identity and created_at kept; times recomputed",
+  "status": "PASS",
+  "detail": "",
+  "requests": 9,
+  "seconds": 0.37
+ },
+ {
+  "id": "I8",
+  "clause": "\u00a78 PATCH 'Validation is identical to POST /reservations'",
+  "title": "every create error code through PATCH, judged on merged values; booking unchanged after each",
+  "status": "PASS",
+  "detail": "",
+  "requests": 37,
+  "seconds": 1.55
+ },
+ {
+  "id": "I9",
+  "clause": "\u00a78 PATCH 'the same cutoff rule as cancel applies (409 cutoff_passed), measured against the current start time'",
+  "title": "past booking cannot be moved to the future; future booking can be moved into the past, after which it is locked",
+  "status": "PASS",
+  "detail": "",
+  "requests": 10,
+  "seconds": 0.42
+ },
+ {
+  "id": "I10",
+  "clause": "\u00a78 PATCH 'A cancelled reservation is 409 reservation_cancelled'",
+  "title": "any PATCH of a cancelled booking",
+  "status": "PASS",
+  "detail": "",
+  "requests": 9,
+  "seconds": 0.38
+ },
+ {
+  "id": "I11",
+  "clause": "\u00a78 GET/PATCH ownership, \u00a75 not_found 'not visible to this caller'",
+  "title": "PATCH of another user's or unknown booking -> 404; target unchanged",
+  "status": "PASS",
+  "detail": "",
+  "requests": 7,
+  "seconds": 0.31
+ },
+ {
+  "id": "I12",
+  "clause": "\u00a78 PATCH 'A successful amendment releases the old slot and reserves the new one together'",
+  "title": "old slot free, new slot taken; moving onto an interval overlapping its own old one succeeds",
+  "status": "PASS",
+  "detail": "",
+  "requests": 11,
+  "seconds": 0.48
+ },
+ {
+  "id": "I16",
+  "clause": "\u00a78 PATCH 'Any subset of table_id, starts_at_local, party_size' (the empty subset) / \u00a73.4 unknown fields ignored",
+  "title": "PATCH {} and unknown-only fields -> 200, nothing changed",
+  "status": "PASS",
+  "detail": "",
+  "requests": 7,
+  "seconds": 0.3
+ },
+ {
+  "id": "J1",
+  "clause": "\u00a79 'Offsets must follow the IANA rules for the specified zone and date' / \u00a73.4 timestamps with explicit offset",
+  "title": "standard and summer offsets for Berlin, New York and two further IANA zones",
+  "status": "PASS",
+  "detail": "",
+  "requests": 20,
+  "seconds": 0.51
+ },
+ {
+  "id": "J2a",
+  "clause": "\u00a79 Spring forward 'never appear in availability, and booking one is 422 invalid_local_time' (Europe/Berlin 2026-03-29)",
+  "title": "availability skips 02:00-02:59, offsets switch, gap bookings refused via create and PATCH, neighbours fine",
+  "status": "PASS",
+  "detail": "",
+  "requests": 17,
+  "seconds": 0.7
+ },
+ {
+  "id": "J2b",
+  "clause": "\u00a79 Spring forward (America/New_York 2026-03-08)",
+  "title": "availability skips 02:00-02:59, offsets -05:00 -> -04:00, gap booking refused",
+  "status": "PASS",
+  "detail": "",
+  "requests": 8,
+  "seconds": 0.34
+ },
+ {
+  "id": "J3a",
+  "clause": "\u00a79 Fall back 'Always resolve to the first occurrence ... The slot appears once in availability' (Europe/Berlin 2026-10-25)",
+  "title": "repeated hour listed once with +02:00; 03:00 has +01:00; bookings in the repeated hour take the first occurrence",
+  "status": "PASS",
+  "detail": "",
+  "requests": 7,
+  "seconds": 0.29
+ },
+ {
+  "id": "J4",
+  "clause": "\u00a79 'A 90-minute reservation starting at 01:30 on a fall-back night ends 90 real minutes later, and its local ends_at will read 02:00, not 03:00'",
+  "title": "Berlin 2026-10-25 01:30 + 90 min",
+  "status": "PASS",
+  "detail": "",
+  "requests": 4,
+  "seconds": 0.17
+ },
+ {
+  "id": "J3b",
+  "clause": "\u00a79 Fall back (America/New_York 2026-11-01, 02:00 -> 01:00)",
+  "title": "01:00/01:30 listed once with -04:00; 02:00 has -05:00; absolute duration",
+  "status": "PASS",
+  "detail": "",
+  "requests": 5,
+  "seconds": 0.21
+ },
+ {
+  "id": "J5a",
+  "clause": "\u00a79 'reservation_duration_minutes is absolute time, not wall-clock' / \u00a71 occupancy interval - fall back",
+  "title": "occupancy across the repeated hour uses instants: no false overlap, no false clearance",
+  "status": "PASS",
+  "detail": "",
+  "requests": 8,
+  "seconds": 0.33
+ },
+ {
+  "id": "J5b",
+  "clause": "\u00a79 absolute duration / \u00a71 occupancy interval - spring forward",
+  "title": "a 90-minute booking at 01:30 before the gap occupies until 04:00 local",
+  "status": "PASS",
+  "detail": "",
+  "requests": 8,
+  "seconds": 0.35
+ },
+ {
+  "id": "L12",
+  "clause": "\u00a711 'On success return 201 with {\"reservations\": [...]} in input order, including unchanged items' + the \u00a711 example (swap)",
+  "title": "swap two tables; rotation of three; order and shape of the response",
+  "status": "PASS",
+  "detail": "",
+  "requests": 18,
+  "seconds": 0.73
+ },
+ {
+  "id": "L1",
+  "clause": "\u00a711 'requires authentication and an idempotency key' / 'No token gives 401'",
+  "title": "401 without token; 400 without key; body must be a JSON object",
+  "status": "PASS",
+  "detail": "",
+  "requests": 23,
+  "seconds": 0.98
+ },
+ {
+  "id": "L2",
+  "clause": "\u00a711 'moves contains 1..8 objects with distinct string references. Invalid shape or duplicate references gives 422 validation_failed'",
+  "title": "0 and 9 items refused, 1 and 8 accepted; non-array, missing, non-object item, bad reference, duplicates",
+  "status": "PASS",
+  "detail": "",
+  "requests": 60,
+  "seconds": 2.44
+ },
+ {
+  "id": "L3",
+  "clause": "\u00a711 'Unknown/another owner's reference gives 404 not_found'",
+  "title": "unknown, other owner's, and mixed with valid items; nothing moves",
+  "status": "PASS",
+  "detail": "",
+  "requests": 18,
+  "seconds": 0.76
+ },
+ {
+  "id": "L4",
+  "clause": "\u00a711 'Every booking must belong to the caller and the same restaurant ... different restaurants give 422 validation_failed'",
+  "title": "two restaurants in one batch",
+  "status": "PASS",
+  "detail": "",
+  "requests": 16,
+  "seconds": 0.69
+ },
+ {
+  "id": "L5",
+  "clause": "\u00a711 'Each item accepts the ordinary PATCH fields ...; omitted fields retain their current values and unknown fields are ignored'",
+  "title": "party only, table only, time only, all three, unknown fields; times recomputed",
+  "status": "PASS",
+  "detail": "",
+  "requests": 15,
+  "seconds": 0.65
+ },
+ {
+  "id": "L6",
+  "clause": "\u00a711 'Cancelled bookings give 409 reservation_cancelled'",
+  "title": "a cancelled booking anywhere in the batch",
+  "status": "PASS",
+  "detail": "",
+  "requests": 21,
+  "seconds": 0.9
+ },
+ {
+  "id": "L7L8",
+  "clause": "\u00a711 'Each booking's existing cutoff applies. Non-occupancy errors use ordinary amendment codes and take precedence in input order, with cutoff errors preceding other changes for that booking'",
+  "title": "cutoff; amendment codes; first failing item decides; cutoff before that booking's other errors; non-occupancy before occupancy",
+  "status": "PASS",
+  "detail": "",
+  "requests": 141,
+  "seconds": 5.87
+ },
+ {
+  "id": "L9L10",
+  "clause": "\u00a711 'An overlap among resulting bookings or with an unlisted booking gives 409 table_unavailable. Unchanged listed bookings retain their occupancy'",
+  "title": "unlisted booking, two items onto one table, unchanged listed item; nothing moves",
+  "status": "PASS",
+  "detail": "",
+  "requests": 54,
+  "seconds": 2.22
+ },
+ {
+  "id": "L11",
+  "clause": "\u00a711 'Either every move commits or nothing changes: occupancy, reservation records and retry keys'",
+  "title": "failed batch leaves records and occupancy alone and does not consume its key",
+  "status": "PASS",
+  "detail": "",
+  "requests": 23,
+  "seconds": 0.98
+ },
+ {
+  "id": "L13",
+  "clause": "\u00a711 'Replays return that original response with 200, even after amendments or cancellations' / \u00a77",
+  "title": "replay, replay after PATCH and cancel, different body 409 (also invalid), per-user scope",
+  "status": "PASS",
+  "detail": "",
+  "requests": 37,
+  "seconds": 1.58
+ },
+ {
+  "id": "L14",
+  "clause": "\u00a711 'The booking's identity, owner and creation time never change' / 'No-op moves retain all existing values'",
+  "title": "no-op batch returns current values; moved bookings keep id, reference, created_at and owner",
+  "status": "PASS",
+  "detail": "",
+  "requests": 20,
+  "seconds": 0.77
+ },
+ {
+  "id": "K1",
+  "clause": "\u00a710 'Return 200 from export with a JSON object containing track: \"tablekeeper\", format_version: 1 and state (an implementation-defined JSON object)'",
+  "title": "export document shape; unauthenticated; read-only",
+  "status": "PASS",
+  "detail": "",
+  "requests": 37,
+  "seconds": 1.53
+ },
+ {
+  "id": "K2K4K9",
+  "clause": "\u00a710 'Import takes that entire object and atomically replaces the service's state, returning 204 ... No dependency on the source process' / 'Preserve accounts and hashed-password login, existing bearer tokens, fixture configuration, reservations, references'",
+  "title": "export from container A, import into container B: tokens, logins, restaurants, availability and every reservation identical",
+  "status": "PASS",
+  "detail": "",
+  "requests": 103,
+  "seconds": 4.35
+ },
+ {
+  "id": "K8",
+  "clause": "\u00a710 'Export is an atomic, read-only snapshot; subsequent source writes do not change it' / 'Reset continues to clear all state, including imported state'",
+  "title": "writes after export, then import of the earlier export restores the earlier state on the same container; reset afterwards clears it",
+  "status": "PASS",
+  "detail": "",
+  "requests": 68,
+  "seconds": 2.83
+ },
+ {
+  "id": "K7",
+  "clause": "\u00a710 'Invalid JSON follows \u00a75; missing fields, wrong track/version or an invalid state give 422 validation_failed without changing the destination'",
+  "title": "each invalid import leaves tokens, restaurants, reservations and keys as they were",
+  "status": "PASS",
+  "detail": "",
+  "requests": 244,
+  "seconds": 10.1
+ },
+ {
+  "id": "H12a",
+  "clause": "\u00a71 'Two confirmed reservations must never occupy the same table at overlapping times, including during concurrent requests'",
+  "title": "50 clients race for one table and slot: exactly one 201, 49 x 409 table_unavailable",
+  "status": "PASS",
+  "detail": "",
+  "requests": 62,
+  "seconds": 1.21
+ },
+ {
+  "id": "H12b",
+  "clause": "\u00a71 invariant under concurrency",
+  "title": "50 clients race for mutually overlapping slots on one table: exactly one wins",
+  "status": "PASS",
+  "detail": "",
+  "requests": 61,
+  "seconds": 1.18
+ },
+ {
+  "id": "H12c",
+  "clause": "\u00a71 invariant under concurrency / \u00a78 reference 'unique across all reservations'",
+  "title": "50 clients over five start times of one table: successes never overlap; 50 distinct tables all succeed with distinct references",
+  "status": "PASS",
+  "detail": "",
+  "requests": 116,
+  "seconds": 1.91
+ },
+ {
+  "id": "F9",
+  "clause": "\u00a77 'For concurrent identical requests with an unused key, exactly one returns 201. The others return 200 with the same body. The operation takes effect only once'",
+  "title": "50 identical POST /reservations with one key",
+  "status": "PASS",
+  "detail": "",
+  "requests": 53,
+  "seconds": 0.79
+ },
+ {
+  "id": "E12",
+  "clause": "\u00a76 'Email already registered -> 409 email_taken' under concurrency / \u00a72 per-request 5 s",
+  "title": "50 concurrent signups with one email: one 201, 49 x 409",
+  "status": "PASS",
+  "detail": "",
+  "requests": 52,
+  "seconds": 1.43
+ },
+ {
+  "id": "A7a",
+  "clause": "\u00a72 'Concurrent requests: up to 50 in flight' / 'Per-request timeout 5 s'",
+  "title": "50 concurrent logins, 50 concurrent distinct signups, 50 concurrent availability reads, each under 5 s",
+  "status": "PASS",
+  "detail": "",
+  "requests": 156,
+  "seconds": 3.43
+ },
+ {
+  "id": "I15a",
+  "clause": "\u00a78 PATCH 'releases the old slot and reserves the new one together' / \u00a71 invariant under concurrency",
+  "title": "50 bookings PATCH onto one free table at once: exactly one 200, 49 x 409",
+  "status": "PASS",
+  "detail": "",
+  "requests": 62,
+  "seconds": 1.07
+ },
+ {
+  "id": "I15b",
+  "clause": "\u00a78 cancel 'Frees the table immediately' / \u00a71 invariant under concurrency",
+  "title": "one cancel racing 49 creates for the same table and slot: never two confirmed",
+  "status": "PASS",
+  "detail": "",
+  "requests": 62,
+  "seconds": 1.24
+ },
+ {
+  "id": "L16a",
+  "clause": "\u00a77 concurrent identical requests / \u00a711 replays",
+  "title": "50 identical batches with one key: one 201, 49 x 200 with the same body",
+  "status": "PASS",
+  "detail": "",
+  "requests": 54,
+  "seconds": 0.84
+ },
+ {
+  "id": "L16b",
+  "clause": "\u00a711 'An overlap among resulting bookings or with an unlisted booking gives 409 table_unavailable' / \u00a71 invariant under concurrency",
+  "title": "50 conflicting batches onto one free table: one 201; then 25 batches against 25 creates: one success in total",
+  "status": "PASS",
+  "detail": "",
+  "requests": 116,
+  "seconds": 1.74
+ },
+ {
+  "id": "A7b",
+  "clause": "\u00a72 '50 in flight' / \u00a75 'Requests must not produce 5xx responses, including under concurrent load'",
+  "title": "50 mixed requests at once (reads, creates, PATCH, cancel, moves, login, export): no 5xx, each under its limit, invariant holds",
+  "status": "PASS",
+  "detail": "",
+  "requests": 61,
+  "seconds": 1.22
+ },
+ {
+  "id": "A8a",
+  "clause": "\u00a75 no 5xx / envelope",
+  "title": "every field of every JSON endpoint replaced by junk values of each JSON type",
+  "status": "PASS",
+  "detail": "",
+  "requests": 399,
+  "seconds": 17.03
+ },
+ {
+  "id": "A8b",
+  "clause": "\u00a75 no 5xx / envelope",
+  "title": "raw bodies, odd headers, odd paths, methods and query strings",
+  "status": "PASS",
+  "detail": "",
+  "requests": 426,
+  "seconds": 17.47
+ },
+ {
+  "id": "A8c",
+  "clause": "\u00a75 no 5xx / envelope; \u00a73.3 reset",
+  "title": "fixtures with wrong types or impossible values: no 5xx at reset or on the requests that follow",
+  "status": "PASS",
+  "detail": "",
+  "requests": 1614,
+  "seconds": 64.7
+ },
+ {
+  "id": "G-5XX",
+  "clause": "\u00a75 'Requests must not produce 5xx responses, including under concurrent load'",
+  "title": "no 5xx (or transport failure) in the whole run",
+  "status": "PASS",
+  "detail": "",
+  "requests": 0,
+  "seconds": 0
+ },
+ {
+  "id": "G-ENVELOPE",
+  "clause": "\u00a75 'Every 4xx and 5xx response carries this body'",
+  "title": "error envelope {error:{code,message}} on every 4xx/5xx",
+  "status": "PASS",
+  "detail": "",
+  "requests": 0,
+  "seconds": 0
+ },
+ {
+  "id": "G-CTYPE",
+  "clause": "\u00a73.4 'Requests and responses are application/json; charset=utf-8'",
+  "title": "content type of every response that has a body",
+  "status": "PASS",
+  "detail": "",
+  "requests": 0,
+  "seconds": 0
+ },
+ {
+  "id": "G-204",
+  "clause": "\u00a73.3 / \u00a710 '204 No Content'",
+  "title": "no 204 response carries a body",
+  "status": "PASS",
+  "detail": "",
+  "requests": 0,
+  "seconds": 0
+ },
+ {
+  "id": "G-TIME",
+  "clause": "\u00a72 'Per-request timeout 5 s (10 s for POST /_test/reset)' / \u00a710 'Test control calls have a 10-second timeout'",
+  "title": "every request within its limit",
+  "status": "PASS",
+  "detail": "",
+  "requests": 0,
+  "seconds": 0
+ }
+]
