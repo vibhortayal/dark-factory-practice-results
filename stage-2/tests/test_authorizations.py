@@ -325,3 +325,23 @@ class ExpiryAndFixtureTests(World):
         self.assertEqual(me["available"], 0)
         self.assertGreaterEqual(me["available"], 0)
         self.assertEqual(sum(self.get(h, "/me").json["total"] for h in self.tok), 13000)
+
+
+class ClockSingleReadTests(World):
+    def test_lifetime_is_exactly_ttl_across_a_second_boundary(self):
+        from datetime import datetime, timezone
+        from pocketful import timefmt
+        ticks = iter([datetime(2026, 10, 2, 22, 20, 58, 999999, tzinfo=timezone.utc),
+                      datetime(2026, 10, 2, 22, 20, 59, 5, tzinfo=timezone.utc)])
+        original = timefmt.now_dt
+        timefmt.now_dt = lambda: next(ticks)
+        try:
+            created, expires = timefmt.created_and_expiry(600)
+        finally:
+            timefmt.now_dt = original
+        self.assertEqual((created, expires), ("2026-10-02T22:20:59+00:00", "2026-10-02T22:30:59+00:00"))
+
+    def test_many_creations_have_exact_lifetime(self):
+        for i in range(300):
+            a = self.post("ada", "/authorizations", {"to_handle": "bob", "amount": 1}).json
+            self.assertEqual((datetime.fromisoformat(a["expires_at"]) - datetime.fromisoformat(a["created_at"])).total_seconds(), 600)

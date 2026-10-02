@@ -31,12 +31,13 @@ def now_dt():
     return datetime.now(timezone.utc)
 
 
-def iso_at_or_after_now(plus_seconds=0):
-    """Now rounded up to a whole second, plus an offset, as an RFC 3339 string.
+def created_and_expiry(ttl_seconds):
+    """(created_at, expires_at) from ONE clock read.
 
-    Used for authorizations so `created_at + ttl` never expires earlier than the
-    ttl promises, however the sub-second part falls.
+    created_at is now rounded up to a whole second so the lifetime is never
+    shorter than the ttl; expires_at is exactly created_at + ttl.
     """
     now = now_dt()
     whole = now.replace(microsecond=0) + (timedelta(seconds=1) if now.microsecond else timedelta())
-    return (whole + timedelta(seconds=plus_seconds)).isoformat(timespec="seconds")
+    return (whole.isoformat(timespec="seconds"),
+            (whole + timedelta(seconds=ttl_seconds)).isoformat(timespec="seconds"))

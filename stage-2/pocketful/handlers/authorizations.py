@@ -3,7 +3,7 @@ from .. import holds, ledger
 from ..errors import ApiError, forbidden, insufficient_funds, invalid, malformed, not_found
 from ..idempotency import run_idempotent
 from ..store import store
-from ..timefmt import iso_at_or_after_now
+from ..timefmt import created_and_expiry
 from ..validation import (AUTH_STATUSES, integral, page_params, parse_amount, parse_note,
                           parse_visibility, query_enum, string_field)
 
@@ -29,14 +29,15 @@ def _create(user_id, body):
         raise not_found("no user has that handle")
     if holds.available_of(payer) < amount:
         raise insufficient_funds()
+    created_at, expires_at = created_and_expiry(store.authorization_ttl)
     authorization = {
         "authorization_id": store.new_id("a"),
         "from_user_id": payer["id"], "from_handle": payer["handle"],
         "to_user_id": receiver["id"], "to_handle": receiver["handle"],
         "amount": amount, "captured_amount": 0, "remaining_amount": amount,
         "currency": store.currency, "note": note, "visibility": visibility, "status": "open",
-        "expires_at": iso_at_or_after_now(store.authorization_ttl),
-        "payment_id": None, "payment_ids": [], "created_at": iso_at_or_after_now(),
+        "expires_at": expires_at,
+        "payment_id": None, "payment_ids": [], "created_at": created_at,
     }
     store.add_authorization(authorization)
     return _view(authorization)
@@ -95,6 +96,7 @@ def void_authorization(req):
             raise not_found("no such authorization")
         if authorization["from_user_id"] != req.user_id:
             raise forbidden("only the payer may void")
+        holds.sweep()
         if authorization["status"] == "open":
             holds.close(authorization, "voided")
         elif authorization["status"] != "voided":
