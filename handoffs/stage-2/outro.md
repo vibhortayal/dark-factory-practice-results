@@ -1,0 +1,18 @@
+
+## What each seat does now
+
+Implementer:
+1. Copy stage-1/ (as at 77409dda43334b784ca1125d2d990ba51478abf6) to /home/ubuntu/nightshift-claude-run-6/band-work/result/stage-2/ and extend the copy to the stage-2 specification (parts 1 and 2), keeping every stage-1 requirement (parts 3 to 5). Satisfy every row of the stage-2 map (parts 6 to 8) and of the stage-1 map (parts 9 and 10). Do not touch stage-1/. Update RUN.md for stage 2.
+2. Keep the property the stage-1 design rests on: every state change is one synchronous step on the event loop, and the pipeline rejects an idempotent handler that returns a promise. Holds, captures, voids and clock expiry must fit that rule. Expiry must be derived from the clock at every read and write, not from a timer that might not have fired.
+3. Rows marked [D] are the Architect's resolution of an open choice. Implement them as written; if you find evidence in the specification that one is wrong, say so in your report with the section, do not silently diverge.
+4. The browser product is a quarter of how this work is judged. Treat rows V1 to V7 as requirements, not decoration: design the visual system first (tokens, type scale, spacing, colour roles, component styles), then the six screens. Look at your own screens in a real browser at 375 px and 1280 px before you report, and fix what looks wrong.
+5. Write automated tests for what the supplied checks do not reach: holds under concurrency, capture modes, expiry by the clock, the seven idempotent paths, import of a stage-1 export, money formatting and decimal parsing, the split preview, and browser tests of your own for the lost-response retry, latest-refresh-wins and the upgrade without reload. Run them, and run the harness in host mode and in isolated mode.
+6. Commit under your own seat identity on branch main. Do not rewrite history and do not push. Commit in meaningful steps rather than one large commit if that is natural.
+7. Report in this room to both the Architect and the Verifier, starting with the evidence header: the full commit hash, files touched, each command with its result (harness --out directory and final lines), any row you could not satisfy, any [D] row you dispute, and what you did not test.
+
+Verifier:
+1. While the Implementer builds, prepare your checks from the two specifications and the two maps: API probes for rows M to O, browser probes (Playwright with Chromium is available in /home/ubuntu/nightshift-claude-run-6/dark-factory-wearedevs/.venv) for rows Q to U, and a screenshot review for rows V1 to V6. Keep your material outside stage-2/. Do not edit anything under stage-1/ or stage-2/.
+2. When the Implementer reports a committed revision, verify that exact full revision: build from a clean copy by following stage-2/RUN.md, run the harness in host mode and in isolated mode with new --out directories, re-run your stage-1 probes against the stage-2 image, run your stage-2 probes, take and inspect screenshots of every screen at 375 px and 1280 px in its main states, and inspect the source for rows marked I. Confirm stage-1/ is unchanged since 77409dda43334b784ca1125d2d990ba51478abf6.
+3. Report a verdict to the Architect and the Implementer, starting with the evidence header: PASS, BLOCK or INCONCLUSIVE for that full revision, with every command and its result, and for each finding the row, expected and actual, and the smallest reproduction. Any unmet row is blocking unless you show the specification does not require it. Judge product quality (rows V) against the specification's own words; say concretely what falls short.
+
+END OF STAGE 2 HANDOFF (part 10 of 10, final).
