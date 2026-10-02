@@ -7,8 +7,8 @@ check-report timestamps.
 | Unit | State | Accepted revision | Fix rounds (BLOCK verdicts) | Elapsed |
 |---|---|---|---|---|
 | stage-1 | DONE | 43ecb3c9d24e89b47ea00c98828bf3999bb0a5cc | 3 | 04:11Z to 05:57Z (1 h 46 min) |
-| stage-2 | BUILDING (fix round 2) | n/a | 2 | started 05:57Z |
-| stage-3 | PLANNED | n/a | 0 | n/a |
+| stage-2 | DONE | 4a9c357bc8cc5c71df5634b15dd9527f145be2d5 | 2 | 05:57Z to 09:43Z (3 h 46 min) |
+| stage-3 | BUILDING | n/a | 0 | started 09:43Z |
 | stage-4 | PLANNED | n/a | 0 | n/a |
 
 ## Log
@@ -27,6 +27,9 @@ check-report timestamps.
 - ~07:35Z Verifier BLOCK #1 (stage 2) on 3ba3276: supplied checks isolated 147/147 and 35/35 (../checks/s2-ver-01), stage-3 probe fails; own list 1,338 check executions all passed after the finding was isolated; visual rows V1-V4 accepted from screenshots. One Severity 2 finding: with the page's API calls answered by the stage-1 service (the pre-upgrade situation of rows M2/M4), `/` throws a script error (`BigInt(undefined)` on the missing `available`) and shows no balance, no refresh button and no feed; `/authorizations` throws too. Routed to Implementer with notes T2-T5 to fix.
 - 07:57Z Implementer committed 54ab7a9c086d6280402df0d09faca3b10949a5c5 (stage 2 fix round 1; supplied checks isolated 147 + 35 in ../checks/s2-impl-final-03; own API 25, stage-1 list 61, browser 34 OK); complete handoff sent to Verifier.
 - ~08:29Z Verifier BLOCK #2 (stage 2) on 54ab7a9: finding 1 and notes T2-T5 confirmed fixed; supplied checks isolated 147/147 and 35/35 (../checks/s2-ver-02), stage-3 probe fails; own list 1,411 of 1,412; container logs empty (the 4 unexplained lines did not recur). One Severity 2 finding: the delayed first `/me` read of the page load overwrites a later `wallet-refresh` (balance goes back from 75.00 to 100.00 EUR). Routed to Implementer.
+- 08:52Z Implementer committed 4a9c357bc8cc5c71df5634b15dd9527f145be2d5 (stage 2 fix round 2, UI read ordering only; supplied checks isolated 147 + 35 in ../checks/s2-impl-final-04; own API 25, stage-1 list 61, browser 38 OK); complete handoff sent to Verifier.
+- ~09:42Z Verifier PASS on 4a9c357bc8cc5c71df5634b15dd9527f145be2d5 (head of main at that time, tree clean; stage-1/ unchanged since 43ecb3c): supplied checks isolated suite 1 147/147, suite 2 35/35, 0 skipped (../checks/s2-ver-03), stage-3 probe on stage-2/ fails as required; own list 1,441 check executions all passed under --cpus 2 --memory 2g on an internal network with Chromium at 375 and 1280 px, 29,764 API requests, no status >= 500, slowest request 0.47 s, slowest reset/export/import 0.43 s, container logs empty. No Blocker, Severity 1, 2 or 3 finding open. **Stage 2 accepted at 4a9c357.**
+- 09:43Z stage-3 spec read; acceptance map acceptance/stage-3.md written; stage-3 handoff sent to both seats.
 
 ## Verifier notes (Severity 3 and 4)
 
@@ -57,3 +60,6 @@ Stage 2, from BLOCK #1 on 3ba3276 (all Severity 4; no Severity 3):
 - Unexplained observation by the Verifier: 4 log lines matching `traceback|internal error` in one stage-2 container of the first run, text not captured, no request received a 5xx, not reproduced in a full re-run. Implementer asked to look for the cause.
 
 Stage 2, after BLOCK #2 on 54ab7a9: T2, T3, T4, T5 fixed. Open, all Severity 4, kept by Architect decision: T1, T6, T7 (T7 now also: `0015.50` and ` 15.00 ` accepted as 15.50 and 15.00). No Severity 3 open.
+
+Stage 2, open at acceptance (all Severity 4; no Severity 3 open): T1, T6, T7 kept by Architect decision; T8 (new at PASS) on `/`, while the first read of `/me` has not returned, the wallet frame and `wallet-refresh` are shown but the pay, request and authorise forms are not. T8 is listed as work for stage 3.
+Stage 2, remaining risk stated by the Verifier (not findings): supplied stage-2 checks are a sample (35 of about 100); how the graded upgrade checks put a signed-in browser in front of the stage-1 service is not visible (the method of map row M2 was used); single process and lock measured to 0.47 s per request at 50 in flight with up to 500 users and a few hundred records; the page's 15 s hung-read path was exercised only on the first stage-2 revision; the 4 unexplained log lines of the first stage-2 run never recurred in two full rounds with saved logs; V1-V4 accepted from screenshots of the first revision (markup and style sheet unchanged since).
