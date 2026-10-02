@@ -78,6 +78,20 @@ def is_int(v):
     return isinstance(v, int) and not isinstance(v, bool)
 
 
+def _total_default(o):
+    """Safety net: no value may ever turn an encode into a 5xx."""
+    if isinstance(o, BigNum):
+        try:
+            return float(o.text)
+        except (ValueError, OverflowError):
+            return 0
+    return str(o)
+
+
+def dumps(o, **kw):
+    return json.dumps(o, default=_total_default, **kw)
+
+
 class BigNum:
     """A JSON number that is not a small exact integer, kept as a canonical text."""
     def __init__(self, text):
@@ -111,6 +125,20 @@ def lex_number(text):
             return -v if sign else v
         return BigNum("%s%se%d" % (sign, stripped, e))
     return BigNum("%s%se%s%sH%d" % (sign, stripped, esign or "+", ed, adjust))
+
+
+def has_bignum(v):
+    """True if a parsed value holds a number that is not a small exact integer (iterative)."""
+    stack = [v]
+    while stack:
+        x = stack.pop()
+        if isinstance(x, (BigNum, float)):
+            return True
+        if isinstance(x, dict):
+            stack.extend(x.values())
+        elif isinstance(x, list):
+            stack.extend(x)
+    return False
 
 
 def check_depth(v):
@@ -266,7 +294,7 @@ class Store:
             "operators": self.operators,
             "counters": self.counters,
         }
-        return json.loads(json.dumps(st))  # deep, atomic copy (caller holds the lock)
+        return json.loads(dumps(st))  # deep, atomic copy (caller holds the lock)
 
     def new_id(self, prefix, taken):
         while True:
@@ -474,6 +502,75 @@ def validate_state(st):
         raise invalid("invalid state")
 
 
+def need(cond):
+    if not cond:
+        raise invalid("invalid state")
+
+
+def _ts(v):
+    return isinstance(v, str) and TS_RE.fullmatch(v) is not None
+
+
+def _opt_ref(v, pool):
+    return v is None or (isinstance(v, str) and v in pool)
+
+
+def _payment_shape(r, ctx):
+    ids, pids, rids, _, sids = ctx
+    need(isinstance(r, dict) and isinstance(r["payment_id"], str) and r["payment_id"] in pids
+         and _ref(r["from_user_id"], ids) and _ref(r["to_user_id"], ids)
+         and isinstance(r["from_handle"], str) and HANDLE_RE.fullmatch(r["from_handle"])
+         and isinstance(r["to_handle"], str) and HANDLE_RE.fullmatch(r["to_handle"])
+         and is_int(r["amount"]) and 0 <= r["amount"] <= MAX_BALANCE
+         and isinstance(r["currency"], str) and isinstance(r["note"], str) and len(r["note"]) <= 200
+         and isinstance(r["visibility"], str) and r["visibility"] in VISIBILITIES
+         and _opt_ref(r["request_id"], rids) and _opt_ref(r["settlement_id"], sids)
+         and _ts(r["created_at"]))
+    return {k: r[k] for k in ("payment_id", "from_user_id", "from_handle", "to_user_id", "to_handle", "amount",
+                              "currency", "note", "visibility", "request_id", "settlement_id", "created_at")}
+
+
+def _request_shape(r, ctx):
+    ids, pids, rids, _, _ = ctx
+    need(isinstance(r, dict) and isinstance(r["request_id"], str) and r["request_id"] in rids
+         and _ref(r["requester_id"], ids) and _ref(r["payer_id"], ids)
+         and isinstance(r["requester_handle"], str) and HANDLE_RE.fullmatch(r["requester_handle"])
+         and isinstance(r["payer_handle"], str) and HANDLE_RE.fullmatch(r["payer_handle"])
+         and is_int(r["amount"]) and 0 <= r["amount"] <= MAX_BALANCE
+         and isinstance(r["currency"], str) and isinstance(r["note"], str) and len(r["note"]) <= 200
+         and isinstance(r["status"], str) and r["status"] in STATUSES
+         and _opt_ref(r["payment_id"], pids) and _ts(r["created_at"]))
+    return {k: r[k] for k in ("request_id", "requester_id", "requester_handle", "payer_id", "payer_handle",
+                              "amount", "currency", "note", "status", "payment_id", "created_at")}
+
+
+def _response_shape(path, r, ctx):
+    """Whitelist a stored idempotent response by the shape its path produces."""
+    if path == "/payments" or re.fullmatch(r"/requests/.+/pay", path, re.S):
+        return _payment_shape(r, ctx)
+    if path == "/requests":
+        return _request_shape(r, ctx)
+    if path == "/splits":
+        need(isinstance(r, dict) and isinstance(r["split_id"], str) and r["split_id"] in ctx[3]
+             and is_int(r["amount"]) and 0 <= r["amount"] <= MAX_BALANCE and isinstance(r["currency"], str)
+             and isinstance(r["note"], str) and len(r["note"]) <= 200 and _ts(r["created_at"])
+             and isinstance(r["shares"], list) and isinstance(r["requests"], list))
+        shares = []
+        for sh in r["shares"]:
+            need(isinstance(sh, dict) and isinstance(sh["handle"], str) and HANDLE_RE.fullmatch(sh["handle"])
+                 and is_int(sh["amount"]) and 0 <= sh["amount"] <= MAX_BALANCE)
+            shares.append({"handle": sh["handle"], "amount": sh["amount"]})
+        return {"split_id": r["split_id"], "amount": r["amount"], "currency": r["currency"], "note": r["note"],
+                "shares": shares, "requests": [_request_shape(x, ctx) for x in r["requests"]],
+                "created_at": r["created_at"]}
+    if path == "/settlements":
+        need(isinstance(r, dict) and isinstance(r["settlement_id"], str) and r["settlement_id"] in ctx[4]
+             and _ts(r["committed_at"]) and isinstance(r["payments"], list))
+        return {"settlement_id": r["settlement_id"], "committed_at": r["committed_at"],
+                "payments": [_payment_shape(x, ctx) for x in r["payments"]]}
+    raise invalid("unknown idempotent path")
+
+
 def _id(v):
     return isinstance(v, str) and 0 < len(v) <= 64
 
@@ -533,40 +630,48 @@ def _validate_state(st):
     if any(p["request_id"] is not None and p["request_id"] not in rids for p in payments) \
             or any(r["payment_id"] is not None and r["payment_id"] not in pids for r in requests):
         raise invalid("dangling reference")
+    sids_split = set()
     splits = []
     for s in st["splits"]:
-        if not (_id(s["id"]) and isinstance(s["shares"], list) and isinstance(s["request_ids"], list)
-                and all(isinstance(x, str) and x in rids for x in s["request_ids"])):
-            raise invalid("bad split")
-        splits.append(json.loads(json.dumps(s)))
+        need(_id(s["id"]) and s["id"] not in sids_split and _ref(s["requester_id"], ids)
+             and _money(s["amount"]) is not None and isinstance(s["note"], str)
+             and isinstance(s["shares"], list) and isinstance(s["request_ids"], list)
+             and all(isinstance(x, str) and x in rids for x in s["request_ids"])
+             and _ts(s["created_at"]))
+        shares = []
+        for sh in s["shares"]:
+            need(isinstance(sh["handle"], str) and HANDLE_RE.fullmatch(sh["handle"]))
+            shares.append({"handle": sh["handle"], "amount": _money(sh["amount"])})
+        sids_split.add(s["id"])
+        splits.append({"id": s["id"], "requester_id": s["requester_id"], "amount": s["amount"],
+                       "note": s["note"], "shares": shares, "request_ids": list(s["request_ids"]),
+                       "created_at": s["created_at"]})
     settlements, sids = [], set()
     for s in st["settlements"]:
-        if not (_id(s["id"]) and isinstance(s["payment_ids"], list)
-                and all(isinstance(x, str) and x in pids for x in s["payment_ids"])
-                and isinstance(s["committed_at"], str) and TS_RE.fullmatch(s["committed_at"])):
-            raise invalid("bad settlement")
+        need(_id(s["id"]) and s["id"] not in sids and isinstance(s["payment_ids"], list)
+             and all(isinstance(x, str) and x in pids for x in s["payment_ids"])
+             and _ts(s["committed_at"]))
         sids.add(s["id"])
-        settlements.append(json.loads(json.dumps(s)))
-    if any(p["settlement_id"] is not None and p["settlement_id"] not in sids for p in payments):
-        raise invalid("dangling settlement reference")
+        settlements.append({"id": s["id"], "committed_at": s["committed_at"],
+                            "payment_ids": list(s["payment_ids"])})
+    need(all(p["settlement_id"] is None or p["settlement_id"] in sids for p in payments))
+    ctx = (ids, pids, rids, sids_split, sids)
     idem, seen = [], set()
     for e in st["idempotency"]:
-        if not (_ref(e["user_id"], ids) and isinstance(e["method"], str)
-                and isinstance(e["path"], str) and isinstance(e["key"], str)
-                and 1 <= len(e["key"]) <= 255 and e["status"] == 201 and isinstance(e["response"], dict)
-                and isinstance(e["body_raw"], str)):
-            raise invalid("bad idempotency record")
+        need(_ref(e["user_id"], ids) and e["method"] == "POST" and isinstance(e["path"], str)
+             and isinstance(e["key"], str) and 1 <= len(e["key"]) <= 255 and e["status"] == 201
+             and isinstance(e["body_raw"], str))
+        response = _response_shape(e["path"], e["response"], ctx)
         try:
             parsed_body = parse_json(e["body_raw"].encode("utf-8"))
         except ApiError:
             raise invalid("bad idempotency body")
+        need(isinstance(parsed_body, dict))
         k = (e["user_id"], e["method"], e["path"], e["key"])
-        if k in seen:
-            raise invalid("duplicate idempotency record")
+        need(k not in seen)
         seen.add(k)
-        idem.append({"user_id": e["user_id"], "method": e["method"], "path": e["path"],
-                     "key": e["key"], "body": parsed_body, "body_raw": e["body_raw"], "status": 201,
-                     "response": e["response"]})
+        idem.append({"user_id": e["user_id"], "method": "POST", "path": e["path"], "key": e["key"],
+                     "body": parsed_body, "body_raw": e["body_raw"], "status": 201, "response": response})
     ops = st["operators"]
     if not isinstance(ops, list) or any(not isinstance(o, str) or o not in ids for o in ops):
         raise invalid("bad operators")
@@ -577,6 +682,22 @@ def _validate_state(st):
             "tokens": dict(tokens), "payments": payments, "requests": requests, "splits": splits,
             "settlements": settlements, "idempotency": idem, "operators": list(ops),
             "counters": dict(counters)}
+
+
+def prove_state(state):
+    """Import is only accepted if the candidate exports and that export validates again."""
+    try:
+        tmp = Store()
+        tmp.load(state)
+        text = dumps(tmp.export())
+        again = parse_json(text.encode("utf-8"))
+        if has_bignum(again):
+            raise invalid("state is not plain")
+        validate_state(again)
+    except ApiError:
+        raise
+    except (KeyError, TypeError, ValueError, AttributeError, RecursionError):
+        raise invalid("state does not survive an export round trip")
 
 
 # -------------------------------------------------------------- endpoints
@@ -604,11 +725,11 @@ def idempotent(user, method, path, headers, raw, fn, allow_empty=False):
     rec = S.idem.get(k)
     if rec is not None:
         if json_eq(rec["body"], body):
-            return 200, json.loads(json.dumps(rec["response"]))
+            return 200, json.loads(dumps(rec["response"]))
         raise ApiError(409, "idempotency_key_reuse", "key already used with a different body")
     status, resp = fn(body)
     S.idem[k] = {"user_id": user["id"], "method": method, "path": path, "key": key,
-                 "body": body, "body_raw": raw.decode("utf-8") if raw.strip() else "{}", "status": 201, "response": json.loads(json.dumps(resp))}
+                 "body": body, "body_raw": raw.decode("utf-8") if raw.strip() else "{}", "status": 201, "response": json.loads(dumps(resp))}
     return 201, resp
 
 
@@ -881,7 +1002,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", "0")
             self.end_headers()
             return
-        data = json.dumps(obj, ensure_ascii=True, separators=(",", ":")).encode("ascii")
+        data = dumps(obj, ensure_ascii=True, separators=(",", ":")).encode("ascii")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(data)))
@@ -931,7 +1052,7 @@ class Handler(BaseHTTPRequestHandler):
         """Replace the built-in HTML error pages with the §5 JSON error body (never a 5xx)."""
         status = 400 if code >= 500 else code
         err = {400: "malformed_request", 404: "not_found"}.get(status, "malformed_request")
-        data = json.dumps({"error": {"code": err, "message": message or "bad request"}}).encode("ascii")
+        data = dumps({"error": {"code": err, "message": message or "bad request"}}).encode("ascii")
         self.close_connection = True
         self.request_version = "HTTP/1.1"  # always answer with a status line and headers
         try:
@@ -967,7 +1088,10 @@ class Handler(BaseHTTPRequestHandler):
                     or not is_int(doc.get("format_version")) or doc.get("format_version") != 1 \
                     or "state" not in doc:
                 raise invalid("not a pocketful format 1 export")
+            if has_bignum(doc["state"]):
+                raise invalid("state may only hold plain integers, strings, booleans, null, arrays and objects")
             state = validate_state(doc["state"])
+            prove_state(state)
             with LOCK:
                 S.load(state)
             return 204, None

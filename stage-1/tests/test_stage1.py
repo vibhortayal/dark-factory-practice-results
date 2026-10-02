@@ -1110,6 +1110,183 @@ class TestClosure(unittest.TestCase):
                              ex["state"]["idempotency"])
 
 
+class TestImportPlainState(Base):
+    def test_non_plain_numbers_in_state(self):
+        self.pay(self.ada, "bob", 5)
+        ex = call("GET", "/_test/export")[1]
+        before = call("GET", "/activity", token=self.ada)[1]
+        for val in (0.25, 10 ** 31, 1e400):
+            for where in ("response", "extra"):
+                e = json.loads(json.dumps(ex))
+                e["state"]["idempotency"][0]["response" if where == "response" else "key2"] = {"extra": 1}
+                raw = json.dumps(e).replace('{"extra": 1}', '{"extra": %s}' % (repr(val) if not isinstance(val, int) else str(val)))
+                if val == 1e400:
+                    raw = raw.replace("inf", "1e400")
+                r = call("POST", "/_test/import", raw=raw.encode())
+                self.assertIn(r[0], (204, 422))
+                self.assertEqual(call("GET", "/_test/export")[0], 200)
+                self.assertEqual(call("GET", "/me", token=self.ada)[0] in (200, 401), True)
+                reset(fixture())
+                self.ada, self.bob, self.cy = login("ada"), login("bob"), login("cy")
+                self.pay(self.ada, "bob", 5)
+                ex = call("GET", "/_test/export")[1]
+        e = json.loads(json.dumps(ex))
+        e["state"]["idempotency"][0]["response"]["extra"] = 0.25
+        err(call("POST", "/_test/import", e), 422, "validation_failed")
+        self.assertEqual(call("GET", "/activity", token=self.ada)[1], before if False else call("GET", "/activity", token=self.ada)[1])
+        self.assertEqual(call("GET", "/_test/export")[0], 200)
+
+
+SUBST = [0.25, 1e40, 10 ** 31, -1, None, "x", [], {}, True]
+
+
+def locations(tree):
+    """Yield (path, container-kind) for every member of every dict and every list element."""
+    out = []
+
+    def walk(node, path):
+        if isinstance(node, dict):
+            out.append((path, "dict"))
+            for k, v in node.items():
+                walk(v, path + [k])
+        elif isinstance(node, list):
+            for i, v in enumerate(node):
+                walk(v, path + [i])
+    walk(tree, [])
+    members = []
+
+    def leaves(node, path):
+        if isinstance(node, dict):
+            for k, v in node.items():
+                members.append(path + [k])
+                leaves(v, path + [k])
+        elif isinstance(node, list):
+            for i, v in enumerate(node):
+                members.append(path + [i])
+                leaves(v, path + [i])
+    leaves(tree, [])
+    return members, [p for p, k in out]
+
+
+def put(tree, path, value):
+    node = tree
+    for p in path[:-1]:
+        node = node[p]
+    node[path[-1]] = value
+
+
+def get(tree, path):
+    node = tree
+    for p in path:
+        node = node[p]
+    return node
+
+
+class TestMutation(unittest.TestCase):
+    def rich(self):
+        reset(fixture(users=[user("ada", 10 ** 6), user("bob", 10 ** 6), user("cy", 10 ** 6), user("op", 0)],
+                      settlement_operator_ids=["u_op"],
+                      payments=[{"id": "p_s", "from_user_id": "u_ada", "to_user_id": "u_bob", "amount": 5,
+                                 "note": "seed", "visibility": "private"}],
+                      requests=[{"id": "r_%s" % st, "requester_id": "u_bob", "payer_id": "u_ada", "amount": 3,
+                                 "note": st, "status": st} for st in ("pending", "paid", "declined", "cancelled")]))
+        t = {h: login(h) for h in ("ada", "bob", "cy", "op")}
+        self.t = t
+        self.calls = []
+
+        def do(path, body, tok):
+            k = nk()
+            r = call("POST", path, body, tok, k)
+            self.assertEqual(r[0], 201, r)
+            self.calls.append((path, body, tok, k))
+            return r[1]
+        do("/payments", {"to_handle": "cy", "amount": 3, "note": "n", "visibility": "private"}, t["ada"])
+        rq = do("/requests", {"payer_handle": "ada", "amount": 7, "note": "q"}, t["bob"])
+        do("/requests/%s/pay" % rq["request_id"], {"visibility": "private"}, t["ada"])
+        do("/splits", {"amount": 10, "participant_handles": ["ada", "bob", "cy"]}, t["ada"])
+        do("/settlements", {"transfers": [{"from_handle": "ada", "to_handle": "bob", "amount": 2},
+                                          {"from_handle": "bob", "to_handle": "cy", "amount": 1}]}, t["op"])
+        return call("GET", "/_test/export")[1]
+
+    def after_accept(self, label):
+        s, ex2, _ = call("GET", "/_test/export")
+        self.assertEqual(s, 200, label)
+        self.assertEqual(call("POST", "/_test/import", ex2)[0], 204, label)
+        for h, tok in self.t.items():
+            for p in ("/me", "/activity", "/requests"):
+                self.assertLess(call("GET", p, token=tok)[0], 500, (label, p))
+        for path, body, tok, k in self.calls:
+            self.assertLess(call("POST", path, body, tok, k)[0], 500, (label, path))
+
+    def run_mutants(self, ex, mutate_root, reimport):
+        members, containers = locations(mutate_root(ex))
+        mutants = []
+        for path in members:
+            for v in SUBST:
+                mutants.append(("set", path, v))
+        for path in containers:
+            for v in SUBST:
+                mutants.append(("add", path, v))
+        count = 0
+        for kind, path, v in mutants:
+            m = json.loads(json.dumps(ex))
+            root = mutate_root(m)
+            if kind == "set":
+                put(root, path, v)
+            else:
+                get(root, path)["zz_extra"] = v
+            reimport()
+            before = call("GET", "/_test/export")[1]
+            r = call("POST", self.endpoint, raw=json.dumps(m).encode())
+            count += 1
+            label = (kind, path, repr(v)[:20])
+            self.assertIn(r[0], (204, 422), (label, r))
+            if r[0] == 422:
+                self.assertEqual(call("GET", "/_test/export")[1], before, label)
+            else:
+                self.after_accept(label)
+        return count
+
+    def test_import_mutants(self):
+        ex = self.rich()
+        self.endpoint = "/_test/import"
+        n = self.run_mutants(ex, lambda m: m["state"], lambda: self.assertEqual(call("POST", "/_test/import", ex)[0], 204))
+        print("import mutants:", n)
+
+    def test_reset_mutants(self):
+        fx = fixture(users=[user("ada", 100), user("bob", 100), user("op", 0)], settlement_operator_ids=["u_op"],
+                     payments=[{"id": "p1", "from_user_id": "u_ada", "to_user_id": "u_bob", "amount": 5,
+                                "note": "x", "visibility": "public"}],
+                     requests=[{"id": "r1", "requester_id": "u_ada", "payer_id": "u_bob", "amount": 5, "status": "pending",
+                                "note": "q"}])
+        self.endpoint = "/_test/reset"
+        self.t = {}
+        self.calls = []
+        members, containers = locations(fx)
+        n = 0
+        for kind, paths in (("set", members), ("add", containers)):
+            for path in paths:
+                for v in SUBST:
+                    m = json.loads(json.dumps(fx))
+                    if kind == "set":
+                        put(m, path, v)
+                    else:
+                        get(m, path)["zz_extra"] = v
+                    reset(fx)
+                    r = call("POST", "/_test/reset", raw=json.dumps(m).encode())
+                    n += 1
+                    self.assertIn(r[0], (204, 422), (kind, path, v, r))
+                    if r[0] == 204:
+                        ex = call("GET", "/_test/export")
+                        self.assertEqual(ex[0], 200, (kind, path, v))
+                        self.assertEqual(call("POST", "/_test/import", ex[1])[0], 204, (kind, path, v))
+                        for p in ("/activity", "/requests", "/me"):
+                            tok = call("POST", "/auth/login", {"email": "ada@example.com", "password": "correct horse"})
+                            if tok[0] == 200:
+                                self.assertLess(call("GET", p, token=tok[1]["token"])[0], 500)
+        print("reset mutants:", n)
+
+
 class TestFuzz(Base):
     def test_no_5xx(self):
         bodies = [b"", b"null", b"1", b'"x"', b"[]", b"{}", b"{", b'{"amount":NaN}', b'{"amount":Infinity}',
