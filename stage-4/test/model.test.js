@@ -82,25 +82,65 @@ for (const seed of [1, 2, 3, 4, 5, 6]) {
     for (const p of model.payments) { balances[p.from] -= p.revs[0].amount; balances[p.to] += p.revs[0].amount; }
     await h.reset({
       currency: 'EUR', minor_units: 2,
-      users: handles.map((x, i) => ({ id: uids[i], email: `${x}@example.com`, password: 'correct horse', display_name: x, handle: x, balance: balances[uids[i]] })),
-      payments: seeded,
+      users: [...handles.map((x, i) => ({ id: uids[i], email: `${x}@example.com`, password: 'correct horse', display_name: x, handle: x, balance: balances[uids[i]] })),
+        { id: 'u_op', email: 'op@example.com', password: 'correct horse', display_name: 'op', handle: 'op', balance: 0 }],
+      payments: seeded, settlement_operator_ids: ['u_op'],
     });
     const tokens = await h.tokens();
+    const opToken = await h.login('op@example.com');
+    const handleOf = (uid) => uid.slice(2);
+    const refundedOf = (p) => model.payments.filter((q) => q.refundOf === p.id).reduce((a, q) => a + q.revs[0].amount, 0);
     const tok = (uid) => tokens[uid.slice(2)];
     const recordedTimes = [];
-    for (let i = 0; i < 14; i++) {
-      const p = model.payments[pick(model.payments.length)];
-      const latest = p.revs[p.revs.length - 1];
-      const body = { expected_revision: latest.n + (pick(8) === 0 ? 1 : 0), amount: pick(6000), effective_at: at(pick(60) * 1.25), reason: `r${i}` };
-      const res = await call('POST', `/payments/${p.id}/corrections`, { token: tok(p.from), key: `k${seed}-${i}`, body });
-      if (res.status === 201) {
-        const rev = { n: res.body.revision, amount: res.body.amount, effective: ms(res.body.effective_at), recorded: ms(res.body.recorded_at) };
-        assert.ok(rev.recorded > latest.recorded);
-        p.revs.push(rev);
-        recordedTimes.push(rev.recorded);
-        await new Promise((x) => setTimeout(x, 3));
-      } else {
-        assert.ok([409, 422].includes(res.status), res.text);
+    for (let i = 0; i < 24; i++) {
+      const ordinary = model.payments.filter((p) => !p.refundOf);
+      const kind = pick(10);
+      if (kind < 2) { // a refund by the receiver
+        const target = ordinary[pick(ordinary.length)];
+        const latest = target.revs[target.revs.length - 1];
+        const amount = 1 + pick(3000);
+        const res = await call('POST', `/payments/${target.id}/refunds`, { token: tok(target.to), key: `rf${seed}-${i}`, body: { amount } });
+        const fits = refundedOf(target) + amount <= latest.amount;
+        assert.equal(res.status, fits ? 201 : 422, `refund ${target.id} ${amount} (refunded ${refundedOf(target)}, current ${latest.amount})`);
+        if (res.status === 201) {
+          const created = ms(res.body.created_at);
+          model.payments.push({ id: res.body.payment_id, from: target.to, to: target.from, refundOf: target.id, revs: [{ n: 1, amount, effective: created, recorded: created }] });
+        }
+      } else if (kind < 4) { // an operator batch of one to three distinct ordinary payments
+        const chosen = [...ordinary].sort(() => r() - 0.5).slice(0, 1 + pick(3));
+        const effective = at(pick(60) * 1.25);
+        const body = { corrections: chosen.map((p) => ({ payment_id: p.id, expected_revision: p.revs[p.revs.length - 1].n, amount: pick(6000), effective_at: effective, reason: `b${i}` })) };
+        const res = await call('POST', '/correction-batches', { token: opToken, key: `cb${seed}-${i}`, body });
+        if (res.status === 201) {
+          assert.ok(res.body.revisions.every((x) => x.recorded_at === res.body.recorded_at && x.correction_batch_id === res.body.correction_batch_id));
+          res.body.revisions.forEach((x, j) => {
+            const p = chosen[j];
+            assert.equal(x.payment_id, p.id);
+            const rev = { n: x.revision, amount: x.amount, effective: ms(x.effective_at), recorded: ms(x.recorded_at) };
+            assert.ok(rev.recorded > p.revs[p.revs.length - 1].recorded);
+            p.revs.push(rev);
+            recordedTimes.push(rev.recorded);
+          });
+          await new Promise((x) => setTimeout(x, 3));
+        } else {
+          assert.ok([409, 422].includes(res.status), res.text);
+        }
+      } else { // a single correction by the sender
+        const p = ordinary[pick(ordinary.length)];
+        const latest = p.revs[p.revs.length - 1];
+        const body = { expected_revision: latest.n + (pick(8) === 0 ? 1 : 0), amount: pick(6000), effective_at: at(pick(60) * 1.25), reason: `r${i}` };
+        const res = await call('POST', `/payments/${p.id}/corrections`, { token: tok(p.from), key: `k${seed}-${i}`, body });
+        if (res.status === 201) {
+          const rev = { n: res.body.revision, amount: res.body.amount, effective: ms(res.body.effective_at), recorded: ms(res.body.recorded_at) };
+          assert.ok(rev.recorded > latest.recorded);
+          assert.ok(rev.amount >= refundedOf(p), 'a correction may not fall below the refunded total');
+          p.revs.push(rev);
+          recordedTimes.push(rev.recorded);
+          await new Promise((x) => setTimeout(x, 3));
+        } else {
+          assert.ok([409, 422].includes(res.status), res.text);
+          if (body.expected_revision === latest.n && body.amount < refundedOf(p)) assert.equal(res.body.error.code, 'refund_exceeds_payment');
+        }
       }
     }
     const knowns = [null, 0, ...recordedTimes, ...recordedTimes.map((x) => x - 1), Date.now() + 100000];
