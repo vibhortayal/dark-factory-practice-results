@@ -189,6 +189,7 @@ Run: `verify.sh up <rev> <out>`, `verify.sh checks <rev> <out>`, `verify.sh down
 | EX-06 | §10 'Reset clears all state, including imported state'; §3.4 ids | I9 | reset after import; new ids after import do not collide | yes |
 | EX-07 | §10 'Export is an atomic, read-only snapshot; subsequent source writes do not change it' | I1 | exports taken during writes are internally consistent | yes |
 | EX-08 | §10 'missing fields, wrong track/version or an invalid state give 422 validation_failed without changing the destination' | I8 | state with a top-level member removed or replaced by another JSON type -> 422, destination unchanged | yes |
+| EX-09 | §10 'an invalid state give 422 validation_failed without changing the destination'; 'It must accept an unchanged export produced by this service' | I8 | state member of the wrong container type -> 422, destination unchanged; unchanged export -> 204 | yes |
 
 ## Concurrency and limits (§1, §2)
 
@@ -224,4 +225,4 @@ Run: `verify.sh up <rev> <out>`, `verify.sh checks <rev> <out>`, `verify.sh down
 | GL-ids | §3.4 ids <= 64 chars | B9 | every *_id seen in any response | yes |
 | GL-ts | §3.4 timestamps | B6 | every created_at / committed_at seen in any response | yes |
 
-Total: 12 delivery/reading items, 128 scripted HTTP checks, 7 whole-run assertions.
+Total: 12 delivery/reading items, 129 scripted HTTP checks, 7 whole-run assertions.
