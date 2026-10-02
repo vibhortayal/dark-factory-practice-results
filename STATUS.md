@@ -5,7 +5,7 @@ Run started: 2026-10-02T16:47Z (dispatch received by the Architect).
 | Unit | State | Accepted revision | BLOCK verdicts (fix rounds) | Elapsed | Notes |
 |---|---|---|---|---|---|
 | stage-1 | DONE | 77409dda43334b784ca1125d2d990ba51478abf6 | 1 | 0h36 (16:47Z to 17:23Z) | Verifier PASS after one fix round. Final isolated check: `checks/s1-ver-04` (147 passed, `claimed stage: 1`). |
-| stage-2 | PLANNED | n/a | 0 | n/a | Acceptance map in preparation. |
+| stage-2 | BUILDING | n/a | 0 | started 17:23Z | Acceptance map: `acceptance/stage-2.md`. Handed to Implementer and Verifier. |
 | stage-3 | PLANNED | n/a | 0 | n/a | |
 | stage-4 | PLANNED | n/a | 0 | n/a | |
 
@@ -14,6 +14,7 @@ Run started: 2026-10-02T16:47Z (dispatch received by the Architect).
 - Stage 1 open choices in the specification are resolved in `acceptance/stage-1.md`, rows marked **[D]**, each with its reason.
 - A verdict names the full commit that last changed the stage folder. Later commits that touch only `acceptance/`, `handoffs/`, `verification/` or `STATUS.md` do not change the verified code; `git diff <revision> HEAD -- stage-N/` must be empty at acceptance.
 - Map clarification after the stage 1 handoff (sent to both seats): row C1 applies to the authenticated API; a non-object JSON body on reset/import is 422 (B8, J6); an empty body on the pay path may be read as `{}`.
+- Stage 2 open choices are resolved in `acceptance/stage-2.md`, rows marked **[D]** (UI as a pure client of the documented API, millisecond timestamps, capture error precedence, seeded authorisation defaults, authorise form on two screens).
 - Language, framework and storage are left to the Implementer within the delivery limits (rows A1..A5).
 
 ## Verifier notes
