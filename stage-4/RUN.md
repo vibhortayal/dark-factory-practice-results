@@ -1,15 +1,15 @@
-# Pocketful, stage 3: statements and payment corrections
+# Pocketful, stage 4: refunds and batch corrections
 
 A containerised HTTP service (Node.js 20, standard library only, no npm dependencies) with the
-stage-1 JSON API, the stage-2 authorization (hold and capture) API and browser UI, and the stage-3
-historical ledger: balances as of an instant, statements, payment corrections and stable statement
-paging. Every script, stylesheet and icon of the UI is in the image; nothing is fetched
+stage-1 JSON API, the stage-2 authorization (hold and capture) API and browser UI, the stage-3
+historical ledger (balances as of an instant, statements, payment corrections, stable statement
+paging) and the stage-4 refunds and operator correction batches. Every script, stylesheet and icon of the UI is in the image; nothing is fetched
 from another origin.
 
 ## Build and start
 
 ```sh
-docker build -t pocketful-stage3 . && docker run --rm -p 8080:8080 -e PORT=8080 pocketful-stage3
+docker build -t pocketful-stage4 . && docker run --rm -p 8080:8080 -e PORT=8080 pocketful-stage4
 ```
 
 The service listens on `0.0.0.0:$PORT` (default `8080`) and answers `GET /health` within a
@@ -26,7 +26,7 @@ npm test        # node --test test/
 ```
 
 API tests start the service in-process and cover validation, precedence of errors, idempotency
-(eight write paths), requests, splits, settlements, holds and captures, expiry by the clock,
+(ten write paths), requests, splits, settlements, holds and captures, expiry by the clock,
 export/import (including a stage-1 layout) and 50-way concurrency bursts. `test/frontend.test.mjs`
 unit-tests money formatting, decimal parsing, the split rule, retry identity and latest-refresh-wins.
 
@@ -53,6 +53,8 @@ the export/import upgrade without a page reload.
 | `src/holds.js` | Authorizations: hold accounting, capture, void and clock-driven expiry |
 | `src/instant.js` | The one parser and one exact comparison for RFC 3339 instants (sub-millisecond precision kept) |
 | `src/history.js` | The historical ledger as pure functions: revision selection, views (total/held/available at an instant as known at another), statements, the boundary walk for corrections |
+| `src/corrections.js` | The one validation, eligibility check and commit path for payment corrections: used by the single endpoint and by the operator batch |
+| `src/handlers/refunds.js`, `src/handlers/batches.js` | `POST /payments/{id}/refunds`; `POST /correction-batches` |
 | `src/handlers/statement.js`, `src/handlers/corrections.js` | `GET /statement` with snapshots; `POST /payments/{id}/corrections`, `GET /payments/{id}/revisions` |
 | `src/state.js`, `src/idempotency.js`, `src/fixture.js`, `src/snapshot.js` | State, idempotency records, reset fixtures, export/import |
 | `src/handlers/` | One module per endpoint family (`authorizations.js` is new in stage 2) |
@@ -86,6 +88,22 @@ the export/import upgrade without a page reload.
   never reports an instant earlier than the state already holds.
 - Import accepts the stage-1, stage-2 and stage-3 layouts (`state.layout: 3` for this one) and
   upgrades the older ones: revision 1 for every payment, opening balances, `closed_at`.
+
+## Refunds and batch corrections (stage 4)
+
+- A refund is a new payment (revision 1) from the target's receiver to its sender with
+  `refund_of` set, funded from the receiver's available money; the sum of a payment's refunds may
+  not exceed its current corrected amount, and a correction may not reduce a payment below what has
+  been refunded. Refunds change no request, authorization, hold or settlement membership.
+- Single corrections and batches share `src/corrections.js`: fields, eligibility (captures and
+  refunds are immutable; settlement members only in a batch), net current-funds check, one shared
+  `recorded_at`, the historical boundary walk over all proposed revisions together, one commit.
+  A batch adds item order, settlement completeness (every member, one effective instant) and
+  the operator permission. Batch revisions carry `correction_batch_id`.
+- A saved statement snapshot remembers the payment layout it was taken under (`layout` 3 or 4) and
+  pages in that layout, so a stage-3 token pages exactly the entries and fields it did before the
+  upgrade; recorded idempotent responses are returned as recorded.
+- Import accepts all four layouts; layout 4 adds refunds, `batches` and snapshot layouts, validated per leaf.
 
 ## Design choices
 
