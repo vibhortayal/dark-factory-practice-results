@@ -1,4 +1,14 @@
-"""HTTP plumbing: parse a request, dispatch it, write the JSON response."""
+"""HTTP plumbing: decode a request (phase 1), route it (phase 2), write JSON.
+
+Phase 1 (`_decode`) turns bytes into a `Request` and nothing else; whatever
+goes wrong there, of any exception type, is a 4xx with the §5 body. Only phase 2
+(the routed handler) has a catch-all for unexpected errors, and no client input
+should be able to reach it.
+
+Documented limits: request line and each header line 64 KiB, at most 100
+headers (http.server), body 64 MiB, 30 s to receive a request. Each excess is
+answered with a JSON error body.
+"""
 import json
 import os
 import sys
@@ -9,44 +19,70 @@ from .errors import ApiError
 from .request import Request
 from .router import dispatch
 
-# Documented limits: request line and each header line 64 KiB and at most 100
-# headers (http.server), body 64 MiB. Each excess is answered with a JSON error.
 MAX_BODY = 64 * 1024 * 1024
+LINE_LIMIT = 65537
+BAD_REQUEST = 400
+
+
+def _malformed(message):
+    return ApiError(BAD_REQUEST, "malformed_request", message)
+
+
+def _too_big():
+    return ApiError(422, "validation_failed", "request is too large")
 
 
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
+    timeout = 30
 
     def log_message(self, *args):
         pass
 
-    def _read_body(self):
-        try:
-            if "chunked" in (self.headers.get("Transfer-Encoding") or "").lower():
-                return self._read_chunked()
-            length = int(self.headers.get("Content-Length") or 0)
-        except ValueError:
-            raise ApiError(400, "malformed_request", "bad Content-Length or chunk framing")
-        if length > MAX_BODY:
-            raise ApiError(422, "validation_failed", "body too large")
-        return self.rfile.read(length) if length > 0 else b""
-
+    # ---- phase 1: decode ----
     def _read_chunked(self):
         chunks, total = [], 0
         while True:
-            size = int(self.rfile.readline(65537).split(b";")[0].strip() or b"0", 16)
+            size = int(self.rfile.readline(LINE_LIMIT).split(b";")[0].strip() or b"0", 16)
+            if size < 0:
+                raise _malformed("bad chunk size")
             total += size
             if total > MAX_BODY:
-                raise ApiError(422, "validation_failed", "body too large")
+                raise _too_big()
             if size == 0:
-                while self.rfile.readline(65537).strip():
+                while self.rfile.readline(LINE_LIMIT).strip():
                     pass
                 return b"".join(chunks)
-            chunks.append(self.rfile.read(size))
-            self.rfile.readline(65537)
+            data = self.rfile.read(size)
+            if len(data) != size:
+                raise _malformed("truncated chunk")
+            chunks.append(data)
+            self.rfile.readline(LINE_LIMIT)
 
+    def _read_body(self):
+        if "chunked" in (self.headers.get("Transfer-Encoding") or "").lower():
+            return self._read_chunked()
+        length = int((self.headers.get("Content-Length") or "0").strip())
+        if length < 0:
+            raise _malformed("negative Content-Length")
+        if length > MAX_BODY:
+            raise _too_big()
+        raw = self.rfile.read(length) if length else b""
+        if len(raw) != length:
+            raise _malformed("body shorter than Content-Length")
+        return raw
+
+    def _decode(self):
+        target = urlsplit(self.path)  # absolute-form, "*" and odd targets all land here
+        query = {}
+        for name, value in parse_qsl(target.query, keep_blank_values=True):
+            query.setdefault(name, value)
+        raw = self._read_body()
+        return Request(self.command, unquote(target.path), query, self.headers, raw)
+
+    # ---- responses ----
     def send_error(self, code, message=None, explain=None):
-        """Protocol-level refusals (oversized line/header) still use the §5 body."""
+        """Protocol-level refusals (oversized line/header, bad request line)."""
         if code in (413, 414, 431):      # oversized body, URL or header: out of range
             status, name = 422, "validation_failed"
         elif code in (405, 501):         # a method this service does not serve
@@ -57,6 +93,7 @@ class Handler(BaseHTTPRequestHandler):
         self._send(status, {"error": {"code": name, "message": message or "bad request"}})
 
     def _send(self, status, payload):
+        self.request_version = "HTTP/1.1"  # never fall back to header-less HTTP/0.9
         body = b"" if payload is None else json.dumps(payload).encode("utf-8")
         self.send_response(status)
         if body:
@@ -66,29 +103,32 @@ class Handler(BaseHTTPRequestHandler):
         if body and self.command != "HEAD":
             self.wfile.write(body)
 
+    @staticmethod
+    def _error_body(err):
+        return err.status, {"error": {"code": err.code, "message": err.message}}
+
     def _handle(self):
+        self.request_version = "HTTP/1.1"
         try:
             try:
-                raw = self._read_body()
-                try:
-                    parts = urlsplit(self.path)
-                    pairs = parse_qsl(parts.query, keep_blank_values=True)
-                except ValueError:  # e.g. an absolute target with an unbalanced "[" host
-                    raise ApiError(400, "malformed_request", "malformed request target")
-                query = {}
-                for name, value in pairs:
-                    query.setdefault(name, value)
-                req = Request(self.command, unquote(parts.path), query, self.headers, raw)
-                status, payload = dispatch(req)
+                req = self._decode()
             except ApiError as err:
-                status, payload = err.status, {"error": {"code": err.code, "message": err.message}}
-            except RecursionError:
-                status, payload = 400, {"error": {"code": "malformed_request",
-                                                  "message": "unreadable request"}}
-            except Exception as err:  # never leak a traceback; log and answer 500
-                print(f"internal error: {err!r}", file=sys.stderr, flush=True)
-                status, payload = 500, {"error": {"code": "internal_error",
-                                                  "message": "internal error"}}
+                self.close_connection = True  # the body may be half-read
+                status, payload = self._error_body(err)
+            except Exception:  # phase 1 failures are always the client's
+                self.close_connection = True
+                status, payload = self._error_body(_malformed("request could not be decoded"))
+            else:
+                try:
+                    status, payload = dispatch(req)
+                except ApiError as err:
+                    status, payload = self._error_body(err)
+                except RecursionError:
+                    status, payload = self._error_body(_malformed("body is nested too deeply"))
+                except Exception as err:  # unexpected: log, answer 500, never leak
+                    print(f"internal error: {err!r}", file=sys.stderr, flush=True)
+                    status, payload = 500, {"error": {"code": "internal_error",
+                                                      "message": "internal error"}}
             self._send(status, payload)
         except (BrokenPipeError, ConnectionResetError):
             self.close_connection = True
