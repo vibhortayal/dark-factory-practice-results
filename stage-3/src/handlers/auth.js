@@ -36,7 +36,7 @@ async function signup({ body }) {
   checkFree(state);
   const user = {
     id: nextId(state, 'user', 'u_', state.users),
-    email, display_name: displayName, handle, balance: 0, held: 0, initial_balance: 0, password: hashed,
+    email, display_name: displayName, handle, balance: 0, held: 0, opening_balance: 0, password: hashed,
   };
   state.users.set(user.id, user);
   state.byHandle.set(handle, user);
