@@ -2,7 +2,7 @@
 
 const { malformed } = require('./errors');
 
-const MAX_DEPTH = 200;
+const MAX_DEPTH = 1000;
 const decoder = new TextDecoder('utf-8', { fatal: true });
 
 /** Nesting depth of JSON text, scanned without recursion. */

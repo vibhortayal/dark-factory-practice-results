@@ -147,3 +147,17 @@ test('hostile input never yields a 5xx', async () => {
   assert.equal(big.status, 400);
   assert.equal((await call('GET', '/health')).status, 200);
 });
+
+test('over-long values far beyond the limit still get their 422', async () => {
+  await h.reset();
+  const t = await h.tokens();
+  const note = await call('POST', '/payments', { token: t.ada, key: 'big1', body: JSON.stringify({ to_handle: 'bob', amount: 1, note: 'n'.repeat(2200000) }) });
+  assert.equal(note.status, 422);
+  const many = Array.from({ length: 40000 }, () => ({ from_handle: 'ada', to_handle: 'bob', amount: 1 }));
+  assert.equal((await call('POST', '/settlements', { token: t.cy, key: 'big2', body: { transfers: many } })).status, 422);
+  const key = await call('POST', '/payments', { token: t.ada, key: 'k'.repeat(17000), body: { to_handle: 'bob', amount: 1 } });
+  assert.equal(key.status, 422);
+  assert.equal(key.body.error.code, 'validation_failed');
+  assert.equal((await call('GET', `/activity?limit=${'9'.repeat(17000)}`, { token: t.ada })).status, 422);
+  assert.equal((await call('GET', '/me', { token: 'x'.repeat(17000) })).status, 401);
+});

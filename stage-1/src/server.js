@@ -4,8 +4,10 @@ const http = require('http');
 const { ApiError } = require('./errors');
 const { handle } = require('./pipeline');
 
-const MAX_BODY = 2 * 1024 * 1024;
+// Generous caps: an over-long value must reach validation and get its 422, not a transport error.
+const MAX_BODY = 64 * 1024 * 1024;
 const MAX_TEST_BODY = 128 * 1024 * 1024;
+const MAX_HEADER = 1024 * 1024;
 const JSON_TYPE = 'application/json; charset=utf-8';
 
 function send(res, status, body) {
@@ -65,7 +67,12 @@ async function onRequest(req, res) {
 }
 
 function createServer() {
-  const server = http.createServer(onRequest);
+  const server = http.createServer({ maxHeaderSize: MAX_HEADER }, onRequest);
+  server.on('clientError', (err, socket) => {
+    if (!socket.writable) return;
+    const body = JSON.stringify({ error: { code: 'malformed_request', message: 'malformed HTTP request' } });
+    socket.end(`HTTP/1.1 400 Bad Request\r\nContent-Type: ${JSON_TYPE}\r\nContent-Length: ${Buffer.byteLength(body)}\r\nConnection: close\r\n\r\n${body}`);
+  });
   server.keepAliveTimeout = 65000;
   server.headersTimeout = 66000;
   return server;
