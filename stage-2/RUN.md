@@ -55,7 +55,7 @@ stage-1 service keeps working after export -> import into stage 2).
   every server-assigned timestamp is a fixed-width microsecond instant
   (`2026-09-24T13:10:00.123456+00:00`), `expires_at = created_at + ttl` exactly, and a hold is open
   strictly before `expires_at`. Fixture/import timestamps are kept as given.
-* Authorizations: A capture moves money
+* Authorizations: a capture moves money
   from the payer's total and shrinks the hold; a final capture releases the rest.
 * The UI is a client-rendered app over the documented JSON API (bearer token in
   `localStorage`; no cookie session and no UI-only endpoints). Because the page holds
