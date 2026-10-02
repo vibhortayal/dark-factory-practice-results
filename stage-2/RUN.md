@@ -65,6 +65,6 @@ stage-1 service keeps working after export -> import into stage 2).
   advertises `Keep-Alive: timeout=110`, so a browser does not normally reuse a socket the
   server is about to close. If it ever does, the write fails as an unknown outcome and the
   retry carries the same idempotency key, so it can never act twice.
-* Limits: request line and header lines 64 KiB, at most 100 headers, body 64 MiB, 30 s
+* Limits: request line and header lines 64 KiB, at most 100 headers, body 64 MiB, 120 s
   to receive a request; each excess answers a JSON error body.
 * Passwords: scrypt (N=4096, r=8, p=1, per-user salt).
