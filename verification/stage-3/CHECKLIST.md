@@ -187,3 +187,9 @@ A check FAILs only on behaviour contradicting the quoted specification statement
 | HS-15 | stage-2 Model: seeded status open, captured, voided or expired — only open holds anything; stage-3: all four money fields of GET /me?as_of describe one view. A seeded expired hold whose expires_at is still in the future holds nothing in any view and cannot cause a historical_overdraft | N2 V6 V7 X8 |
 
 One-off probes of this revision: `probes6.py` (seeded closed holds in historical views, snapshots with future `to` and `known_at`, corrections of seeded payments, snapshot growth).
+
+## Map change c6a4ca0ffe910ef1011a29b1422af7e36f519ac2 (row V7 reading)
+
+| Check | Specification statement | Map rows |
+|---|---|---|
+| HS-16 | stage-2 Model: only open holds anything — every seeded closed status (captured, voided, expired) with expires_at in the past and in the future holds nothing in GET /me, GET /me?as_of (now, before and after expires_at, with known_at) and takes no part in historical_overdraft; [reading V7, note] closed_at is never in the future | N2 V6 V7 X8 |
