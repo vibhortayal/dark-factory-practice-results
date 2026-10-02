@@ -290,6 +290,7 @@ class ExportImport(Api):
         bad = [{}, {"track": "pocketful", "format_version": 1}, {**export, "track": "x"},
                {**export, "format_version": 2}, {**export, "format_version": True}, {**export, "state": []},
                {**export, "state": {}}, {**export, "state": {**export["state"], "users": "x"}}, []]
+        bad.append({**export, "state": {**export["state"], "payments": {}}})
         corrupt = copy.deepcopy(export)
         corrupt["state"]["payments"] = [{"payment_id": "p", "from_user_id": "ghost"}]
         bad.append(corrupt)

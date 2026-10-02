@@ -37,6 +37,23 @@ class Contract(Api):
         self.assertEqual(s, 401)
         self.ok("ada", "POST", "/payments", {"to_handle": "bob", "amount": 5}, key=k)
 
+    def test_wrong_typed_fixture_fields_are_400(self):
+        def u(**kw):
+            return {**user("u_x", "x", 1), **kw}
+        cases = [{"users": "x"}, {"users": [5]}, {"currency": 5}, {"minor_units": "2"},
+                 {"payments": "x"}, {"requests": {}}, {"settlement_operator_ids": "u"},
+                 {"settlement_operator_ids": [5]}, {"users": [u(id=5)]}, {"users": [u(email=None)]},
+                 {"users": [u(handle=1)]}, {"users": [u(password=[])]}, {"users": [u(display_name={})]},
+                 {"payments": [{"from_user_id": 5, "to_user_id": "u_x"}]}]
+        for patch in cases:
+            s, b, _ = call("POST", "/_test/reset", {**fixture(), **patch})
+            self.assertEqual((s, b["error"]["code"]), (400, "malformed_request"), patch)
+        for patch in ({"minor_units": 7}, {"users": [u(balance=-1)]}, {"users": [u(handle="Bad!")]},
+                      {"users": [u(), u(email="y@example.com")]}):
+            self.assertEqual(call("POST", "/_test/reset", {**fixture(), **patch})[0], 422, patch)
+        self.assertEqual(call("POST", "/_test/reset", {k: v for k, v in fixture().items() if k != "users"})[0], 422)
+        self.assertEqual(self.balance("ada"), 10000)
+
     def test_currencies_and_seeded_ids_do_not_collide(self):
         for cur, mu in (("JPY", 0), ("BHD", 3)):
             fx = fixture(currency=cur, minor_units=mu, payments=[

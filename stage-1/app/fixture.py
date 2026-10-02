@@ -14,10 +14,16 @@ def _need(cond, message="invalid fixture"):
         raise invalid(message)
 
 
+def _typed(cond, message):
+    """Wrong JSON type is 400 malformed_request (spec section 5)."""
+    if not cond:
+        raise malformed(message)
+
+
 def _list(fixture, name):
     value = fixture.get(name, [])
-    _need(isinstance(value, list), f"{name} must be an array")
-    _need(all(isinstance(item, dict) for item in value), f"{name} must hold objects")
+    _typed(isinstance(value, list), f"{name} must be an array")
+    _typed(all(isinstance(item, dict) for item in value), f"{name} must hold objects")
     return value
 
 
@@ -29,7 +35,7 @@ def _uint(value, message):
 
 def _text(item, name, default=None):
     value = item.get(name, default)
-    _need(isinstance(value, str), f"{name} must be a string")
+    _typed(isinstance(value, str), f"{name} must be a string")
     return value
 
 
@@ -38,8 +44,12 @@ def build(fixture):
     if not isinstance(fixture, dict):
         raise malformed("fixture must be a JSON object")
     currency = fixture.get("currency")
-    _need(isinstance(currency, str) and currency, "currency is required")
-    minor_units = as_integer(fixture.get("minor_units"))
+    _typed("currency" not in fixture or isinstance(currency, str), "currency must be a string")
+    _need(currency, "currency is required")
+    raw_units = fixture.get("minor_units")
+    _typed("minor_units" not in fixture or (isinstance(raw_units, (int, float)) and not isinstance(raw_units, bool)),
+           "minor_units must be a number")
+    minor_units = as_integer(raw_units)
     _need(minor_units in (0, 2, 3), "minor_units must be 0, 2 or 3")
     store = Store(currency, minor_units)
     _need("users" in fixture, "users is required")
@@ -47,7 +57,8 @@ def build(fixture):
     parsed = []
     for u in users:
         for name in _USER_STRINGS:
-            _need(isinstance(u.get(name), str), f"user {name} must be a string")
+            _typed(name not in u or isinstance(u[name], str), f"user {name} must be a string")
+            _need(name in u, f"user {name} is required")
         _need(HANDLE_RE.fullmatch(u["handle"]) and 0 < len(u["id"]) <= 64, "bad user id/handle")
         _need(u["id"] not in store.users and u["handle"] not in store.by_handle
               and u["email"] not in store.by_email, "duplicate user id, handle or email")
@@ -68,7 +79,7 @@ def build(fixture):
     for p in _list(fixture, "payments"):
         sender, receiver = _party(store, p, "from_user_id"), _party(store, p, "to_user_id")
         visibility = p.get("visibility", "public")
-        _need(visibility in VISIBILITIES and isinstance(visibility, str), "bad visibility")
+        _need(isinstance(visibility, str) and visibility in VISIBILITIES, "bad visibility")
         pid = _text(p, "id", "") or store.new_id("p_", store.payments)
         _need(pid not in store.payments and len(pid) <= 64, "duplicate or long payment id")
         store.payments[pid] = {
@@ -80,7 +91,7 @@ def build(fixture):
     for r in _list(fixture, "requests"):
         requester, payer = _party(store, r, "requester_id"), _party(store, r, "payer_id")
         status = r.get("status", "pending")
-        _need(status in STATUSES and isinstance(status, str), "bad request status")
+        _need(isinstance(status, str) and status in STATUSES, "bad request status")
         rid = _text(r, "id", "") or store.new_id("rq_", store.requests)
         _need(rid not in store.requests and len(rid) <= 64, "duplicate or long request id")
         store.requests[rid] = {
@@ -91,15 +102,17 @@ def build(fixture):
             "currency": currency, "note": _text(r, "note", ""), "status": status,
             "payment_id": None, "created_at": created_at, "split_id": None}
     operators = fixture.get("settlement_operator_ids", [])
-    _need(isinstance(operators, list) and all(isinstance(o, str) for o in operators),
-          "settlement_operator_ids must be an array of strings")
+    _typed(isinstance(operators, list) and all(isinstance(o, str) for o in operators),
+           "settlement_operator_ids must be an array of strings")
     store.operators = set(operators)
     return store
 
 
 def _party(store, item, field):
     uid = item.get(field)
-    _need(isinstance(uid, str) and uid in store.users, f"{field} must name a seeded user")
+    _need(field in item, f"{field} is required")
+    _typed(isinstance(uid, str), f"{field} must be a string")
+    _need(uid in store.users, f"{field} must name a seeded user")
     return store.users[uid]
 
 

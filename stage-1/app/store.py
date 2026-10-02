@@ -99,6 +99,8 @@ def _load(data):
     _check(isinstance(data, dict))
     _check(_is_str(data["currency"]) and data["currency"])
     _check(type(data["minor_units"]) is int and data["minor_units"] in (0, 2, 3))
+    for name in ("users", "payments", "requests", "splits", "settlements", "operators", "idempotency"):
+        _check(isinstance(data[name], list), f"{name} must be an array")
     store = Store(data["currency"], data["minor_units"])
     for u in data["users"]:
         _check(all(_is_str(u[k]) for k in ("id", "email", "password_hash", "display_name", "handle")))
