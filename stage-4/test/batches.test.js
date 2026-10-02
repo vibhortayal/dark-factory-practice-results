@@ -265,3 +265,16 @@ test('batch: export/import keeps batch ids and shared times; tampering is refuse
   }
   assert.deepEqual(await me(t.ada), before);
 });
+
+test('hostile input on refunds and batches never produces a 5xx', async () => {
+  const t = await setup();
+  const bodies = ['{}', '[]', 'null', '"x"', '{"amount":1e999}', '{"amount":{}}', '{"corrections":"x"}', '{"corrections":[{}]}', '{"corrections":[{"payment_id":{}}]}',
+    JSON.stringify({ corrections: Array.from({ length: 40000 }, () => item('p3', 1)) }), `{"corrections":[${'['.repeat(5000)}]}`, '{"corrections":[{"payment_id":"p3","expected_revision":1,"amount":1,"effective_at":"2026-09-20T10:00:00.' + '9'.repeat(10000) + 'Z","reason":"r"}]}'];
+  for (const body of bodies) {
+    for (const [path, tok] of [['/payments/p3/refunds', t.cy], ['/payments/%/refunds', t.cy], ['/correction-batches', t.op], ['/correction-batches', t.ada]]) {
+      const r = await call('POST', path, { token: tok, key: k(), body });
+      assert.ok(r.status < 500, `${path} ${body.slice(0, 40)} -> ${r.status}`);
+      if (r.status >= 400) assert.equal(typeof r.body.error.code, 'string');
+    }
+  }
+});
