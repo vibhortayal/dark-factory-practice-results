@@ -2,7 +2,6 @@
 from . import holds
 from .errors import insufficient_funds
 from .store import store
-from .timefmt import now_iso
 
 
 def make_payment(sender, receiver, amount, note, visibility,
@@ -18,7 +17,7 @@ def make_payment(sender, receiver, amount, note, visibility,
         "amount": amount, "currency": store.currency, "note": note,
         "visibility": visibility, "request_id": request_id,
         "settlement_id": settlement_id, "authorization_id": authorization_id,
-        "created_at": created_at or now_iso(),
+        "created_at": created_at or store.stamp(),
     }
     store.state["payments"].append(payment)
     return dict(payment)

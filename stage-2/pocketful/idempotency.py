@@ -7,6 +7,7 @@ A key is claimed only when `execute` succeeds, so 4xx failures leave it free.
 import json
 
 from .errors import ApiError, invalid
+from . import operation
 from .store import store
 
 
@@ -51,6 +52,7 @@ def run_idempotent(req, execute, allow_empty_body=False):
     body = req.json_body(allow_empty=allow_empty_body)
     fingerprint = canonical(body)
     with store.lock:
+        operation.begin()
         claimed = store.idem.get((req.user_id, req.path, key))
         if claimed is not None:
             if claimed["fingerprint"] != fingerprint:

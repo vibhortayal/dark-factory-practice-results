@@ -1,9 +1,13 @@
 """RFC 3339 timestamps with an explicit numeric offset."""
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 
-def now_iso():
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+def fmt(instant):
+    """Fixed-width RFC 3339: UTC, always six fractional digits, numeric offset.
+
+    Strings of server-assigned timestamps therefore sort in time order.
+    """
+    return instant.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f+00:00")
 
 
 def parse_iso(value):
@@ -25,19 +29,3 @@ def normalise_iso(value):
     if parsed is None:
         return None
     return parsed.isoformat(timespec="seconds") if parsed.microsecond == 0 else parsed.isoformat()
-
-
-def now_dt():
-    return datetime.now(timezone.utc)
-
-
-def created_and_expiry(ttl_seconds):
-    """(created_at, expires_at) from ONE clock read.
-
-    created_at is now rounded up to a whole second so the lifetime is never
-    shorter than the ttl; expires_at is exactly created_at + ttl.
-    """
-    now = now_dt()
-    whole = now.replace(microsecond=0) + (timedelta(seconds=1) if now.microsecond else timedelta())
-    return (whole.isoformat(timespec="seconds"),
-            (whole + timedelta(seconds=ttl_seconds)).isoformat(timespec="seconds"))

@@ -9,7 +9,9 @@ import secrets
 import threading
 
 from .errors import unauthenticated
-from .timefmt import parse_iso
+from datetime import timedelta
+
+from .timefmt import fmt, parse_iso
 
 EMPTY_STATE = {
     "currency": "EUR", "minor_units": 2,
@@ -22,6 +24,7 @@ EMPTY_STATE = {
 class Store:
     def __init__(self):
         self.lock = threading.RLock()
+        self.now = None   # the instant of the operation in progress (see operation.begin)
         self.load(json.loads(json.dumps(EMPTY_STATE)))
 
     # ---- whole-state operations ----
@@ -49,6 +52,10 @@ class Store:
             return json.loads(json.dumps(self.state))
 
     # ---- lookups ----
+    def stamp(self, plus_seconds=0):
+        """The current operation's instant (plus an offset) as a fixed-width timestamp."""
+        return fmt(self.now + timedelta(seconds=plus_seconds))
+
     @property
     def currency(self):
         return self.state["currency"]

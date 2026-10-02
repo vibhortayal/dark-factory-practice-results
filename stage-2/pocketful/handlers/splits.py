@@ -3,7 +3,6 @@ from .. import ledger
 from ..errors import invalid, not_found
 from ..idempotency import run_idempotent
 from ..store import store
-from ..timefmt import now_iso
 from ..validation import handle_list_field, parse_amount, parse_note
 
 
@@ -30,7 +29,7 @@ def _execute(user_id, body):
         participants.append(user)
     caller = store.user(user_id)
     shares = equal_shares(amount, len(participants))
-    created_at = now_iso()
+    created_at = store.stamp()
     requests = [dict(ledger.make_request(caller, user, share, note, created_at))
                 for user, share in zip(participants, shares) if user["id"] != user_id]
     split = {"split_id": store.new_id("sp"), "amount": amount, "currency": store.currency,

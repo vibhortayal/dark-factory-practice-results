@@ -2,10 +2,8 @@
 import re
 
 from .errors import ApiError
-from . import holds
 from .handlers import (activity, auth, authorizations, me, payments, requests, settlements,
                        splits, testctl, ui)
-from .store import store
 
 # (method, pattern, handler, requires_auth)
 ROUTES = [
@@ -37,8 +35,6 @@ def dispatch(req):
     """Return (status, body). Raises ApiError for every expected failure."""
     if ui.wants_ui(req):
         return ui.serve(req)
-    with store.lock:
-        holds.sweep()  # every request sees clock expiry, even with no request at the deadline
     path_matched = False
     for method, pattern, handler, needs_auth in COMPILED:
         found = pattern.fullmatch(req.path)

@@ -3,7 +3,6 @@ from .. import ledger
 from ..errors import ApiError, forbidden, not_found, request_not_pending
 from ..idempotency import run_idempotent
 from ..store import store
-from ..timefmt import now_iso
 from ..validation import (STATUSES, page_params, parse_amount, parse_note,
                           parse_visibility, query_enum, string_field)
 
@@ -22,7 +21,7 @@ def _create(user_id, body):
     payer = store.by_handle.get(payer_handle)
     if payer is None:
         raise not_found("no user has that handle")
-    return dict(ledger.make_request(requester, payer, amount, note, now_iso()))
+    return dict(ledger.make_request(requester, payer, amount, note, store.stamp()))
 
 
 def pay_request(req):

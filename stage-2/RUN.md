@@ -32,6 +32,7 @@ stage-1 service keeps working after export -> import into stage 2).
 | `pocketful/router.py` | route table, UI-or-API decision, auth, clock expiry sweep |
 | `pocketful/request.py`, `errors.py`, `validation.py`, `timefmt.py`, `passwords.py` | request object, errors, field rules, timestamps, scrypt |
 | `pocketful/store.py` | the one JSON-shaped state dict, its lock, lookup indexes |
+| `pocketful/clock.py`, `operation.py` | monotonic clock; start of every locked operation (one clock read + expiry) |
 | `pocketful/holds.py` | holds: `held`, `available = total - held`, closing and clock expiry |
 | `pocketful/ledger.py` | moving money; payment and request records (funds checks use `available`) |
 | `pocketful/idempotency.py` | the seven idempotent write paths |
@@ -50,8 +51,11 @@ stage-1 service keeps working after export -> import into stage 2).
 
 * One process-wide lock serialises every state change; `available` is derived from
   open holds on every read, and clock expiry is applied at the start of every request.
-* Authorizations: `expires_at = created_at + ttl` where `created_at` is rounded up to
-  a whole second, so a hold never lives shorter than its TTL. A capture moves money
+* Time: each locked operation reads a monotonic clock once (`clock.py`, `operation.begin`);
+  every server-assigned timestamp is a fixed-width microsecond instant
+  (`2026-09-24T13:10:00.123456+00:00`), `expires_at = created_at + ttl` exactly, and a hold is open
+  strictly before `expires_at`. Fixture/import timestamps are kept as given.
+* Authorizations: A capture moves money
   from the payer's total and shrinks the hold; a final capture releases the rest.
 * The UI is a client-rendered app over the documented JSON API (bearer token in
   `localStorage`; no cookie session and no UI-only endpoints). Because the page holds

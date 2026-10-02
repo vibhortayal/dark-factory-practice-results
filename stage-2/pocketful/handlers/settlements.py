@@ -5,7 +5,6 @@ from .. import holds, ledger
 from ..errors import ApiError, forbidden, insufficient_funds, invalid, not_found
 from ..idempotency import run_idempotent
 from ..store import store
-from ..timefmt import now_iso
 from ..validation import parse_amount, parse_note, parse_visibility, string_field
 
 MAX_TRANSFERS = 32
@@ -47,7 +46,7 @@ def _execute(body):
     if any(holds.available_of(store.user(uid)) + delta < 0 for uid, delta in net.items()):
         raise insufficient_funds()
     settlement_id = store.new_id("st")
-    committed_at = now_iso()
+    committed_at = store.stamp()
     payments = [ledger.make_payment(s, r, amount, note, vis,
                                     settlement_id=settlement_id, created_at=committed_at)
                 for s, r, amount, note, vis in parsed]

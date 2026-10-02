@@ -4,11 +4,9 @@
 authorization the user is paying. Callers hold `store.lock`.
 """
 from .store import store
-from .timefmt import now_dt
 
 
 def held_of(user_id):
-    sweep()
     return sum(a["remaining_amount"] for a in store.open_auths.values()
                if a["from_user_id"] == user_id)
 
@@ -24,9 +22,9 @@ def close(authorization, status):
     store.open_auths.pop(authorization["authorization_id"], None)
 
 
-def sweep(now=None):
-    """Mark every open authorization whose deadline has passed as expired."""
-    now = now or now_dt()
+def sweep():
+    """Mark every open authorization whose deadline has passed as expired (at store.now)."""
+    now = store.now
     for aid, authorization in list(store.open_auths.items()):
         if store.expiries[aid] <= now:
             close(authorization, "expired")

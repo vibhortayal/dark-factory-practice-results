@@ -327,21 +327,75 @@ class ExpiryAndFixtureTests(World):
         self.assertEqual(sum(self.get(h, "/me").json["total"] for h in self.tok), 13000)
 
 
-class ClockSingleReadTests(World):
-    def test_lifetime_is_exactly_ttl_across_a_second_boundary(self):
-        from datetime import datetime, timezone
-        from pocketful import timefmt
-        ticks = iter([datetime(2026, 10, 2, 22, 20, 58, 999999, tzinfo=timezone.utc),
-                      datetime(2026, 10, 2, 22, 20, 59, 5, tzinfo=timezone.utc)])
-        original = timefmt.now_dt
-        timefmt.now_dt = lambda: next(ticks)
-        try:
-            created, expires = timefmt.created_and_expiry(600)
-        finally:
-            timefmt.now_dt = original
-        self.assertEqual((created, expires), ("2026-10-02T22:20:59+00:00", "2026-10-02T22:30:59+00:00"))
+class ClockTests(World):
+    FIXED = r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{6}\+00:00$"
 
-    def test_many_creations_have_exact_lifetime(self):
+    def test_clock_never_goes_backwards(self):
+        from datetime import datetime, timedelta, timezone
+        from pocketful import clock
+
+        class Stub:
+            values = iter([datetime(2026, 10, 2, 12, 0, 5, tzinfo=timezone.utc),
+                           datetime(2026, 10, 2, 12, 0, 4, tzinfo=timezone.utc),
+                           datetime(2026, 10, 2, 12, 0, 5, tzinfo=timezone.utc)])
+
+            @classmethod
+            def now(cls, tz=None):
+                return next(cls.values)
+        real, last = clock.datetime, clock._last
+        clock.datetime, clock._last = Stub, None
+        try:
+            a, b, c = clock.tick(), clock.tick(), clock.tick()
+        finally:
+            clock.datetime, clock._last = real, last
+        self.assertLess(a, b)
+        self.assertLess(b, c)
+        self.assertEqual(b - a, timedelta(microseconds=1))
+
+    def test_fixed_width_and_exact_lifetime(self):
+        import re
         for i in range(300):
             a = self.post("ada", "/authorizations", {"to_handle": "bob", "amount": 1}).json
-            self.assertEqual((datetime.fromisoformat(a["expires_at"]) - datetime.fromisoformat(a["created_at"])).total_seconds(), 600)
+            self.assertRegex(a["created_at"], self.FIXED)
+            self.assertRegex(a["expires_at"], self.FIXED)
+            life = datetime.fromisoformat(a["expires_at"]) - datetime.fromisoformat(a["created_at"])
+            self.assertEqual(life, timedelta(seconds=600))
+        p = self.post("ada", "/payments", {"to_handle": "bob", "amount": 1}).json
+        self.assertRegex(p["created_at"], self.FIXED)
+
+    def test_timestamps_monotonic_across_writes(self):
+        stamps = []
+        for i in range(50):
+            stamps.append(self.post("ada", "/payments", {"to_handle": "bob", "amount": 1}).json["created_at"])
+        self.assertEqual(stamps, sorted(stamps))
+        self.assertEqual(len(set(stamps)), 50)
+
+    def test_ttl_one_open_then_expired_and_capture_not_before_authorization(self):
+        call("POST", "/_test/reset", fixture(authorization_ttl_seconds=1))
+        self.tok = {h: call("POST", "/auth/login", {"email": f"{h}@example.com", "password": "correct horse"}).json["token"]
+                    for h in ("ada", "bob", "cy")}
+        a = self.post("ada", "/authorizations", {"to_handle": "bob", "amount": 100}).json
+        time.sleep(0.4)
+        r = self.post("bob", f"/authorizations/{a['authorization_id']}/capture", {"amount": 10, "final": False})
+        self.assertEqual(r.status, 201, r.raw)
+        self.assertGreaterEqual(r.json["created_at"], a["created_at"])
+        time.sleep(0.8)
+        self.assertEqual(self.get("ada", "/authorizations").json["authorizations"][0]["status"], "expired")
+        self.assertErr(self.post("ada", f"/authorizations/{a['authorization_id']}/void", None, key=None), 409, "authorization_not_open")
+        self.assertErr(self.post("bob", f"/authorizations/{a['authorization_id']}/capture", {"amount": 10}), 409, "authorization_expired")
+
+    def test_settlement_members_share_committed_at(self):
+        call("POST", "/_test/reset", fixture(settlement_operator_ids=["u_cy"]))
+        tok = call("POST", "/auth/login", {"email": "cy@example.com", "password": "correct horse"}).json["token"]
+        r = call("POST", "/settlements", {"transfers": [{"from_handle": "ada", "to_handle": "bob", "amount": 1},
+                                                        {"from_handle": "bob", "to_handle": "cy", "amount": 1}]}, token=tok, key="s")
+        self.assertEqual({p["created_at"] for p in r.json["payments"]}, {r.json["committed_at"]})
+        self.assertRegex(r.json["committed_at"], self.FIXED)
+
+    def test_imported_whole_second_timestamps_are_kept(self):
+        exp = call("GET", "/_test/export").json
+        self.post("ada", "/payments", {"to_handle": "bob", "amount": 1})
+        exp = call("GET", "/_test/export").json
+        exp["state"]["payments"][0]["created_at"] = "2026-09-24T13:10:00+02:00"
+        self.assertEqual(call("POST", "/_test/import", exp).status, 204)
+        self.assertEqual(self.get("ada", "/activity").json["payments"][0]["created_at"], "2026-09-24T13:10:00+02:00")
