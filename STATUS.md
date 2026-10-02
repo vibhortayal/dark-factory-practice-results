@@ -1,41 +1,43 @@
 # Status
 
 Run start: 2026-10-02T04:11Z. Track: pocketful. Acceptance maps: `acceptance/stage-N.md`.
-Check outputs: `../checks/` (outside this repository).
+Check outputs: `../checks/` (outside this repository). Times are UTC, taken from commit and
+check-report timestamps.
 
 | Unit | State | Accepted revision | Fix rounds (BLOCK verdicts) | Elapsed |
 |---|---|---|---|---|
-| stage-1 | BUILDING (fix round 3) | n/a | 3 | started 04:11Z |
-| stage-2 | PLANNED | n/a | 0 | n/a |
+| stage-1 | DONE | 43ecb3c9d24e89b47ea00c98828bf3999bb0a5cc | 3 | 04:11Z to 05:57Z (1 h 46 min) |
+| stage-2 | BUILDING | n/a | 0 | started 05:57Z |
 | stage-3 | PLANNED | n/a | 0 | n/a |
 | stage-4 | PLANNED | n/a | 0 | n/a |
 
 ## Log
 
-- 04:11Z task received; stage-1 spec read; acceptance map written; both seats confirmed in room.
-- 04:21Z Implementer reported 5493ad07335b7e273f76792f0280e184970f553d (147 supplied checks passed isolated, own 41 OK); complete handoff sent to Verifier.
-- 04:58Z Verifier BLOCK #1 on 5493ad0: supplied checks 147/147 isolated (../checks/s1-ver-01), own list 584/595; eight Severity 2 findings (501 HTML on HEAD/OPTIONS/other methods; 500 on >4300-digit limit; 500 on array/object user reference in fixture; 500 on replay of deeply nested body; 500 on malformed absolute-form target; non-integral amounts such as 0.99999999999999999999 accepted; >4300-digit integer amount gives 400 instead of 422; import accepts invalid state). Routed to Implementer with notes N1-N3.
-- 05:05Z Implementer reported 6c6d0a623fbe052d3edb56373e706450238865ea (fix round 1; 147/147 isolated in ../checks/s1-impl-final-02, own 50 OK); complete handoff sent to Verifier.
-- 05:40Z Verifier BLOCK #2 on 6c6d0a6: findings 1-8 and notes N1-N4, N6, N7 confirmed fixed; supplied checks 147/147 isolated (../checks/s1-ver-02), own list 807/827; four new Severity 2 findings in the changed code (R1 number with a 19+ digit exponent gives 500; R2 replay with a non-integer number in an ignored field fails after export/import; R3 own export refused by import after a body nested 898-900 levels; R4 signup accepts control characters in email). Routed to Implementer with a map clarification on zero-padded query integers.
-- 05:50Z Implementer reported df4b305f070db63ec64f768222aeeffeba9081ba (fix round 2; 147/147 isolated in ../checks/s1-impl-final-03, own 58 OK); complete handoff sent to Verifier.
-- 06:20Z Verifier BLOCK #3 on df4b305: R1-R4, N11, N12 confirmed fixed; supplied checks 147/147 isolated (../checks/s1-ver-03), own list 882/884; one Severity 2 finding S1 (import accepts a state whose idempotency `response` holds a non-integer number; export and replay then return 500). Routed to Implementer.
+- 04:11Z task received; stage-1 spec read; acceptance map written (832ebf1, 04:13Z); both seats confirmed in room; stage-1 handoff sent to both seats.
+- 04:20Z Implementer committed 5493ad07335b7e273f76792f0280e184970f553d (147 supplied checks passed isolated, own 41 OK); complete handoff sent to Verifier.
+- ~04:58Z Verifier BLOCK #1 on 5493ad0: supplied checks 147/147 isolated (../checks/s1-ver-01), own list 584/595; eight Severity 2 findings (501 HTML on HEAD/OPTIONS/other methods; 500 on >4300-digit limit; 500 on array/object user reference in fixture; 500 on replay of deeply nested body; 500 on malformed absolute-form target; non-integral amounts such as 0.99999999999999999999 accepted; >4300-digit integer amount gives 400 instead of 422; import accepts invalid state). Routed to Implementer with notes N1-N3.
+- 05:02Z Implementer committed 6c6d0a623fbe052d3edb56373e706450238865ea (fix round 1; 147/147 isolated in ../checks/s1-impl-final-02, own 50 OK); complete handoff sent to Verifier.
+- ~05:17Z Verifier BLOCK #2 on 6c6d0a6: findings 1-8 and notes N1-N4, N6, N7 confirmed fixed; supplied checks 147/147 isolated (../checks/s1-ver-02), own list 807/827; four new Severity 2 findings in the changed code (R1 number with a 19+ digit exponent gives 500; R2 replay with a non-integer number in an ignored field fails after export/import; R3 own export refused by import after a body nested 898-900 levels; R4 signup accepts control characters in email). Routed to Implementer with a map clarification on zero-padded query integers.
+- 05:20Z Implementer committed df4b305f070db63ec64f768222aeeffeba9081ba (fix round 2; 147/147 isolated in ../checks/s1-impl-final-03, own 58 OK); complete handoff sent to Verifier.
+- ~05:34Z Verifier BLOCK #3 on df4b305: R1-R4, N11, N12 confirmed fixed; supplied checks 147/147 isolated (../checks/s1-ver-03), own list 882/884; one Severity 2 finding S1 (import accepts a state whose idempotency `response` holds a non-integer number; export and replay then return 500). Routed to Implementer.
+- 05:38Z Implementer committed 43ecb3c9d24e89b47ea00c98828bf3999bb0a5cc (fix round 3; 147/147 isolated in ../checks/s1-impl-final-04, own 61 OK); complete handoff sent to Verifier.
+- ~05:56Z Verifier PASS on 43ecb3c9d24e89b47ea00c98828bf3999bb0a5cc (head of main at that time, tree clean): supplied checks isolated 147 collected / 147 passed / 0 failed / 0 skipped (../checks/s1-ver-04), stage-2 probe on stage-1/ fails 0 of 35 as required; own list 900/900 under --cpus 2 --memory 2g on an internal network, 19,389 requests, no status >= 500, slowest request 0.423 s, slowest reset/export/import 0.414 s, first healthy response 0.43 s. No Blocker, Severity 1, 2 or 3 finding open. **Stage 1 accepted at 43ecb3c.**
+- 05:57Z stage-2 spec read; acceptance map acceptance/stage-2.md written; stage-2 handoff sent to both seats.
 
 ## Verifier notes (Severity 3 and 4)
 
-From BLOCK #1 on 5493ad0 (stage 1):
-- N1 (S3) `offset` longer than 4300 digits returns 500 on /requests and /activity.
-- N2 (S3) 414/431 built-in responses (70 KB request line, 150 headers, 70 KB header) carry an HTML body.
-- N3 (S3) chunked body announcing a chunk of 2^47 bytes or more returns 500.
-- N4 (S4) non-HTTP request line or unsupported version gets the built-in HTML 400.
-- N5 (S4) wrong method on a known path returns 405 `method_not_allowed`; code not in the specification, body shape right.
-- N6 (S4) fixture handle `"ada\n"` accepted (`$` matches before a final newline).
-- N7 (S4) replay through another spelling of the same path (`/requests/rq%5F1/pay`) is treated as a new request.
-- N8 (S4) non-object body to /_test/import returns 422; map row D2 reads 400.
-- N9 (S4) signup accepts an email containing spaces or a newline, and an empty `display_name`.
-- N10 (S4) scrypt runs with N=4096; the specification states no cost.
+Stage 1, open at acceptance (all Severity 4, kept by Architect decision; no Severity 3 open):
+- N5 (S4) wrong method on a known path returns 405 `method_not_allowed`; the code is not in the specification, the body shape is right.
+- N8 (S4) non-object JSON body to /_test/import returns 422; map clarification C-1 accepts 400 or 422.
+- N10 (S4) scrypt runs with N=4096; the specification names scrypt and states no cost.
 
-After BLOCK #2 on 6c6d0a6: N1, N2, N3, N4, N6, N7 fixed; N9 partly (became finding R4); N5, N8, N10 stand by Architect decision. New:
-- N11 (S4) `limit`/`offset` with leading zeros and more than 30 characters is treated as 10^30.
-- N12 (S4) a replay writing a non-integer number in an ignored field differently (`1.50` then `1.5`) gives 409 although decision D-7 compares by value.
+Stage 1, raised and fixed during the fix rounds: N1 (S3) long `offset` gave 500; N2 (S3) 414/431
+built-in HTML bodies; N3 (S3) huge chunk size gave 500; N4 (S4) built-in HTML 400 for non-HTTP
+lines; N6 (S4) fixture handle `"ada\n"` accepted; N7 (S4) replay through another spelling of the
+path; N9 (S4) email with whitespace/control characters accepted; N11 (S4) zero-padded query
+integers over 30 characters; N12 (S4) respelled non-integer number in an ignored field gave 409.
 
-After BLOCK #3 on df4b305: N11, N12 fixed; no new notes. Open by Architect decision: N5, N8, N10 (all S4).
+Stage 1, remaining risk stated by the Verifier (not findings): the supplied checks are a sample;
+single process behind one lock measured only up to 500 users / about 300 payments; import proves
+each candidate state by a second export and validation (largest timed: 60 users, 300 payments);
+a login overlapping a reset was not examined; wallets above 2^53 not exercised.

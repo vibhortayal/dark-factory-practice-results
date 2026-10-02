@@ -158,3 +158,11 @@ Implementer and the Verifier each write from the specification against the runni
 - D-9 Seeded payments and requests have no timestamp in the fixture: the service assigns `created_at` at reset, keeping fixture array order as oldest → newest (strictly increasing or tie-broken by insertion sequence so listing is deterministic). All lists sort by `created_at` descending with insertion sequence as tie-break (newest first).
 - D-10 Every payment object carries `settlement_id` (null for non-members) (§11 "nonmembers expose null for that field").
 - D-11 A 0-amount request (zero share) is payable: pay succeeds with a 0-amount payment, request becomes `paid`. Reason: §9 calls the request legal; nothing excludes paying it; "amount below 1" rules apply to request bodies, not to pay.
+
+## Clarifications issued during the stage-1 fix rounds (part of the map)
+
+- C-1 (rows D2, I6): `POST /_test/import` with a body that is valid JSON but not an object may return 400 `malformed_request` or 422 `validation_failed`; both are accepted.
+- C-2 (decision D-6, row E5): an email containing whitespace or control/format characters (Unicode categories Cc, Cf, Zs, Zl, Zp) is not of the form `local@domain` → 422 `validation_failed` on signup. An empty `display_name` stays accepted.
+- C-3 (rows D6, D7): a query integer made only of decimal digits is valid in any zero-padded spelling and is evaluated by its numeric value (`limit=0050` is 50, `offset=000` is 0).
+- C-4 (rows A6, C6, I6): state that enters through reset or import consists of plain JSON values built from validated fields only; a state the service would later fail to serve or export is rejected with 422 and the destination is unchanged. Whatever state the service can reach through accepted requests, its own unchanged export imports with 204 and behaves identically.
+- C-5 (rows D4, D5): JSON numbers are judged on their exact value (no float rounding, no dependence on parser digit or exponent limits); a number in an ignored field never causes an error.
