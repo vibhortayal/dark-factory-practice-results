@@ -6,8 +6,8 @@ Run started: 2026-10-02T16:47Z (dispatch received by the Architect).
 |---|---|---|---|---|---|
 | stage-1 | DONE | 77409dda43334b784ca1125d2d990ba51478abf6 | 1 | 0h36 (16:47Z to 17:23Z) | Verifier PASS after one fix round. Final isolated check: `checks/s1-ver-04` (147 passed, `claimed stage: 1`). |
 | stage-2 | DONE | 88b9223d3e56cd9a668499f3cd5b87575d0ea114 | 1 | 0h53 (17:23Z to 18:16Z) | Verifier PASS after one fix round. Final isolated check: `checks/s2-ver-04` (147 + 35 passed, `claimed stage: 2`). |
-| stage-3 | BUILDING | n/a | 0 | started 18:16Z | Acceptance map: `acceptance/stage-3.md`. Handed to Implementer and Verifier. |
-| stage-4 | PLANNED | n/a | 0 | n/a | |
+| stage-3 | DONE | aedbe2c666e7b1b97661ad869d77f002bb103eca | 0 | 0h41 (18:16Z to 18:57Z) | Verifier PASS on the first revision. Final isolated check: `checks/s3-ver-02` (147 + 35 + 6 passed, `claimed stage: 3`). |
+| stage-4 | PLANNED | n/a | 0 | n/a | Acceptance map in preparation. |
 
 ## Decisions
 
@@ -70,3 +70,16 @@ Points checked on request: the frozen clock is taken and released in try/finally
 Non-blocking notes: (1) the first-load state is a bare page with a spinner and one line, plainer than the rest; (2) every list read copies and sorts the whole collection (milliseconds at 200 payments and 200 requests, not measured beyond); (3) the frozen instant is process-wide module state, safe only while the synchronous part never yields (enforced by the finally and the synchronous-handler guard); (4) nothing pruned, fixture leniencies unchanged, browser tests need Playwright on the host. Remaining risk: other browsers, no soak, the held-back checks.
 
 Architect's acceptance: stage-2 accepted at 88b9223d3e56cd9a668499f3cd5b87575d0ea114.
+
+
+### stage-3, verdict 1: PASS on aedbe2c666e7b1b97661ad869d77f002bb103eca (18:56Z)
+
+No blocking finding and no deviation on a [D] row.
+
+What the Verifier ran: head equals the revision, stage-1/ unchanged since 77409dda and stage-2/ since 88b9223d, clean `git archive` copy. Delivery 10 of 10 (clean build, RUN.md literal, healthy in 0.13 s with and without `PORT`, `--network none`, peak memory 560 MiB of 2 GiB). Harness host `checks/s3-ver-01` and isolated `checks/s3-ver-02`: stages 1, 2, 3 `pass`, `stage 4: fail`, `claimed stage: 3 on the shipped checks`, 147 + 35 + 6 passed, none skipped. Implementer's tests 92/92 and its 24 browser tests. Own HTTP probes 147 of 147 (34,167 requests; two stage-3 containers plus real stage-1 and stage-2 containers on an internal network; 2 vCPU / 2 GiB; at most 50 in flight; no 5xx; slowest API request 2.21 s). Own browser probes 22 of 22. Output band-work/verifier/run-s3-aedbe2c/ (api-2.txt, ui-1.txt, shots/).
+
+Verified independently: a model written from the stage-3 specification alone (exact rational instants, no shared code) over five generated histories: every correction outcome predicted (17 refusals: 11 `insufficient_funds`, 6 `historical_overdraft`), about 3,000 `GET /me` views per history equal to the model and summing to the seeded total, 72 statements per history equal to the model, snapshot paging reproduces the full result. Holds in historical views (18 hand-computed views), `closed_at`. Corrections: full refusal table and precedence, historical overdraft by amount and by moving `effective_at` one microsecond, with a hold standing; refusals change nothing; 50 concurrent corrections with one `expected_revision` -> one 201 and 49 `stale_revision`; replays after newer revisions; `recorded_at` strictly increasing over 30 rapid corrections; feed and original replays unchanged; linked payments immutable. Snapshots frozen under three 50-way bursts, 404 and 422 rules, and paging the same result after export/import into a second container. Instants: validity table, exact microsecond comparison, echoes, raw `+`, client-clock `effective_at` accepted 20 of 20. Upgrades from real stage-1 and stage-2 containers with historical reads, statements, corrections and replays. With 3,000 payments for one user at 50 in flight: snapshot page 0.08 s, first statement read 0.16 s, correction 0.13 s, historical `/me` 0.05 s. Stage-2 browser product passes on the stage-3 image; the wallet shows the corrected balance and the feed the original amount. Stage boundary: refund and batch routes 404, stage-4 line `fail`.
+
+Non-blocking notes: (1) every first statement read stores a snapshot record kept until reset, so reads alone grow memory (no effect measured at 3,000 payments and a few hundred reads; no soak); (2) an imported closed hold without capture records has no history (row AA4); (3) on import, free-form leaves (a token, a reason, stored idempotency bodies) are accepted when changed to another string; typed leaves are refused; (4) a correction in the same tick as the previous revision is stamped one millisecond ahead of the clock; (5) nothing pruned, fixture leniencies unchanged, plain first-load spinner, browser tests need Playwright on the host; (6) historical ledger is pure functions over one instant module. Remaining risk: the supplied stage-3 suite is 6 checks; the Verifier's model and the Architect's map share one reading where the specification is open (default `to`, tie order by id, `from` later than `to`, already-negative boundaries); no soak; Chromium only.
+
+Architect's acceptance: stage-3 accepted at aedbe2c666e7b1b97661ad869d77f002bb103eca.
