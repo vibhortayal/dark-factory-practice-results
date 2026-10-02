@@ -176,3 +176,11 @@ by themselves. GL-* are evaluated over every API response of the run; UI-22 over
 | AZ-18 | POST /authorizations: `expires_at` is `created_at` plus `authorization_ttl_seconds` — on every one of 4000 creations (the difference was 599 s once in 16,000 on 1e2214f: two clock reads straddling a second) | N5 |
 
 One-off probes of this revision: `probes5.py` (API: wrong-typed authorization values in fixtures and imports, values far beyond stated limits on the two new paths, static asset paths, expiry at the deadline, lifetime over many creations, latency with 4000 open holds), `ui_probes.py` (browser: double submits on the other forms, markup in names and notes, signed-out visits, a sanity check of the out-of-order refresh check), `repro_b1.py` (lifetime mismatch).
+
+## Map change 5968fd7e31a44019290a3c439f8591eaef6e598a (new row K6, a reading about time)
+
+| Check | Specification statement | Map rows |
+|---|---|---|
+| AZ-19 | Expiry against the returned expires_at: a hold is open strictly before it and expired at or after it (capture succeeds before, is 409 authorization_expired after; void after is 409 authorization_not_open). [reading K6, notes only] six fractional digits, created_at is the request instant, timestamps never go back, a capture's payment is not timestamped before its authorization | K6 N4 N11 |
+
+At verification the exact-lifetime run is `repro_b1.py 20000`, and the stepped-clock reproduction is repeated inside the image against the new code.
