@@ -8,8 +8,8 @@ check-report timestamps.
 |---|---|---|---|---|
 | stage-1 | DONE | 43ecb3c9d24e89b47ea00c98828bf3999bb0a5cc | 3 | 04:11Z to 05:57Z (1 h 46 min) |
 | stage-2 | DONE | 4a9c357bc8cc5c71df5634b15dd9527f145be2d5 | 2 | 05:57Z to 09:43Z (3 h 46 min) |
-| stage-3 | BUILDING | n/a | 0 | started 09:43Z |
-| stage-4 | PLANNED | n/a | 0 | n/a |
+| stage-3 | DONE | 532accd6430b55a8e3ebce7b02752bfbed4e641b | 0 | 09:43Z to 11:42Z (1 h 59 min) |
+| stage-4 | BUILDING | n/a | 0 | started 11:42Z |
 
 ## Log
 
@@ -30,6 +30,9 @@ check-report timestamps.
 - 08:52Z Implementer committed 4a9c357bc8cc5c71df5634b15dd9527f145be2d5 (stage 2 fix round 2, UI read ordering only; supplied checks isolated 147 + 35 in ../checks/s2-impl-final-04; own API 25, stage-1 list 61, browser 38 OK); complete handoff sent to Verifier.
 - ~09:42Z Verifier PASS on 4a9c357bc8cc5c71df5634b15dd9527f145be2d5 (head of main at that time, tree clean; stage-1/ unchanged since 43ecb3c): supplied checks isolated suite 1 147/147, suite 2 35/35, 0 skipped (../checks/s2-ver-03), stage-3 probe on stage-2/ fails as required; own list 1,441 check executions all passed under --cpus 2 --memory 2g on an internal network with Chromium at 375 and 1280 px, 29,764 API requests, no status >= 500, slowest request 0.47 s, slowest reset/export/import 0.43 s, container logs empty. No Blocker, Severity 1, 2 or 3 finding open. **Stage 2 accepted at 4a9c357.**
 - 09:43Z stage-3 spec read; acceptance map acceptance/stage-3.md written; stage-3 handoff sent to both seats.
+- 10:21Z Implementer committed 532accd6430b55a8e3ebce7b02752bfbed4e641b (stage 3; supplied checks isolated 147 + 35 + 6 in ../checks/s3-impl-final-02, stage-4 probe fails; own suites: stage-3 API 24, model 7, upgrade 4, load, fuzz 6, stage-2 API 25, stage-1 61, browser 37 + 3 matrices OK); complete handoff sent to Verifier.
+- ~11:41Z Verifier PASS on 532accd6430b55a8e3ebce7b02752bfbed4e641b on the first revision (head of main at that time, tree clean; stage-1/ and stage-2/ unchanged): supplied checks isolated suite 1 147/147, suite 2 35/35, suite 3 6/6, 0 skipped (../checks/s3-ver-01), stage-4 probe on stage-3/ fails as required; own list 1,689 check executions all passed under --cpus 2 --memory 2g on an internal network (incl. an independent brute-force model agreeing on 129 corrections and on /me and /statement grids, upgrades 1→3, 2→3, 3→3, load with 5,000 payments), 69,986 API requests, no status >= 500, slowest request 0.44 s, container logs empty. No Blocker, Severity 1, 2 or 3 finding. **Stage 3 accepted at 532accd.**
+- 11:42Z stage-4 spec read; acceptance map acceptance/stage-4.md written; stage-4 handoff sent to both seats.
 
 ## Verifier notes (Severity 3 and 4)
 
@@ -63,3 +66,6 @@ Stage 2, after BLOCK #2 on 54ab7a9: T2, T3, T4, T5 fixed. Open, all Severity 4, 
 
 Stage 2, open at acceptance (all Severity 4; no Severity 3 open): T1, T6, T7 kept by Architect decision; T8 (new at PASS) on `/`, while the first read of `/me` has not returned, the wallet frame and `wallet-refresh` are shown but the pay, request and authorise forms are not. T8 is listed as work for stage 3.
 Stage 2, remaining risk stated by the Verifier (not findings): supplied stage-2 checks are a sample (35 of about 100); how the graded upgrade checks put a signed-in browser in front of the stage-1 service is not visible (the method of map row M2 was used); single process and lock measured to 0.47 s per request at 50 in flight with up to 500 users and a few hundred records; the page's 15 s hung-read path was exercised only on the first stage-2 revision; the 4 unexplained log lines of the first stage-2 run never recurred in two full rounds with saved logs; V1-V4 accepted from screenshots of the first revision (markup and style sheet unchanged since).
+
+Stage 3, at acceptance (no Severity 3 open): T8 of stage 2 fixed. New S3-1 (S4): a first statement read whose window does not fit a 200-character token stores a small entry until the next reset; they travel in the export (400 such reads: 159 KB). Kept (Architect decision H-12). T1, T6, T7, N5, N8, N10 unchanged.
+Stage 3, remaining risk stated by the Verifier (not findings): the supplied stage-3 sample is 6 checks (about 9% of the graded suite); where the specification is silent the service follows the map's decisions (G-1 leap second and lower-case letters, G-9 `from` after `to` is 422, an expected revision ahead of the latest is 409 `stale_revision`, wrong JSON types on corrections are 422, G-12 hold history of imported voided authorisations) and a graded check reading one differently would fail; hold history of state imported from stage 2 is only as exact as the stage-2 export; an import with future instants moves the service clock ahead; an inconsistent seeded history gives a negative opening balance; single process and lock measured to 0.44 s per request at 50 in flight with 5,000 payments and a few hundred revisions.
