@@ -1,13 +1,13 @@
 # Factory status
 
-Run started: 2026-10-02T16:47Z (dispatch received by the Architect).
+Run started: 2026-10-02T16:47Z (dispatch received by the Architect). Run finished: 2026-10-02T19:19Z, all four units DONE (2h32 in total). Final report: `REPORT.md`.
 
 | Unit | State | Accepted revision | BLOCK verdicts (fix rounds) | Elapsed | Notes |
 |---|---|---|---|---|---|
 | stage-1 | DONE | 77409dda43334b784ca1125d2d990ba51478abf6 | 1 | 0h36 (16:47Z to 17:23Z) | Verifier PASS after one fix round. Final isolated check: `checks/s1-ver-04` (147 passed, `claimed stage: 1`). |
 | stage-2 | DONE | 88b9223d3e56cd9a668499f3cd5b87575d0ea114 | 1 | 0h53 (17:23Z to 18:16Z) | Verifier PASS after one fix round. Final isolated check: `checks/s2-ver-04` (147 + 35 passed, `claimed stage: 2`). |
 | stage-3 | DONE | aedbe2c666e7b1b97661ad869d77f002bb103eca | 0 | 0h33 (18:16Z to 18:49Z) | Verifier PASS on the first revision. Final isolated check: `checks/s3-ver-02` (147 + 35 + 6 passed, `claimed stage: 3`). |
-| stage-4 | BUILDING | n/a | 0 | started 18:49Z | Acceptance map: `acceptance/stage-4.md`. Handed to Implementer and Verifier. |
+| stage-4 | DONE | 9ea6024167915ce49bd8be08cd4f2c2bc145beb4 | 0 | 0h30 (18:49Z to 19:19Z) | Verifier PASS on the first revision. Final isolated check: `checks/s4-ver-02` (147 + 35 + 6 + 5 passed, `claimed stage: 4`); `--all` isolated `checks/s4-ver-03`: every folder claims its own stage. |
 
 ## Decisions
 
@@ -84,3 +84,16 @@ Verified independently: a model written from the stage-3 specification alone (ex
 Non-blocking notes: (1) every first statement read stores a snapshot record kept until reset, so reads alone grow memory (no effect measured at 3,000 payments and a few hundred reads; no soak); (2) an imported closed hold without capture records has no history (row AA4); (3) on import, free-form leaves (a token, a reason, stored idempotency bodies) are accepted when changed to another string; typed leaves are refused; (4) a correction in the same tick as the previous revision is stamped one millisecond ahead of the clock; (5) nothing pruned, fixture leniencies unchanged, plain first-load spinner, browser tests need Playwright on the host; (6) historical ledger is pure functions over one instant module. Remaining risk: the supplied stage-3 suite is 6 checks; the Verifier's model and the Architect's map share one reading where the specification is open (default `to`, tie order by id, `from` later than `to`, already-negative boundaries); no soak; Chromium only.
 
 Architect's acceptance: stage-3 accepted at aedbe2c666e7b1b97661ad869d77f002bb103eca.
+
+
+### stage-4, verdict 1: PASS on 9ea6024167915ce49bd8be08cd4f2c2bc145beb4 (19:19Z)
+
+No blocking finding and no deviation on a [D] row.
+
+What the Verifier ran: head equals the revision, stage-1/, stage-2/, stage-3/ unchanged since 77409dda, 88b9223d, aedbe2c6, clean `git archive` copy. Delivery 11 of 11 (clean build, RUN.md literal, healthy in 0.13 s with and without `PORT`, `--network none`, peak memory 607 MiB of 2 GiB). Harness `--stage 4` host `checks/s4-ver-01` and isolated `checks/s4-ver-02`: stages 1 to 4 `pass`, `claimed stage: 4 on the shipped checks`, 147 + 35 + 6 + 5 passed, none skipped. `--all --mode isolated` `checks/s4-ver-03` (2 min 48 s): stage-1/ claims 1, stage-2/ claims 2, stage-3/ claims 3, stage-4/ claims 4. Implementer's tests 109/109 and its 24 browser tests. Own HTTP probes 160 of 160: in the full run (36,234 requests) 158 passed and two (PERF-2, GLB-8) failed because the Verifier's client host ran out of local ports (`OSError 99`, about 24,000 sockets in TIME_WAIT); both pass when re-run alone (api-2.txt, api-2b.txt in band-work/verifier/run-s4-9ea6024/). No 5xx, no bare response; slowest API request 2.05 s. Own browser probes 22 of 22.
+
+Verified independently: saved statements and receipts across upgrades with real containers (every page of every stage-3 snapshot token equal as a JSON value after import into stage 4 and still equal after refunds and a batch; every recorded replay from stages 1 to 3 returns its recorded body; stage-4 export into a second stage-4 container; 80 tampered leaves refused). Refunds: refusal table and precedence, exact cumulative limit against the corrected amount, funds from `available` with a hold standing, every target kind, no effect on requests, authorisations, holds or settlement membership, 50 concurrent refunds of 30 on a 500 payment -> exactly 16, refunds racing corrections. Batches: shape table at 0, 1, 32, 33 items, item errors in input order, group precedence, settlement instants (three offset spellings accepted, one microsecond apart refused), combined affordability in both directions for current funds and history, shared `recorded_at`, `correction_batch_id`, rejected batch changes nothing, three 50-way rounds with no payment revised twice from one expected revision. Independent model with refunds and batches over five generated histories: every outcome predicted (48 refusals), about 3,000 `/me` views and 72 statements per history equal to the model. Earlier stages' lists pass on the stage-4 image. With 3,000 payments between two users at 50 in flight: refund 0.02 s, 32-item batch 0.19 s, statement read 0.20 s, single correction 0.13 s, snapshot page 0.11 s.
+
+Non-blocking notes: (1) a batch rejected at the funds or history step still consumes a batch number, so batch ids can skip; (2) nothing is pruned (payments, revisions, refunds, batches, snapshots, idempotency records); a legacy import treats an already-closed seeded hold as having no history; free-form string leaves in an import are not integrity-checked; fixture leniencies unchanged; plain first-load spinner; (3) single correction and batch share one validation, eligibility and commit path; refunds reuse the ordinary payment path; RUN.md describes the design. Remaining risk: the supplied stage-4 suite is 5 checks; the Verifier's model and the Architect's map share one reading where the specification is open (precedence inside an item, default statement window, tie order); no soak; no load beyond 50 in flight; Chromium only.
+
+Architect's acceptance: stage-4 accepted at 9ea6024167915ce49bd8be08cd4f2c2bc145beb4.
