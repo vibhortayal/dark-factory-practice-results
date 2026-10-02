@@ -5,7 +5,7 @@ Run started: 2026-10-02T16:47Z (dispatch received by the Architect).
 | Unit | State | Accepted revision | BLOCK verdicts (fix rounds) | Elapsed | Notes |
 |---|---|---|---|---|---|
 | stage-1 | DONE | 77409dda43334b784ca1125d2d990ba51478abf6 | 1 | 0h36 (16:47Z to 17:23Z) | Verifier PASS after one fix round. Final isolated check: `checks/s1-ver-04` (147 passed, `claimed stage: 1`). |
-| stage-2 | BUILDING | n/a | 0 | started 17:23Z | Acceptance map: `acceptance/stage-2.md`. Handed to Implementer and Verifier. |
+| stage-2 | BUILDING (fix round 1) | n/a | 1 | 0h43 at 18:06Z (started 17:23Z) | 427730e1c2d1d84edfc66233b81ceab77885c07b BLOCKED by the Verifier (rows T1, Q4). Fix request sent with new row Q11. |
 | stage-3 | PLANNED | n/a | 0 | n/a | |
 | stage-4 | PLANNED | n/a | 0 | n/a | |
 
@@ -41,3 +41,18 @@ What the Verifier ran: head equals the revision, `git diff --stat 77409dda HEAD 
 Non-blocking notes: (1) a body that is not valid JSON and is nested deeper than 1,000 levels is 422 rather than 400 (the depth scan runs before the parser); (2) a head beyond 1 MiB is 422 whatever it holds, as row A12 states; (3) fixture leniencies unchanged (omitted currency/minor_units/users/handle, seeded amount 0, seeded paid request with `payment_id: null`); (4) whole-second timestamps, creation order inside a second; (5) constants now defined once, synchronous-handler rule enforced and audited by a test, RUN.md matches, tests need Node on the host, `./../constants` import spelling. Remaining risk: no soak, no load beyond 50 in flight, memory never pruned, the held-back checks.
 
 Architect's acceptance: stage-1 accepted at 77409dda43334b784ca1125d2d990ba51478abf6. Note 1 is carried into the stage-2 map as a required correction in the copied code; stage-1/ itself is not reopened.
+
+
+### stage-2, verdict 1: BLOCK on 427730e1c2d1d84edfc66233b81ceab77885c07b (18:05Z)
+
+Blocking finding 1 (rows T1, Q4): the requests screen adds a `<select data-testid="request-pay-visibility">` (stage-2/public/js/screens/requests.js line 27), which is inside the specified family `request-pay-{request_id}`. With a seeded pending request whose id is `visibility`, `[data-testid="request-pay-visibility"]` matches a SELECT and a BUTTON; expected one BUTTON.
+
+What the Verifier ran: head equals the revision, stage-1/ unchanged since 77409dda, clean `git archive` copy. Delivery 9 of 9 (clean build, RUN.md literal, healthy in 0.13 s with and without `PORT`, `--network none`, peak memory 607 MiB of 2 GiB). Harness host `checks/s2-ver-01` and isolated `checks/s2-ver-02`: `stage 1: pass`, `stage 2: pass`, `stage 3: fail`, `claimed stage: 2 on the shipped checks`, 147 + 35 passed, none skipped. Implementer's tests 47/47 and browser tests 21/21. Own HTTP probes 124 of 124 (7,414 requests, two stage-2 containers and one stage-1 container on an internal network, 2 vCPU / 2 GiB, at most 50 in flight, no 5xx, slowest API request 2.22 s). Own browser probes 19 of 20 (UI-20 is the finding). Output band-work/verifier/run-s2-427730e/ (api-2.txt, ui-2.txt, ui-20.txt, shots/).
+
+Verified independently and passing: all stage-1 rows on the stage-2 image; import of a real, rich stage-1 export (M3); deep unparseable bodies 400 (M5); hold arithmetic, capture modes, void, seeded authorisations, seven idempotent paths (N, O); concurrency at 50 in flight (N15, O10); expiry by the clock with no write in between and across export/import (N12, M4); upgrade without reload both with a stage-2 export and with the page's API calls routed to a real stage-1 service before the import (U1 to U3); lost response and latest-refresh-wins (R6, R8); measured contrast >= 4.5:1, bound labels, focus (V6); no horizontal scroll at 375/768/1280 with long content (V5); no duplicate test ids except the finding (Q4); stage boundary (stage-3 routes 404).
+
+Product quality (V1 to V4): meets the specification's direction. Slightly short, not blocking: at 375 px a feed row with a very large amount leaves the note about nine characters wide; the "On hold" marker reads as a stray mark; no loading state could be captured.
+
+Non-blocking notes: (1) RUN.md still says "Timestamps: whole seconds"; (2) import accepts a non-boolean `seeded` flag on a payment; (3) `GET /authorizations` lists in insertion order, so seeded entries with their own out-of-order `created_at` are not sorted by it; (4) a capture in the same millisecond as the deadline can be stamped at or after `expires_at` because the sweep and the handler read the clock separately; (5) nothing pruned, fixture leniencies unchanged; (6) browser tests need Playwright on the host. Remaining risk: other browsers, no soak, the held-back checks.
+
+Architect's action: fix request sent with new row Q11 (no added id inside any specified family). Notes 1 to 4 and the three product-quality shortfalls are included in the same fix as required corrections, because 2, 3 and 4 are stated rules (import validity, "newest first by created_at", expiry "at or before now") and the others are cheap.

@@ -1,0 +1,23 @@
+@vibhor15/nightshift-verifier Rows: stage-2 map M1..Z2 and stage-1 map A1..K10 (with A12, A13; L1 replaced by Z1) · Revision: 427730e1c2d1d84edfc66233b81ceab77885c07b (repository head at the time of this message; commits c65ab6592f56aa552cbac5620474f8768b36a55f and cb1d2ac6544cb904013913fd3778fbbc340c7263 are its earlier steps) · Files: stage-2/ (src/, src/handlers/authorizations.js, src/holds.js, src/ui.js, public/, test/, browser-tests/, Dockerfile, RUN.md); stage-1/ must be unchanged since 77409dda43334b784ca1125d2d990ba51478abf6 · Command: harness host and isolated with new --out directories, your stage-1 probes against the stage-2 image, your stage-2 API and browser probes, screenshots · Expected / actual: Implementer reports `stage 1: pass`, `stage 2: pass`, `stage 3: fail`, `claimed stage: 2 on the shipped checks` in both modes (checks/s2-impl-02, s2-impl-03; 147 + 35 passed), 47/47 own tests, 21/21 own browser tests; not yet independently verified · Repro: n/a · Next: Verifier.
+
+STAGE 2 VERIFICATION HANDOFF (single message, final).
+
+Verify exactly revision 427730e1c2d1d84edfc66233b81ceab77885c07b of /home/ubuntu/nightshift-claude-run-6/band-work/result, folder stage-2/, in full. The requirements are the ones you hold from my ten-part stage 2 handoff addressed to you: the human's task (part 1), the complete stage-2 specification (parts 1 and 2), the complete stage-1 specification (parts 3 to 5), the complete stage-2 acceptance map (parts 6 to 8) and the complete stage-1 acceptance map (parts 9 and 10). Nothing in them has changed since. The same texts are at /home/ubuntu/nightshift-claude-run-6/dark-factory-wearedevs/pocketful/spec/stage-2.md, .../spec/stage-1.md, /home/ubuntu/nightshift-claude-run-6/band-work/result/acceptance/stage-2.md and .../acceptance/stage-1.md.
+
+Commands, from /home/ubuntu/nightshift-claude-run-6/dark-factory-wearedevs (new --out each time):
+    .venv/bin/python -m harness run --track pocketful --repo ../band-work/result --stage 2 --out ../band-work/checks/s2-ver-01
+    .venv/bin/python -m harness run --track pocketful --repo ../band-work/result --stage 2 --mode isolated --out ../band-work/checks/s2-ver-02
+Expected final lines: `stage 1: pass`, `stage 2: pass`, `stage 3: fail`, `claimed stage: 2 on the shipped checks`.
+Stage-1 untouched: `git -C /home/ubuntu/nightshift-claude-run-6/band-work/result diff --stat 77409dda43334b784ca1125d2d990ba51478abf6 HEAD -- stage-1/` prints nothing.
+
+What the Implementer itself reports as not covered or as its own choice; verify these independently and do not take the rest on trust:
+- Upgrade without reload (rows U1 to U3) was exercised with the stage-2 service's own export, plus an API-level import of a real stage-1 export (row M3). Probe rows U1 to U3 yourself with a page left open across export, reset or other writes, and import; and probe M3 with a state rich enough to matter (settlement, paid and pending requests, idempotency records on all five stage-1 paths).
+- Expiry is implemented as a sweep at the start of every request (row N12): check reads with no write in between, a hold that expires between two reads, capture and void racing the deadline, export/import of a state holding an expired-by-clock hold, and that `available` is right at every read.
+- No contrast measurement was run (row V6): measure it. Only Chromium was used.
+- Elements beyond the specification: test ids `*-success`, `request-uncertain`, `authorize-uncertain`, `split-uncertain`, `authorization-uncertain`, `load-error`, `request-pay-visibility`, `authorization-keep-open-{id}`. Check none collides with or changes the meaning of a specified test id, and that row Q4 (conditional elements absent from the DOM, no test id twice on a page) holds, including on `/authorizations` where the wallet numbers and the authorise form are repeated.
+- The UI-only routes (`/`, `/split`, `/login`, `/signup`) answer 404 JSON without `Accept: text/html`; judge that against the stage-2 text ("reachable by URL").
+- Idempotency records and payments are never pruned; no soak.
+
+Product quality (rows V1 to V7) is part of the verdict. Take your own screenshots of every screen at 375 px and 1280 px in its main states (empty, populated, refused, uncertain, loading, with holds), read them, and say concretely what falls short of the specification's "Product and visual direction" section, if anything. The Implementer's screenshots are in /home/ubuntu/nightshift-claude-run-6/band-work/impl-probes/s2-shots/ for comparison only.
+
+Report PASS, BLOCK or INCONCLUSIVE for the full revision to the Architect and the Implementer, starting with the evidence header, with commands, results and, for each finding, row, expected, actual and the smallest reproduction.
