@@ -39,6 +39,13 @@ def _text(item, name, default=None):
     return value
 
 
+def _note(item):
+    """Seeded notes follow the endpoint rule (section 5): non-string or over 200 characters -> 422."""
+    value = item.get("note", "")
+    _need(isinstance(value, str) and len(value) <= 200, "note must be a string of at most 200 characters")
+    return value
+
+
 def build(fixture):
     """Return a populated Store; raise ApiError (400/422) for a bad fixture."""
     if not isinstance(fixture, dict):
@@ -86,7 +93,7 @@ def build(fixture):
             "payment_id": pid, "from_user_id": sender["id"], "from_handle": sender["handle"],
             "to_user_id": receiver["id"], "to_handle": receiver["handle"],
             "amount": _uint(p.get("amount"), "payment amount must be a non-negative integer"),
-            "currency": currency, "note": _text(p, "note", ""), "visibility": visibility,
+            "currency": currency, "note": _note(p), "visibility": visibility,
             "request_id": None, "settlement_id": None, "created_at": created_at}
     for r in _list(fixture, "requests"):
         requester, payer = _party(store, r, "requester_id"), _party(store, r, "payer_id")
@@ -99,7 +106,7 @@ def build(fixture):
             "requester_handle": requester["handle"], "payer_id": payer["id"],
             "payer_handle": payer["handle"],
             "amount": _uint(r.get("amount"), "request amount must be a non-negative integer"),
-            "currency": currency, "note": _text(r, "note", ""), "status": status,
+            "currency": currency, "note": _note(r), "status": status,
             "payment_id": None, "created_at": created_at, "split_id": None}
     operators = fixture.get("settlement_operator_ids", [])
     _typed(isinstance(operators, list) and all(isinstance(o, str) for o in operators),

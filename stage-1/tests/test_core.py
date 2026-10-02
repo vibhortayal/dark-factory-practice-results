@@ -54,6 +54,23 @@ class Contract(Api):
         self.assertEqual(call("POST", "/_test/reset", {k: v for k, v in fixture().items() if k != "users"})[0], 422)
         self.assertEqual(self.balance("ada"), 10000)
 
+    def test_seeded_note_visibility_amount_are_422(self):
+        pay = {"id": "p_1", "from_user_id": "u_ada", "to_user_id": "u_bob", "amount": 5}
+        req = {"id": "rq_1", "requester_id": "u_bob", "payer_id": "u_ada", "amount": 5}
+        for key, base in (("payments", pay), ("requests", req)):
+            for patch in ({"note": None}, {"note": 5}, {"note": True}, {"note": []}, {"note": {}},
+                          {"note": "x" * 201}, {"amount": "5"}, {"amount": None}, {"amount": 1.5},
+                          {"visibility": "friends"}, {"visibility": 3}):
+                if "visibility" in patch and key == "requests":
+                    continue  # requests carry no visibility; the field is an ignored unknown
+                s, b, _ = call("POST", "/_test/reset", fixture(**{key: [{**base, **patch}]}))
+                self.assertEqual((s, b["error"]["code"]), (422, "validation_failed"), (key, patch))
+            self.assertEqual(call("POST", "/_test/reset", fixture(**{key: [{**base, "note": "x" * 200}]}))[0], 204)
+            self.assertEqual(call("POST", "/_test/reset", fixture(**{key: [base]}))[0], 204)
+        self.reset()
+        call("POST", "/_test/reset", fixture(payments=[{**pay, "note": None}]))
+        self.assertEqual(self.balance("ada"), 10000)
+
     def test_currencies_and_seeded_ids_do_not_collide(self):
         for cur, mu in (("JPY", 0), ("BHD", 3)):
             fx = fixture(currency=cur, minor_units=mu, payments=[
