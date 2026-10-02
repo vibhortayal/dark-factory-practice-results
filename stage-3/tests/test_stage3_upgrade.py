@@ -178,7 +178,7 @@ class TestOwnRoundTrip(unittest.TestCase):
         ada = login("ada")
         pay(ada, "bob", 5)
         ex = call("GET", "/_test/export")[1]
-        future = iso(now() + timedelta(seconds=30))
+        future = iso(now() + timedelta(seconds=2))
         ex["state"]["payments"][0]["created_at"] = future
         self.assertEqual(call("POST", "/_test/import", ex)[0], 204)
         p = pay(ada, "bob", 1)[1]
@@ -186,6 +186,7 @@ class TestOwnRoundTrip(unittest.TestCase):
         c = correct(ada, p["payment_id"], 1, 2, p["created_at"])
         self.assertEqual(c[0], 201)
         self.assertGreater(c[1]["recorded_at"], p["created_at"])
+        time.sleep(2.5)  # let real time pass the imported future instant, so later tests see an unskewed clock
 
 
 if __name__ == "__main__":
