@@ -1,6 +1,6 @@
 // `/split`: split a bill; the preview shows exactly the shares the server will compute.
 
-import { h, createFeedback, spinnerLabel } from '../dom.js';
+import { h, createFeedback, spinnerLabel, setChildren } from '../dom.js';
 import { createModel } from '../model.js';
 import { normalizeMe, ApiError } from '../api.js';
 import { RetryIdentity } from '../retry.js';
@@ -30,12 +30,12 @@ export function mountSplit({ api, me, main }) {
   function renderPreview() {
     const { meNow, parsed, list } = current();
     if (!parsed.ok || list.length === 0) {
-      preview.replaceChildren(h('p', { class: 'muted' }, 'Enter an amount and at least one handle to see each share.'));
+      setChildren(preview, h('p', { class: 'muted' }, 'Enter an amount and at least one handle to see each share.'));
       return;
     }
     const shares = splitShares(parsed.minor, list.length);
     const seen = new Set();
-    preview.replaceChildren(
+    setChildren(preview, 
       h('p', { class: 'eyebrow' }, 'Each share'),
       h('ul', { class: 'shares' }, list.map((handle, i) => {
         if (seen.has(handle)) return h('li', { class: 'share share-dup' }, `${handle} is listed twice`);
@@ -72,7 +72,7 @@ export function mountSplit({ api, me, main }) {
   for (const f of [amount, handles]) f.input.addEventListener('input', renderPreview);
   model.subscribe(renderPreview);
 
-  main.replaceChildren(
+  setChildren(main, 
     h('h1', { class: 'page-title' }, 'Split a bill'),
     h('form', { class: 'card form-card', novalidate: true, onsubmit: submit },
       h('p', { class: 'muted' }, 'You have already paid the bill. Everyone else on the list is asked for their share; you are not asked, whether or not you list yourself.'),

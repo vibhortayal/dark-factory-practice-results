@@ -1,6 +1,6 @@
 // `/`: balance, pay form, request form, hold form and the activity feed.
 
-import { h } from '../dom.js';
+import { h, setChildren } from '../dom.js';
 import { createModel } from '../model.js';
 import { normalizeMe } from '../api.js';
 import { payForm, requestForm, authorizeForm } from '../components/forms.js';
@@ -32,7 +32,7 @@ export function mountWallet({ api, me, main }) {
     renderFeed(feedHost, state.me, state.feed);
   });
 
-  main.replaceChildren(
+  setChildren(main, 
     h('h1', { class: 'page-title' }, 'Wallet'),
     problem,
     balanceHost,

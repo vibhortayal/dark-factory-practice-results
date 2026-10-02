@@ -1,6 +1,6 @@
 // Small presentational parts: status badges, privacy marks, balance card, empty and loading states.
 
-import { h } from '../dom.js';
+import { h, setChildren } from '../dom.js';
 import { formatAmount } from '../money.js';
 import { formatWhen } from '../text.js';
 
@@ -34,7 +34,7 @@ export const money = (me, minor) => formatAmount(minor, me.minor_units, me.curre
 
 /** Available funds first; total and held are secondary. */
 export function renderBalance(host, me, { onRefresh } = {}) {
-  host.replaceChildren(
+  setChildren(host, 
     h('p', { class: 'eyebrow' }, 'Available to spend'),
     h('p', { class: 'headline', testid: 'wallet-available', 'data-amount': me.available }, money(me, me.available)),
     h('dl', { class: 'subtotals' },

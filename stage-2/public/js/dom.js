@@ -7,6 +7,12 @@ function append(el, children) {
   }
 }
 
+/** Replace the children of `host`; false/null entries (from `cond && node`) are skipped. */
+export function setChildren(host, ...children) {
+  host.replaceChildren();
+  append(host, children);
+}
+
 export function h(tag, props = {}, ...children) {
   const el = document.createElement(tag);
   for (const [key, value] of Object.entries(props || {})) {

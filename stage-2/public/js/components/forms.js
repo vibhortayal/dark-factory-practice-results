@@ -59,7 +59,7 @@ function writeForm({ title, intro, fields, submitLabel, busyLabel, testids, ids,
 const moneyField = (label, testid) =>
   textField({ label, testid, inputmode: 'decimal', autocomplete: 'off', placeholder: '0.00' });
 
-const VISIBILITY = [['public', 'Public: shown in the activity feed'], ['private', 'Private: only you and the other person']];
+const VISIBILITY = [['public', 'Public (in the feed)'], ['private', 'Private (just you two)']];
 
 /** Shared reading of handle + amount + note (+ visibility) fields. */
 function readPaymentFields(model, f) {

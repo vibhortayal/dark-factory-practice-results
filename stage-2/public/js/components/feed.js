@@ -1,6 +1,6 @@
 // The activity feed: payments only, newest first, understandable without raw API data.
 
-import { h } from '../dom.js';
+import { h, setChildren } from '../dom.js';
 import { empty, money, privacyMark, timeTag } from './parts.js';
 
 function direction(me, p) {
@@ -22,12 +22,12 @@ function item(me, p) {
 }
 
 export function renderFeed(host, me, feed) {
-  if (!feed) return host.replaceChildren();
+  if (!feed) return setChildren(host);
   if (feed.payments.length === 0) {
-    host.replaceChildren(empty('empty-activity', 'No payments to show yet', 'Public payments and the ones you send or receive will appear here.'));
+    setChildren(host, empty('empty-activity', 'No payments to show yet', 'Public payments and the ones you send or receive will appear here.'));
     return;
   }
-  host.replaceChildren(
+  setChildren(host, 
     h('ul', { class: 'feed', testid: 'activity-list' }, feed.payments.map((p) => item(me, p))),
     feed.has_more && h('p', { class: 'muted small' }, 'Showing the most recent payments.'),
   );

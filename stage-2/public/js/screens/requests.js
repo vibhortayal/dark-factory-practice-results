@@ -1,6 +1,6 @@
 // `/requests`: incoming and outgoing requests with pay, decline and cancel.
 
-import { h, selectField, createFeedback } from '../dom.js';
+import { h, selectField, createFeedback, setChildren } from '../dom.js';
 import { createModel } from '../model.js';
 import { normalizeMe, ApiError } from '../api.js';
 import { RetryIdentity } from '../retry.js';
@@ -25,7 +25,7 @@ export function mountRequests({ api, me, main }) {
   const privacy = selectField({
     label: 'When you pay a request, who can see the payment',
     testid: 'request-pay-visibility',
-    options: [['public', 'Public: shown in the activity feed'], ['private', 'Private: only you and the other person']],
+    options: [['public', 'Public (in the feed)'], ['private', 'Private (just you two)']],
     value: 'public',
   });
   const incomingHost = h('div', { class: 'list-host' }, loading('Loading requests…'));
@@ -80,7 +80,7 @@ export function mountRequests({ api, me, main }) {
 
   function renderList(host, data, incoming, testid, emptyText) {
     if (!data) return;
-    host.replaceChildren(
+    setChildren(host, 
       h('ul', { class: 'rows', testid }, data.requests.map((r) => item(r, incoming))),
       data.requests.length === 0 && h('p', { class: 'muted' }, emptyText),
     );
@@ -90,10 +90,10 @@ export function mountRequests({ api, me, main }) {
     renderList(incomingHost, state.incoming, true, 'incoming-list', 'Nobody has asked you for money.');
     renderList(outgoingHost, state.outgoing, false, 'outgoing-list', 'You have not asked anyone for money.');
     const none = state.incoming && state.outgoing && state.incoming.requests.length === 0 && state.outgoing.requests.length === 0;
-    bothEmpty.replaceChildren(none ? empty('empty-requests', 'No requests yet', 'Ask someone for money from the wallet, or split a bill.') : '');
+    setChildren(bothEmpty, none ? empty('empty-requests', 'No requests yet', 'Ask someone for money from the wallet, or split a bill.') : '');
   });
 
-  main.replaceChildren(
+  setChildren(main, 
     h('h1', { class: 'page-title' }, 'Requests'),
     problem, messages, bothEmpty,
     h('div', { class: 'grid two' },

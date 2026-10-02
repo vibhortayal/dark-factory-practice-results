@@ -1,6 +1,6 @@
 // `/login` and `/signup`.
 
-import { h, textField, createFeedback, spinnerLabel } from '../dom.js';
+import { h, textField, createFeedback, spinnerLabel, setChildren } from '../dom.js';
 import { ApiError, session } from '../api.js';
 import { refusalText } from '../text.js';
 
@@ -27,7 +27,7 @@ function authScreen({ api, main, title, intro, fields, submitLabel, testid, path
     button.disabled = false;
     button.replaceChildren(submitLabel);
   }
-  main.replaceChildren(
+  setChildren(main, 
     h('div', { class: 'auth' },
       h('h1', { class: 'page-title' }, title),
       h('form', { class: 'card form-card', novalidate: true, onsubmit: submit },

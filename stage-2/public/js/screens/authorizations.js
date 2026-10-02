@@ -1,6 +1,6 @@
 // `/authorizations`: wallet numbers, the hold form and the list of holds with capture / void.
 
-import { h, textField, createFeedback } from '../dom.js';
+import { h, textField, createFeedback, setChildren } from '../dom.js';
 import { createModel } from '../model.js';
 import { normalizeMe, ApiError } from '../api.js';
 import { RetryIdentity } from '../retry.js';
@@ -77,7 +77,7 @@ export function mountAuthorizations({ api, me, main }) {
         h('p', { class: 'row-title' }, outgoing ? `Hold for ${a.to_handle}` : `Hold from ${a.from_handle}`, ' ', statusBadge(a.status)),
         h('p', { class: 'row-note' }, a.note),
         h('p', { class: 'row-meta' }, 'Placed ', timeTag(a.created_at), ' ', privacyMark(a.visibility)),
-        h('p', { class: 'row-meta' }, 'Expires ', h('span', { class: 'mono', testid: `authorization-expires-${a.authorization_id}` }, a.expires_at)),
+        h('p', { class: 'row-meta' }, 'Expires ', timeTag(a.expires_at), ' ', h('span', { class: 'mono', testid: `authorization-expires-${a.authorization_id}` }, a.expires_at)),
         a.status === 'captured' && h('p', { class: 'row-meta' }, 'Captured ', h('strong', { testid: `authorization-captured-${a.authorization_id}` }, money(meNow, a.captured_amount))),
         open && a.captured_amount > 0 && h('p', { class: 'row-meta' }, `${money(meNow, a.captured_amount)} captured so far, ${money(meNow, a.remaining_amount)} still held`)),
       h('div', { class: 'row-side' },
@@ -88,13 +88,13 @@ export function mountAuthorizations({ api, me, main }) {
   model.subscribe((state) => {
     renderBalance(balanceHost, state.me, { onRefresh: refresh });
     if (!state.auths) return;
-    listHost.replaceChildren(
+    setChildren(listHost, 
       h('ul', { class: 'rows', testid: 'authorization-list' }, state.auths.authorizations.map(item)),
       state.auths.authorizations.length === 0 && empty('empty-authorizations', 'No holds yet', 'A hold reserves money for someone to collect later.'),
     );
   });
 
-  main.replaceChildren(
+  setChildren(main, 
     h('h1', { class: 'page-title' }, 'Holds'),
     problem, balanceHost,
     h('div', { class: 'grid two' },
