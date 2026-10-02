@@ -18,17 +18,17 @@ import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qsl, urlsplit
+from urllib.parse import parse_qsl, unquote, urlsplit
 
 MAX_AMOUNT = 1_000_000_000
 MAX_BALANCE = 2 ** 53
 MAX_NOTE = 200
 MAX_BODY = 16 * 1024 * 1024
-HANDLE_RE = re.compile(r"^[a-z0-9_]{1,20}$")
-EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+$")
-DIGITS_RE = re.compile(r"^[0-9]+$")
+HANDLE_RE = re.compile(r"^[a-z0-9_]{1,20}\Z")
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\Z")
+DIGITS_RE = re.compile(r"^[0-9]+\Z")
 STATUSES = ("pending", "paid", "declined", "cancelled")
 
 # scrypt parameters: ~5 ms per hash, so a reset with hundreds of users and 50
@@ -82,13 +82,23 @@ def _no_constant(name):
     raise ValueError("bad constant " + name)
 
 
+def _parse_float(s):
+    """Decimal(s); an exponent beyond Decimal's range becomes a huge/tiny sentinel."""
+    try:
+        return Decimal(s)
+    except InvalidOperation:
+        sign = "-" if s.startswith("-") else ""
+        exp = s.lower().split("e", 1)[1] if "e" in s.lower() else "0"
+        return Decimal(sign + ("1e-1000" if exp.startswith("-") else "1e1000"))
+
+
 def parse_json(raw: bytes):
     """Parse with every number as Decimal (exact, no float rounding)."""
     try:
         text = raw.decode("utf-8")
-        return json.loads(text, parse_int=Decimal, parse_float=Decimal,
+        return json.loads(text, parse_int=Decimal, parse_float=_parse_float,
                           parse_constant=_no_constant)
-    except (ValueError, RecursionError):
+    except (ValueError, RecursionError, ArithmeticError):
         raise bad("body is not valid JSON")
 
 
@@ -574,7 +584,9 @@ def h_health(ctx):
 
 def h_reset(ctx):
     global STATE
-    fx = parse_json(ctx.raw) if ctx.raw.strip() else {}
+    if not ctx.raw.strip():
+        raise bad("a JSON fixture body is required")
+    fx = parse_json(ctx.raw)
     try:
         new = build_fixture_state(fx)
     except (TypeError, ValueError, AttributeError, KeyError):
@@ -917,6 +929,21 @@ class Handler(BaseHTTPRequestHandler):
             raise bad("bad Content-Length")
         return self.rfile.read(n)
 
+    def send_error(self, code, message=None, explain=None):
+        """Framework-generated errors (bad request line, oversized header, ...) use the envelope."""
+        if code >= 500:
+            code = 400
+        self.close_connection = True
+        if getattr(self, "request_version", "HTTP/0.9") not in ("HTTP/1.0", "HTTP/1.1"):
+            self.request_version = "HTTP/1.1"  # otherwise no status line / headers are written
+        self.send(code, {"error": {"code": "malformed_request", "message": message or "bad request"}})
+
+    def __getattr__(self, name):
+        # any other HTTP method (TRACE, PROPFIND, ...) is routed, ending in 404/405
+        if name.startswith("do_"):
+            return self.handle_any
+        raise AttributeError(name)
+
     def send(self, status, payload):
         body = b"" if payload is None else dumps(payload)
         self.send_response(status)
@@ -924,7 +951,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
-        if body and self.command != "HEAD":
+        if body and getattr(self, "command", None) != "HEAD":
             self.wfile.write(body)
 
     def handle_any(self):
@@ -934,7 +961,7 @@ class Handler(BaseHTTPRequestHandler):
                 parts = urlsplit(self.path)
                 query = dict(parse_qsl(parts.query, keep_blank_values=True,
                                        errors="replace"))
-                path = parts.path
+                path = unquote(parts.path)
                 if len(path) > 1 and path.endswith("/"):
                     path = path.rstrip("/")
                 ctx = Ctx(self.command, path, query, self.headers, raw)

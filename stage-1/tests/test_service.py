@@ -111,6 +111,69 @@ class Runtime(Base):
         self.assertEqual(s, 400)
 
 
+class Verifier1(Base):
+    """Findings F1-F4 of the first verification round."""
+    def test_huge_exponent_numbers_never_500(self):
+        for n, num in enumerate(("1e9999999999999999999", "-1e9999999999999999999", "1e-9999999999999999999", "1E+99999999999999999999")):
+            for path, body in (("/payments", '{"to_handle":"bob","amount":%s}'),
+                               ("/requests", '{"payer_handle":"ada","amount":%s}'),
+                               ("/splits", '{"participant_handles":["bob"],"amount":%s}'),
+                               ("/requests/x/pay", '{"visibility":"public","amount":%s}')):
+                s, b, _ = call("POST", path, token=self.bob, idem=key(), raw=body % num)
+                self.assertIn(s, (404, 422), (path, num, s, b))
+            s, b, _ = call("POST", "/auth/login", raw='{"email":"ada@example.com","password":"correct horse","x":%s}' % num)
+            self.assertEqual(s, 200)
+            s, b, _ = call("POST", "/auth/signup", raw='{"email":"n%d@e.com","password":"12345678","display_name":"N","x":%s}' % (n, num))
+            self.assertEqual(s, 201)
+            err(self, call("POST", "/_test/reset", raw='{"users":[{"id":"u","email":"e","password":"p","handle":"h","balance":%s}]}' % num),
+                422, "validation_failed")
+        self.assertEqual(balance(self.ada), 10000)
+
+    def test_unlisted_methods_and_framework_errors_use_envelope(self):
+        for m, path in (("TRACE", "/health"), ("PROPFIND", "/me"), ("CONNECT", "/payments"), ("TRACE", "/nope")):
+            s, b, ct = call(m, path, token=self.ada)
+            self.assertIn(s, (404, 405), (m, s))
+            self.assertIn("error", b)
+            self.assertEqual(ct, "application/json; charset=utf-8")
+        import socket
+        from client import _u
+        for line in (b"GARBAGE\r\n\r\n", b"GET /health HTTP/9.9\r\n\r\n", b"GET /health HTTP/1.1\r\nX: " + b"a" * 70000 + b"\r\n\r\n"):
+            c = socket.create_connection((_u.hostname, _u.port), timeout=5)
+            c.sendall(line)
+            data = b""
+            while True:
+                d = c.recv(65536)
+                if not d:
+                    break
+                data += d
+            c.close()
+            head, _, body = data.partition(b"\r\n\r\n")
+            self.assertRegex(head.split(b"\r\n")[0], rb"HTTP/1.[01] 4\d\d")
+            self.assertIn(b"application/json; charset=utf-8", head)
+            self.assertEqual(json.loads(body)["error"]["code"], "malformed_request")
+
+    def test_trailing_newline_is_not_digits_or_handle(self):
+        for qs in ("limit=4%0A", "offset=4%0A", "limit=%0A4"):
+            err(self, call("GET", "/requests?" + qs, token=self.ada), 422, "validation_failed")
+            err(self, call("GET", "/activity?" + qs, token=self.ada), 422, "validation_failed")
+        err(self, pay(self.ada, to="bob\n"), 404, "not_found")
+        err(self, call("POST", "/_test/reset", fixture(users=[user("ada\n", 1)])), 422, "validation_failed")
+        err(self, call("POST", "/auth/signup", {"email": "a@b.com\n", "password": "12345678", "display_name": "N"}), 422, "validation_failed")
+        self.assertEqual(balance(self.ada), 10000)
+
+    def test_empty_reset_body_is_malformed_and_changes_nothing(self):
+        for raw in ("", "  \n"):
+            err(self, call("POST", "/_test/reset", raw=raw), 400, "malformed_request")
+        s, b, _ = call("POST", "/_test/reset", headers={"Content-Length": "0"})
+        self.assertEqual(s, 400)
+        self.assertEqual(balance(self.ada), 10000)
+
+    def test_percent_encoded_request_id(self):
+        r = ask(self.bob, amount=5)[1]["request_id"]  # rq_N
+        enc = r.replace("_", "%5F")
+        self.assertEqual(call("POST", f"/requests/{enc}/decline", None, self.ada)[0], 200)
+
+
 class Fixtures(unittest.TestCase):
     def test_negative_balance_changes_nothing(self):
         reset(fixture())

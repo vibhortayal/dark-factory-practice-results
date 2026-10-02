@@ -32,6 +32,7 @@ With a service running on `http://127.0.0.1:8080`:
 ```sh
 python3 stage-1/tests/test_service.py            # unittest, standard library
 python3 stage-1/tests/load.py                    # 50-in-flight concurrency checks
+python3 stage-1/tests/fuzz.py                    # hostile input: never 5xx
 ```
 (set `BASE_URL` to use another address).
 
