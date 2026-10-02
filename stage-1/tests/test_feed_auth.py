@@ -96,3 +96,18 @@ class AuthTests(World):
             tok = call("POST", "/auth/login", {"email": "zed@example.com", "password": "correct horse"}).json["token"]
             me = call("GET", "/me", token=tok).json
             self.assertEqual((me["currency"], me["minor_units"], me["balance"]), (cur, mu, 2 ** 53))
+
+
+class HostileInputTests(World):
+    def test_no_5xx(self):
+        bodies = [b"", b"null", b"[]", b'"x"', b"1", b"[" * 100000, b'{"a":' * 50000, b"\xff\xfe",
+                  b'{"amount": NaN}', b'{"amount": 1e999, "to_handle": "bob"}',
+                  b'{"to_handle": "bob", "amount": 1' + b"0" * 5000 + b"}"]
+        for path in ("/payments", "/requests", "/splits", "/settlements", "/requests/x/pay",
+                     "/auth/signup", "/auth/login", "/_test/reset", "/_test/import"):
+            for raw in bodies:
+                for who in ("ada", None):
+                    r = self.post(who, path, raw=raw, key="k" * 10000)
+                    self.assertLess(r.status, 500, (path, raw[:20], r.raw))
+                    self.assertTrue(r.json is None or "error" in r.json or r.status < 300)
+        self.assertEqual(self.balance("ada"), 10000)
