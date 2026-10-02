@@ -610,6 +610,44 @@ class TestHostile(Base):
         self.assertEqual(s, 200)
 
 
+class TestExactNumbers(Base):
+    def test_literals(self):
+        for lit in ("1.0000000000000001", "100.00000000000000001", "0.99999999999999999",
+                    "999999999.99999999", "1000000000.00000001", "1e309", "1e400", "-1e400", "9" * 5000):
+            for path, body in (("/payments", '{"to_handle":"bob","amount":%s}'),
+                               ("/requests", '{"payer_handle":"bob","amount":%s}'),
+                               ("/splits", '{"participant_handles":["bob"],"amount":%s}'),
+                               ("/settlements", '{"transfers":[{"from_handle":"ada","to_handle":"bob","amount":%s}]}')):
+                t = self.cy if path == "/settlements" else self.ada
+                self.err(call("POST", path, raw=(body % lit).encode(), token=t, key=k()), 422, "validation_failed")
+        self.assertEqual(self.bal(self.ada), 10000)
+        s, b, _ = call("POST", "/payments", raw=b'{"to_handle":"bob","amount":5,"zzz":1e400}', token=self.ada, key=k())
+        self.assertEqual(s, 201)
+        s, b, _ = call("POST", "/payments", raw=b'{"to_handle":"bob","amount":1.000,"note":"x"}', token=self.ada, key=k())
+        self.assertEqual((s, b["amount"]), (201, 1))
+
+    def test_replay_equivalence_and_import(self):
+        key = k()
+        a = call("POST", "/payments", raw=b'{"to_handle":"bob","amount":100,"x":1e400}', token=self.ada, key=key)
+        b = call("POST", "/payments", raw=b'{"x":1E+400,"amount":1e2,"to_handle":"bob"}', token=self.ada, key=key)
+        self.assertEqual((a[0], b[0], a[1]), (201, 200, b[1]))
+        exp = call("GET", "/_test/export")[1]
+        call("POST", "/_test/import", exp)
+        c = call("POST", "/payments", raw=b'{"to_handle":"bob","amount":100.0,"x":1e400}', token=self.ada, key=key)
+        self.assertEqual((c[0], c[1]), (200, a[1]))
+        self.err(call("POST", "/payments", raw=b'{"to_handle":"bob","amount":101,"x":1e400}', token=self.ada, key=key),
+                 409, "idempotency_key_reuse")
+
+    def test_deep_and_key_chars(self):
+        key = k()
+        call("POST", "/payments", {"to_handle": "bob", "amount": 1}, self.ada, key)
+        deep = b'{"to_handle":"bob","amount":1,"z":' + b"[" * 600 + b"]" * 600 + b"}"
+        s = call("POST", "/payments", raw=deep, token=self.ada, key=key)[0]
+        self.assertLess(s, 500)
+        self.assertEqual(call("POST", "/payments", {"to_handle": "bob", "amount": 1}, self.ada, "é" * 128)[0], 201)
+        self.assertEqual(call("GET", "/activity?offset=" + "9" * 30, token=self.ada)[0], 200)
+
+
 class TestBigNumbers(Base):
     def test_near_2_53(self):
         big = 2 ** 53 - 1

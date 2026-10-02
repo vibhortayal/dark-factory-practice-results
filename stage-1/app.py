@@ -7,6 +7,7 @@ import os
 import re
 import secrets
 import threading
+from decimal import Decimal
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -82,10 +83,8 @@ def canon(v):
     """Hashable canonical form of a parsed JSON value (numbers by value, bools distinct)."""
     if isinstance(v, bool):
         return ("b", v)
-    if isinstance(v, int):
-        return ("n", v)
-    if isinstance(v, float):
-        return ("n", int(v)) if v.is_integer() else ("n", v)
+    if isinstance(v, (int, Decimal)):
+        return ("n", v)  # int and Decimal hash and compare by numeric value
     if v is None:
         return ("z",)
     if isinstance(v, str):
@@ -98,10 +97,11 @@ def canon(v):
 
 
 def _parse_float(s):
-    f = float(s)
-    if not math.isfinite(f):
-        raise ValueError("non finite")
-    return f
+    return Decimal(s)  # exact: no binary rounding of number literals
+
+
+def _parse_int(s):
+    return int(s) if len(s) <= 4000 else Decimal(s)
 
 
 def _parse_constant(s):
@@ -111,7 +111,7 @@ def _parse_constant(s):
 def parse_json(raw):
     try:
         text = raw.decode("utf-8")
-        return json.loads(text, parse_float=_parse_float, parse_constant=_parse_constant)
+        return json.loads(text, parse_float=_parse_float, parse_int=_parse_int, parse_constant=_parse_constant)
     except (ValueError, RecursionError, UnicodeDecodeError, MemoryError):
         raise malformed("body is not valid JSON")
 
@@ -128,14 +128,14 @@ def parse_object(raw, empty_ok=False):
 
 
 def as_amount(v, allow_zero=False):
-    if isinstance(v, bool) or not isinstance(v, (int, float)):
+    if isinstance(v, bool) or not isinstance(v, (int, Decimal)):
         raise bad(message="amount must be an integer")
-    if isinstance(v, float):
-        if not v.is_integer():
-            raise bad(message="amount must be integral")
-        v = int(v)
     if v < (0 if allow_zero else 1) or v > MAX_AMOUNT:
         raise bad(message="amount out of range")
+    if isinstance(v, Decimal):
+        if v != v.to_integral_value():
+            raise bad(message="amount must be integral")
+        v = int(v)
     return v
 
 
@@ -190,7 +190,7 @@ def paging(query):
         limit = int(s)
     if "offset" in query:
         s = query["offset"]
-        if not DIGITS_RE.fullmatch(s) or len(s) > 18:
+        if not DIGITS_RE.fullmatch(s) or len(s) > 4000:
             raise bad(message="offset must be a non-negative integer")
         offset = int(s)
     return limit, offset
@@ -289,7 +289,7 @@ class State:
             "splits": [ts(s) for s in self.splits],
             "settlements": [ts(s) for s in self.settlements],
             "idempotency": [{"user": k[0], "method": k[1], "path": k[2], "key": k[3],
-                             "body": v["body"], "response": v["response"]}
+                             "body": v["raw"], "response": v["response"]}
                             for k, v in self.idem.items()],
             "seq": self.seq,
         }
@@ -306,10 +306,10 @@ def req_str(d, key, maxlen=None):
 
 def req_int(d, key, minimum=0):
     v = d.get(key)
-    if isinstance(v, bool) or not isinstance(v, (int, float)):
+    if isinstance(v, bool) or not isinstance(v, (int, Decimal)):
         raise bad(message="%s must be an integer" % key)
-    if isinstance(v, float):
-        if not v.is_integer():
+    if isinstance(v, Decimal):
+        if v.adjusted() > 40 or v != v.to_integral_value():
             raise bad(message="%s must be an integer" % key)
         v = int(v)
     if v < minimum:
@@ -467,10 +467,10 @@ def _load_state(d):
     for e in d["idempotency"]:
         if e["user"] not in st.users or not isinstance(e["key"], str):
             raise bad(message="bad idempotency record")
-        canon(e["body"])
         json.dumps(e["response"])
         st.idem[(e["user"], e["method"], e["path"], e["key"])] = {
-            "body": e["body"], "response": e["response"]}
+            "canon": canon(parse_json(e["body"].encode("utf-8"))), "raw": e["body"],
+            "response": e["response"]}
     st.seq = req_int(d, "seq", 0)
     return st
 
@@ -498,21 +498,29 @@ def idem_key(headers):
     k = headers.get("Idempotency-Key")
     if k is None or k == "":
         raise ApiError(400, "missing_idempotency_key", "Idempotency-Key header required")
+    try:
+        k = k.encode("latin-1").decode("utf-8")  # header bytes arrive latin-1 decoded
+    except (UnicodeError, ValueError):
+        pass
     if len(k) > 255:
         raise bad(message="Idempotency-Key too long")
     return k
 
 
-def idempotent(uid, method, path, key, body, fn):
+def idempotent(uid, method, path, key, body, raw, fn):
     """Run fn(st, user, body) once per (user, method, path, key). Caller holds LOCK."""
     ik = (uid, method, path, key)
     rec = S.idem.get(ik)
+    try:
+        c = canon(body)
+    except RecursionError:
+        raise malformed("body nested too deeply")
     if rec is not None:
-        if canon(rec["body"]) == canon(body):
+        if rec["canon"] == c:
             return 200, rec["response"]
         raise ApiError(409, "idempotency_key_reuse", "key already used with a different body")
     resp = fn(S, S.users[uid], body)
-    S.idem[ik] = {"body": body, "response": resp}
+    S.idem[ik] = {"canon": c, "raw": raw, "response": resp}
     return 201, resp
 
 
@@ -597,11 +605,11 @@ def write_prelude(headers, raw, empty_ok=False, operator=False):
                 raise ApiError(403, "forbidden", "operator only")
     key = idem_key(headers)
     body = parse_object(raw, empty_ok)
-    return uid, key, body
+    return uid, key, body, raw.decode("utf-8") if raw.strip() else "{}"
 
 
 def h_payments(headers, query, raw):
-    uid, key, body = write_prelude(headers, raw)
+    uid, key, body, raw = write_prelude(headers, raw)
 
     def run(st, user, body):
         to_h = get_handle(body, "to_handle")
@@ -617,11 +625,11 @@ def h_payments(headers, query, raw):
         return st.pay_out(p)
 
     with LOCK:
-        return idempotent(uid, "POST", "/payments", key, body, run)
+        return idempotent(uid, "POST", "/payments", key, body, raw, run)
 
 
 def h_request_create(headers, query, raw):
-    uid, key, body = write_prelude(headers, raw)
+    uid, key, body, raw = write_prelude(headers, raw)
 
     def run(st, user, body):
         ph = get_handle(body, "payer_handle")
@@ -636,11 +644,11 @@ def h_request_create(headers, query, raw):
         return st.req_out(r)
 
     with LOCK:
-        return idempotent(uid, "POST", "/requests", key, body, run)
+        return idempotent(uid, "POST", "/requests", key, body, raw, run)
 
 
 def h_pay(headers, query, raw, rid):
-    uid, key, body = write_prelude(headers, raw, empty_ok=True)
+    uid, key, body, raw = write_prelude(headers, raw, empty_ok=True)
 
     def run(st, user, body):
         vis = get_visibility(body)
@@ -660,7 +668,7 @@ def h_pay(headers, query, raw, rid):
         return st.pay_out(p)
 
     with LOCK:
-        return idempotent(uid, "POST", "/requests/" + rid + "/pay", key, body, run)
+        return idempotent(uid, "POST", "/requests/" + rid + "/pay", key, body, raw, run)
 
 
 def h_transition(headers, query, raw, rid, action):
@@ -728,7 +736,7 @@ def shares_for(amount, n):
 
 
 def h_splits(headers, query, raw):
-    uid, key, body = write_prelude(headers, raw)
+    uid, key, body, raw = write_prelude(headers, raw)
 
     def run(st, user, body):
         amount = get_amount(body)
@@ -758,11 +766,11 @@ def h_splits(headers, query, raw):
                 "requests": [st.req_out(r) for r in reqs], "created_at": fmt_ts(ts)}
 
     with LOCK:
-        return idempotent(uid, "POST", "/splits", key, body, run)
+        return idempotent(uid, "POST", "/splits", key, body, raw, run)
 
 
 def h_settlements(headers, query, raw):
-    uid, key, body = write_prelude(headers, raw, operator=True)
+    uid, key, body, raw = write_prelude(headers, raw, operator=True)
 
     def run(st, user, body):
         transfers = body.get("transfers")
@@ -798,7 +806,7 @@ def h_settlements(headers, query, raw):
                 "payments": [st.pay_out(p) for p in pays]}
 
     with LOCK:
-        return idempotent(uid, "POST", "/settlements", key, body, run)
+        return idempotent(uid, "POST", "/settlements", key, body, raw, run)
 
 
 # -- test control
