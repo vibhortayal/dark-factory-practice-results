@@ -4,7 +4,7 @@ Run started: 2026-10-02T19:45Z (dispatch received by Architect).
 
 | Unit | State | Fix rounds (BLOCK verdicts) | Accepted revision | Elapsed |
 |---|---|---|---|---|
-| stage-1 | BUILDING (fix round 1) | 1 | — | 31 min at 20:16Z |
+| stage-1 | BUILDING (map change after PASS of 9f7cba3; awaiting new revision and verdict) | 1 | — (PASS held for 9f7cba3c0bba5b5b747ea078240a6aeba45c6abc) | 37 min at 20:22Z |
 
 ## Log
 
@@ -17,6 +17,19 @@ Run started: 2026-10-02T19:45Z (dispatch received by Architect).
   Verifier's list passed: harness host 147/147, isolated 147/147; own checks 134/135.
 - 2026-10-02T20:17Z Architect agrees with the finding (§5 wrong-type rule applies to reset). Map rows C19 and I8
   revised and sent to both seats; fix routed to Implementer (`handoffs/stage-1/fix-round-1.md`).
+- 2026-10-02T20:17Z Implementer committed 9f7cba3c0bba5b5b747ea078240a6aeba45c6abc (reset wrong-type → 400; import
+  checks container types).
+- 2026-10-02T20:20Z Verifier PASS for 9f7cba3 (verification commit b860485): harness host 147/147 (ver-3), isolated
+  147/147 (ver-4); own checks 136/136; 7,736 requests, no 5xx; clean no-cache build; healthy in 0.43 s; 2 vCPU / 2 GiB.
+- 2026-10-02T20:22Z Architect decision on Verifier note N7 (seeded non-string `note` gives 400 since the fix; seeded
+  `visibility`/`amount` give 422): §5 names the three fields, not endpoints, so 422 is required for all three in
+  seeded records. Map row C19 revised and sent to both seats (`handoffs/stage-1/change-after-round-2.md`). Not a
+  BLOCK; fix-round count stays 1. Acceptance waits for a verdict on the revision that carries this change.
+
+## Verifier notes (round 2 adds N7; N3 closed)
+
+- N7: seeded payment/request with non-string `note` in a reset fixture gives 400 (was 422 before the fix); routed
+  as a map change, see log.
 
 ## Verifier notes (round 1, non-blocking)
 
