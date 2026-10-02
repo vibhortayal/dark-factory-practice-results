@@ -9,7 +9,7 @@ const { nowTimestamp } = require('../clock');
 const { nextId } = require('../state');
 const { paymentJson, requestJson } = require('../serializers');
 
-const STATUSES = ['pending', 'paid', 'declined', 'cancelled'];
+const { REQUEST_STATUSES: STATUSES } = require('./../constants');
 
 /** Insert a pending request; shared with splits. */
 function addRequest(state, { requester, payer, amount, note, createdAt }) {

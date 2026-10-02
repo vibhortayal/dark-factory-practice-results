@@ -55,11 +55,16 @@ function match(pathname) {
     try {
       id = decodeURIComponent(m[1]);
     } catch (_) {
-      id = m[1];
+      return { route: null, params: {}, needsAuth: true }; // undecodable escape: 404 after auth
     }
-    return { route: requestActions[m[2]], params: { id } };
+    return { route: requestActions[m[2]], params: { id }, scopePath: `/requests/${id}/${m[2]}` };
   }
   return { route: null, params: {}, needsAuth: AUTH_FAMILIES.has(pathname.split('/')[1]) };
 }
 
-module.exports = { match };
+/** Every method entry, for tests that audit the table. */
+const allSpecs = () =>
+  [...Object.values(exact), ...Object.values(requestActions)].flatMap((r) =>
+    Object.entries(r).filter(([k]) => k !== 'public').map(([method, spec]) => ({ method, ...spec })));
+
+module.exports = { match, allSpecs };

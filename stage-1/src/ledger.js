@@ -9,7 +9,7 @@
 const { nextId } = require('./state');
 const { invalid, conflict } = require('./errors');
 
-const MAX_BALANCE = 2 ** 53;
+const { MAX_BALANCE } = require('./constants');
 
 function insufficient() {
   return conflict('insufficient_funds', 'balance is too low for this amount');

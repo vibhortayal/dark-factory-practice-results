@@ -8,8 +8,7 @@ const { emptyState } = require('./state');
 const { isValidRecord } = require('./passwords');
 const { HANDLE_RE } = require('./validation');
 
-const MAX_BALANCE = 2 ** 53;
-const STATUSES = ['pending', 'paid', 'declined', 'cancelled'];
+const { MAX_BALANCE, REQUEST_STATUSES: STATUSES } = require('./constants');
 
 function exportState(state) {
   return {

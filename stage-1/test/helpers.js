@@ -63,4 +63,6 @@ async function balances(t) {
   return out;
 }
 
-module.exports = { FIXTURE, start, stop, call, reset, login, tokens, balances };
+const getBase = () => base;
+
+module.exports = { base: getBase, FIXTURE, start, stop, call, reset, login, tokens, balances };

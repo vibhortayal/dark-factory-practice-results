@@ -13,6 +13,8 @@ const idempotency = require('./idempotency');
 const { codePoints } = require('./validation');
 const { match } = require('./routes');
 
+const isThenable = (v) => v !== null && typeof v === 'object' && typeof v.then === 'function';
+
 function authenticate(headers) {
   const m = /^Bearer\s+(\S+)$/i.exec(headers.authorization || '');
   const state = getState();
@@ -24,6 +26,7 @@ function authenticate(headers) {
 
 function readBody(spec, buffer) {
   if (spec.body === 'none') return undefined;
+  if (buffer === null) throw invalid('request body exceeds the size the service processes');
   if (spec.body === 'objectOptional' && buffer.length === 0) return {};
   const value = parseJson(buffer);
   if (spec.body !== 'json' && !isObject(value)) throw malformed('body must be a JSON object');
@@ -41,7 +44,8 @@ function idempotencyKey(headers) {
 
 /** Runs one request; returns {status, body?}. Handlers may be async (hashing, reset). */
 async function handle({ method, pathname, query, headers, buffer }) {
-  const { route, params, needsAuth } = match(pathname);
+  // buffer === null means the body exceeded the service's size cap and was not read.
+  const { route, params, needsAuth, scopePath } = match(pathname);
   if (!route) {
     if (needsAuth) authenticate(headers);
     throw notFound('no such route');
@@ -55,17 +59,24 @@ async function handle({ method, pathname, query, headers, buffer }) {
   const user = route.public ? null : authenticate(headers);
   if (spec.operator && !getState().operators.has(user.id)) throw forbidden('settlement operators only');
 
+  const scope = scopePath || pathname; // percent-decoded path parameters share one idempotency scope
   const key = spec.idem ? idempotencyKey(headers) : null;
   const body = readBody(spec, buffer);
 
   if (spec.idem) {
-    const replay = idempotency.lookup(getState(), user.id, method, pathname, key, body);
+    const replay = idempotency.lookup(getState(), user.id, method, scope, key, body);
     if (replay) return replay;
   }
 
-  const result = await spec.fn({ state: getState(), user, body, params, query });
+  // Idempotent handlers must stay synchronous: lookup, effect and store then run in one
+  // uninterrupted step, so concurrent same-key requests cannot interleave.
+  let result = spec.fn({ state: getState(), user, body, params, query });
+  if (isThenable(result)) {
+    if (spec.idem) throw new Error('idempotent handlers must be synchronous');
+    result = await result;
+  }
   if (spec.idem && result.status === 201) {
-    idempotency.store(getState(), user.id, method, pathname, key, body, result.body);
+    idempotency.store(getState(), user.id, method, scope, key, body, result.body);
   }
   return result;
 }

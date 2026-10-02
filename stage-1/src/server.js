@@ -5,7 +5,7 @@ const { ApiError } = require('./errors');
 const { handle } = require('./pipeline');
 
 // Generous caps: an over-long value must reach validation and get its 422, not a transport error.
-const MAX_BODY = 64 * 1024 * 1024;
+const MAX_BODY = 8 * 1024 * 1024;
 const MAX_TEST_BODY = 128 * 1024 * 1024;
 const MAX_HEADER = 1024 * 1024;
 const JSON_TYPE = 'application/json; charset=utf-8';
@@ -30,18 +30,29 @@ function sendError(res, err) {
   }
 }
 
-/** Collects the body; resolves null once it exceeds the limit (the rest is discarded). */
+/**
+ * Collects the body; resolves null as soon as it exceeds the limit, without buffering the rest
+ * (a declared Content-Length over the limit is not read at all). The pipeline answers 422.
+ */
 function collect(req, limit) {
   return new Promise((resolve) => {
+    if (Number(req.headers['content-length']) > limit) {
+      req.resume();
+      resolve(null);
+      return;
+    }
     const chunks = [];
     let size = 0;
-    let over = false;
-    req.on('data', (c) => {
+    const onData = (c) => {
       size += c.length;
-      if (size > limit) over = true;
-      else chunks.push(c);
-    });
-    req.on('end', () => resolve(over ? null : Buffer.concat(chunks)));
+      if (size > limit) {
+        req.off('data', onData);
+        req.resume();
+        resolve(null);
+      } else chunks.push(c);
+    };
+    req.on('data', onData);
+    req.on('end', () => resolve(Buffer.concat(chunks)));
     req.on('error', () => resolve(null));
   });
 }
@@ -56,7 +67,6 @@ async function onRequest(req, res) {
     }
     const large = url.pathname === '/_test/reset' || url.pathname === '/_test/import';
     const buffer = await collect(req, large ? MAX_TEST_BODY : MAX_BODY);
-    if (buffer === null) throw new ApiError(400, 'malformed_request', 'request body too large');
     const result = await handle({
       method: req.method, pathname: url.pathname, query: url.searchParams, headers: req.headers, buffer,
     });
@@ -70,8 +80,12 @@ function createServer() {
   const server = http.createServer({ maxHeaderSize: MAX_HEADER }, onRequest);
   server.on('clientError', (err, socket) => {
     if (!socket.writable) return;
-    const body = JSON.stringify({ error: { code: 'malformed_request', message: 'malformed HTTP request' } });
-    socket.end(`HTTP/1.1 400 Bad Request\r\nContent-Type: ${JSON_TYPE}\r\nContent-Length: ${Buffer.byteLength(body)}\r\nConnection: close\r\n\r\n${body}`);
+    const tooBig = err.code === 'HPE_HEADER_OVERFLOW';
+    const [status, text, code] = tooBig
+      ? [422, 'Unprocessable Entity', 'validation_failed']
+      : [400, 'Bad Request', 'malformed_request'];
+    const body = JSON.stringify({ error: { code, message: tooBig ? 'request head too large' : 'malformed HTTP request' } });
+    socket.end(`HTTP/1.1 ${status} ${text}\r\nContent-Type: ${JSON_TYPE}\r\nContent-Length: ${Buffer.byteLength(body)}\r\nConnection: close\r\n\r\n${body}`);
   });
   server.keepAliveTimeout = 65000;
   server.headersTimeout = 66000;

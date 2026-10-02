@@ -57,7 +57,9 @@ idempotency, requests, splits, settlements, export/import and 50-way concurrency
   settlements, operator grants, idempotency records and id counters, plus opening balances so that
   import can verify every balance against history. Tampered state is rejected with 422.
 - **Timestamps**: whole seconds with `+00:00`, non-decreasing across the process.
-- **Limits**: request bodies over 64 MiB (128 MiB for reset/import), JSON nested deeper than
-  1000 levels, and malformed HTTP heads answer `400 malformed_request`.
+- **Limits**: heads up to 1 MiB, bodies up to 8 MiB (128 MiB for reset/import) and JSON nested up
+  to 1000 levels are processed. Beyond a cap the answer is `422 validation_failed` with the standard
+  error body (after authentication where the route needs it); `400 malformed_request` is only for
+  bytes that are not valid JSON and wrong JSON types. Path parameters are percent-decoded before use.
 - **Unknown routes and wrong methods** answer `404 not_found` (after authentication for the
   authenticated endpoint families).

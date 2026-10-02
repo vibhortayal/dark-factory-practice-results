@@ -10,8 +10,7 @@ const { nowTimestamp } = require('./clock');
 const { HANDLE_RE } = require('./validation');
 const { deriveHandle } = require('./handles');
 
-const MAX_BALANCE = 2 ** 53;
-const STATUSES = ['pending', 'paid', 'declined', 'cancelled'];
+const { MAX_BALANCE, REQUEST_STATUSES: STATUSES } = require('./constants');
 const MINOR_UNITS = [0, 2, 3];
 
 const isId = (v) => typeof v === 'string' && v.length >= 1 && v.length <= 64;

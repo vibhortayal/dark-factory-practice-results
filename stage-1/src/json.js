@@ -1,6 +1,6 @@
 'use strict';
 
-const { malformed } = require('./errors');
+const { malformed, invalid } = require('./errors');
 
 const MAX_DEPTH = 1000;
 const decoder = new TextDecoder('utf-8', { fatal: true });
@@ -33,7 +33,7 @@ function parseJson(buffer) {
     throw malformed('body is not valid UTF-8');
   }
   if (text.trim() === '') throw malformed('empty body');
-  if (depthOf(text) > MAX_DEPTH) throw malformed('body nested too deeply');
+  if (depthOf(text) > MAX_DEPTH) throw invalid('body is nested too deeply to process');
   try {
     return JSON.parse(text);
   } catch (_) {
