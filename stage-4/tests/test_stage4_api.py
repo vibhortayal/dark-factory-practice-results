@@ -551,6 +551,43 @@ class TestBatches(Base):
         self.assertEqual(self.total(), 16100)
 
 
+class TestStoredResponsesAgreeWithLedger(Base):
+    def test_import_refuses_altered_stored_responses(self):
+        p = pay(self.ada, "bob", 100)[1]
+        q = pay(self.ada, "bob", 50)[1]
+        kb, kr = nk(), nk()
+        b = call("POST", "/correction-batches", {"corrections": [item(p["payment_id"], 1, 60, p["created_at"])]}, self.op, kb)
+        self.assertEqual(b[0], 201)
+        rf = call("POST", "/payments/%s/refunds" % q["payment_id"], {"amount": 10}, self.bob, kr)
+        ex = call("GET", "/_test/export")[1]
+        before = call("GET", "/_test/export")[1]
+        recs = ex["state"]["idempotency"]
+
+        def rec_of(path_part):
+            return [i for i, r in enumerate(recs) if path_part in r["path"]][0]
+        bi, ri = rec_of("correction-batches"), rec_of("refunds")
+        cases = []
+        for v in ("y" * 65, "y" * 300, "", "cb_999", 5, None, ["x"]):
+            cases.append(("batch id", bi, ["response", "correction_batch_id"], v))
+            cases.append(("revision batch id", bi, ["response", "revisions", 0, "correction_batch_id"], v))
+        cases.append(("revision amount", bi, ["response", "revisions", 0, "amount"], 61))
+        cases.append(("recorded_at", bi, ["response", "recorded_at"], "2020-01-01T00:00:00Z"))
+        for v in ("p_1", "p_2x", "zzz", "", 5, ["x"]):
+            cases.append(("refund_of", ri, ["response", "refund_of"], v))
+        for name, i, path, v in cases:
+            m = json.loads(json.dumps(ex))
+            node = m["state"]["idempotency"][i]
+            for k in path[:-1]:
+                node = node[k]
+            node[path[-1]] = v
+            r = call("POST", "/_test/import", m)
+            self.assertEqual(r[0], 422, (name, repr(v)[:20], r))
+            self.assertEqual(call("GET", "/_test/export")[1], before)
+        self.assertEqual(call("POST", "/_test/import", ex)[0], 204)
+        self.assertEqual(call("POST", "/correction-batches", {"corrections": [item(p["payment_id"], 1, 60, p["created_at"])]}, self.op, kb)[:2], (200, b[1]))
+        self.assertEqual(call("POST", "/payments/%s/refunds" % q["payment_id"], {"amount": 10}, self.bob, kr)[:2], (200, rf[1]))
+
+
 class TestTiming4(unittest.TestCase):
     def test_32_item_batch_over_a_large_history(self):
         import random

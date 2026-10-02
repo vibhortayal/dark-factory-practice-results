@@ -781,7 +781,7 @@ def _opt_ref(v, pool):
 
 
 def _payment_shape(r, ctx):
-    ids, pids, rids, _, sids, aids = ctx
+    ids, pids, rids, _, sids, aids, pmap = ctx
     need(isinstance(r, dict) and isinstance(r["payment_id"], str) and r["payment_id"] in pids
          and _ref(r["from_user_id"], ids) and _ref(r["to_user_id"], ids)
          and isinstance(r["from_handle"], str) and HANDLE_RE.fullmatch(r["from_handle"])
@@ -792,6 +792,8 @@ def _payment_shape(r, ctx):
          and _opt_ref(r["request_id"], rids) and _opt_ref(r["settlement_id"], sids)
          and _opt_ref(r.get("authorization_id"), aids) and _opt_ref(r.get("refund_of"), pids)
          and _ts(r["created_at"]))
+    if "refund_of" in r:
+        need(r["refund_of"] == pmap[r["payment_id"]]["refund_of"])
     # responses stored by an earlier stage replay exactly as stored: members they never had are not invented
     return {k: r[k] for k in ("payment_id", "from_user_id", "from_handle", "to_user_id", "to_handle", "amount",
                               "currency", "note", "visibility", "request_id", "settlement_id",
@@ -799,7 +801,7 @@ def _payment_shape(r, ctx):
 
 
 def _request_shape(r, ctx):
-    ids, pids, rids, _, _, _ = ctx
+    ids, pids, rids, _, _, _, _ = ctx
     need(isinstance(r, dict) and isinstance(r["request_id"], str) and r["request_id"] in rids
          and _ref(r["requester_id"], ids) and _ref(r["payer_id"], ids)
          and isinstance(r["requester_handle"], str) and HANDLE_RE.fullmatch(r["requester_handle"])
@@ -813,7 +815,7 @@ def _request_shape(r, ctx):
 
 
 def _auth_shape(r, ctx):
-    ids, pids, _, _, _, aids = ctx
+    ids, pids, _, _, _, aids, _ = ctx
     need(isinstance(r, dict) and (r.get("closed_at") is None or _ts(r["closed_at"])))
     need(isinstance(r, dict) and isinstance(r["authorization_id"], str) and r["authorization_id"] in aids
          and _ref(r["from_user_id"], ids) and _ref(r["to_user_id"], ids)
@@ -834,28 +836,70 @@ def _auth_shape(r, ctx):
                       "expires_at", "payment_id", "payment_ids", "created_at", "closed_at") if k in r}
 
 
-def _revision_shape(r, ctx):
+def _revision_shape(r, ctx, batch_id=None):
+    """A stored revision response must agree with the ledger it belongs to (ids are valid ids, members equal)."""
     need(isinstance(r, dict) and isinstance(r["payment_id"], str) and r["payment_id"] in ctx[1]
          and is_int(r["revision"]) and r["revision"] >= 2 and is_int(r["amount"]) and 0 <= r["amount"] <= MAX_AMOUNT
          and _ts(r["effective_at"]) and _ts(r["recorded_at"]) and isinstance(r["reason"], str)
-         and 1 <= len(r["reason"]) <= 200
-         and (r.get("correction_batch_id") is None or isinstance(r["correction_batch_id"], str)))
+         and 1 <= len(r["reason"]) <= 200)
+    corr = ctx[6][r["payment_id"]]["corrections"]
+    need(r["revision"] - 2 < len(corr))
+    c = corr[r["revision"] - 2]
+    need(c["amount"] == r["amount"] and c["effective_at"] == r["effective_at"] and c["recorded_at"] == r["recorded_at"]
+         and c["reason"] == r["reason"])
+    if "correction_batch_id" in r:
+        need(r["correction_batch_id"] is None or _id(r["correction_batch_id"]))
+        need(r["correction_batch_id"] == c.get("batch_id"))
+    if batch_id is not None:
+        need(c.get("batch_id") == batch_id)
     return {k: r[k] for k in ("payment_id", "revision", "amount", "effective_at", "recorded_at", "reason",
                               "correction_batch_id") if k in r}
 
 
+# Every id-typed member of a stored response, wherever it is nested: one rule (a string of 1..64 characters).
+# Scalar members hold an id or null; list members hold ids.
+ID_SCALARS = ("payment_id", "request_id", "authorization_id", "settlement_id", "refund_of", "split_id",
+              "correction_batch_id", "user_id", "from_user_id", "to_user_id", "requester_id", "payer_id")
+ID_LISTS = ("payment_ids",)
+
+
+def check_ids(node, depth=0):
+    need(depth < 8)
+    if isinstance(node, dict):
+        for k, v in node.items():
+            if k in ID_SCALARS:
+                need(v is None or _id(v))
+            elif k in ID_LISTS:
+                need(isinstance(v, list) and all(_id(x) for x in v))
+            else:
+                check_ids(v, depth + 1)
+    elif isinstance(node, list):
+        for x in node:
+            check_ids(x, depth + 1)
+
+
 def _response_shape(path, r, ctx):
+    check_ids(r)
+    return _response_shape_inner(path, r, ctx)
+
+
+def _response_shape_inner(path, r, ctx):
     """Whitelist a stored idempotent response by the shape its path produces."""
     if path == "/authorizations":
         return _auth_shape(r, ctx)
     if re.fullmatch(r"/payments/.+/corrections", path, re.S):
         return _revision_shape(r, ctx)
     if path == "/correction-batches":
-        need(isinstance(r, dict) and isinstance(r["correction_batch_id"], str) and _ts(r["recorded_at"])
+        need(isinstance(r, dict) and _id(r["correction_batch_id"]) and _ts(r["recorded_at"])
              and isinstance(r["revisions"], list) and 1 <= len(r["revisions"]) <= 32)
-        return {"correction_batch_id": r["correction_batch_id"], "recorded_at": r["recorded_at"],
-                "revisions": [_revision_shape(x, ctx) for x in r["revisions"]]}
-    if path == "/payments" or re.fullmatch(r"/requests/.+/pay", path, re.S) or re.fullmatch(r"/payments/.+/refunds", path, re.S) \
+        revs_ = [_revision_shape(x, ctx, r["correction_batch_id"]) for x in r["revisions"]]
+        need(all(x["recorded_at"] == r["recorded_at"] for x in revs_))
+        return {"correction_batch_id": r["correction_batch_id"], "recorded_at": r["recorded_at"], "revisions": revs_}
+    if re.fullmatch(r"/payments/.+/refunds", path, re.S):
+        res = _payment_shape(r, ctx)
+        need(res.get("refund_of") is not None and ctx[6][res["payment_id"]]["refund_of"] == res["refund_of"])
+        return res
+    if path == "/payments" or re.fullmatch(r"/requests/.+/pay", path, re.S) \
             or re.fullmatch(r"/authorizations/.+/capture", path, re.S):
         return _payment_shape(r, ctx)
     if path == "/requests":
@@ -1048,13 +1092,20 @@ def _validate_state(st):
     need(all(h <= bal[uid] for uid, h in holds.items()))
     need(all(p["authorization_id"] is None or p["authorization_id"] in aids for p in payments))
     by_id = {p["id"]: p for p in payments}
+    batches = {}
+    for p in payments:
+        for c in p["corrections"]:
+            if c.get("batch_id") is not None:
+                g = batches.setdefault(c["batch_id"], {"rec": c["recorded_at"], "pids": set()})
+                need(g["rec"] == c["recorded_at"] and p["id"] not in g["pids"])
+                g["pids"].add(p["id"])
     for p in payments:
         if p["refund_of"] is not None:  # a refund names an existing, non-refund payment, in the opposite direction
             t = by_id.get(p["refund_of"])
             need(t is not None and t["refund_of"] is None and t["to_user_id"] == p["from_user_id"]
                  and t["from_user_id"] == p["to_user_id"] and p["settlement_id"] is None and p["authorization_id"] is None
                  and p["request_id"] is None)
-    ctx = (ids, pids, rids, sids_split, sids, aids)
+    ctx = (ids, pids, rids, sids_split, sids, aids, {p["id"]: p for p in payments})
     idem, seen = [], set()
     for e in st["idempotency"]:
         need(_ref(e["user_id"], ids) and e["method"] == "POST" and isinstance(e["path"], str)

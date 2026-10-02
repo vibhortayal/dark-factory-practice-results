@@ -91,8 +91,39 @@ class TestMutation4(TestMutation3):
         return call("GET", "/_test/export")[1]
 
     def test_reset_mutants(self):
-        self.skipTest("the reset sweep is part of the stage-3 file; stage 4 adds no fixture members")
-
+        """The stage-3 reset sweep against stage 4, plus fixtures that name the stage-4 members: refused or ignored, never 5xx."""
+        TestMutation3.test_reset_mutants(self)
+        base_p = {"id": "p", "from_user_id": "u_ada", "to_user_id": "u_bob", "amount": 5, "note": "", "visibility": "public"}
+        extras = [{"refund_of": v} for v in ("p", "zzz", "", None, 5, ["p"], {}, True, "x" * 65)] + \
+                 [{"correction_batch_id": v} for v in ("cb_1", "", None, 5, "x" * 65)] + \
+                 [{"batch_id": v} for v in ("cb_1", "", None, 5)] + \
+                 [{"corrections": v} for v in ([], [{"revision": 2}], "x", None, [{"revision": 2, "amount": 1, "effective_at": "2021-01-01T00:00:00Z",
+                                                                                      "recorded_at": "2021-01-02T00:00:00Z", "reason": "r", "batch_id": "cb"}])]
+        n = 0
+        for extra in extras:
+            for kind in ("payments", "requests", "users", "authorizations"):
+                fx = fixture(users=[user("ada", 100), user("bob", 100)], payments=[{**base_p, **(extra if kind == "payments" else {})}])
+                if kind == "requests":
+                    fx["requests"] = [{"id": "r", "requester_id": "u_ada", "payer_id": "u_bob", "amount": 1, "status": "pending", **extra}]
+                if kind == "users":
+                    fx["users"][0].update(extra)
+                if kind == "authorizations":
+                    fx["authorizations"] = [{"id": "a", "from_user_id": "u_ada", "to_user_id": "u_bob", "amount": 1, "status": "open",
+                                             "expires_at": "2999-01-01T00:00:00Z", **extra}]
+                reset(fixture())
+                r = call("POST", "/_test/reset", fx)
+                n += 1
+                self.assertIn(r[0], (204, 422), (kind, extra, r))
+                if r[0] == 204:
+                    ex = call("GET", "/_test/export")
+                    self.assertEqual(ex[0], 200)
+                    self.assertEqual(call("POST", "/_test/import", ex[1])[0], 204)
+                    tok = login("ada")
+                    for p in call("GET", "/activity?limit=200", token=tok)[1]["payments"]:
+                        self.assertIsNone(p["refund_of"])  # a fixture cannot seed refunds
+                    for pth in ("/statement", "/me", "/payments/p/revisions"):
+                        self.assertLess(call("GET", pth, token=tok)[0], 500)
+        print("stage-4 reset member fixtures:", n)
 
 if __name__ == "__main__":
     unittest.main(verbosity=1)
