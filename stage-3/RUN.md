@@ -1,14 +1,15 @@
-# Pocketful, stage 2: wallet screens and payment authorizations
+# Pocketful, stage 3: statements and payment corrections
 
 A containerised HTTP service (Node.js 20, standard library only, no npm dependencies) with the
-stage-1 JSON API, the stage-2 authorization (hold and capture) API, and a browser UI served by the
-same process. Every script, stylesheet and icon of the UI is in the image; nothing is fetched
+stage-1 JSON API, the stage-2 authorization (hold and capture) API and browser UI, and the stage-3
+historical ledger: balances as of an instant, statements, payment corrections and stable statement
+paging. Every script, stylesheet and icon of the UI is in the image; nothing is fetched
 from another origin.
 
 ## Build and start
 
 ```sh
-docker build -t pocketful-stage2 . && docker run --rm -p 8080:8080 -e PORT=8080 pocketful-stage2
+docker build -t pocketful-stage3 . && docker run --rm -p 8080:8080 -e PORT=8080 pocketful-stage3
 ```
 
 The service listens on `0.0.0.0:$PORT` (default `8080`) and answers `GET /health` within a
@@ -25,7 +26,7 @@ npm test        # node --test test/
 ```
 
 API tests start the service in-process and cover validation, precedence of errors, idempotency
-(seven write paths), requests, splits, settlements, holds and captures, expiry by the clock,
+(eight write paths), requests, splits, settlements, holds and captures, expiry by the clock,
 export/import (including a stage-1 layout) and 50-way concurrency bursts. `test/frontend.test.mjs`
 unit-tests money formatting, decimal parsing, the split rule, retry identity and latest-refresh-wins.
 
@@ -50,6 +51,9 @@ the export/import upgrade without a page reload.
 | `src/validation.js` | The one place for field rules (amount, note, visibility, paging) |
 | `src/ledger.js` | The one place balances change for payments and settlements; shares of a split |
 | `src/holds.js` | Authorizations: hold accounting, capture, void and clock-driven expiry |
+| `src/instant.js` | The one parser and one exact comparison for RFC 3339 instants (sub-millisecond precision kept) |
+| `src/history.js` | The historical ledger as pure functions: revision selection, views (total/held/available at an instant as known at another), statements, the boundary walk for corrections |
+| `src/handlers/statement.js`, `src/handlers/corrections.js` | `GET /statement` with snapshots; `POST /payments/{id}/corrections`, `GET /payments/{id}/revisions` |
 | `src/state.js`, `src/idempotency.js`, `src/fixture.js`, `src/snapshot.js` | State, idempotency records, reset fixtures, export/import |
 | `src/handlers/` | One module per endpoint family (`authorizations.js` is new in stage 2) |
 | `public/index.html`, `public/css/app.css` | UI shell and the single stylesheet holding all design tokens |
@@ -59,6 +63,29 @@ the export/import upgrade without a page reload.
 | `public/js/components/` | Shell, forms, feed and shared parts |
 | `public/js/screens/` | One module per screen |
 | `test/`, `browser-tests/` | API, unit and browser tests |
+
+## Historical ledger (stage 3)
+
+- Every user has an `opening_balance` (seeded balance minus the effect of the seeded payments;
+  zero for signups). Every payment has an append-only list of revisions (`amount`,
+  `effective_at`, `recorded_at`, `reason`, a global `seq`); revision 1 is the original, with
+  `effective_at = recorded_at = created_at`. A correction appends a revision and moves the
+  difference between the same two wallets in the same synchronous step.
+- A view (`GET /me?as_of&known_at`, statements) selects, per payment, the latest revision
+  recorded at or before `known_at` and applies it at its effective time. Holds are replayed from
+  the authorization's creation, captures and release (`closed_at`, or the `expires_at` deadline).
+  Nothing historical is cached; views are computed from the revisions.
+- A correction is judged by walking every past boundary of both parties before and after the
+  proposed revision: a boundary that would end below zero, and lower than it already was, is
+  `historical_overdraft`.
+- A statement read stores only its parameters (owner, window, `known_at`, resolved default `to`
+  and the revision sequence reached) under an unguessable token; paging recomputes exactly that
+  result, which stays frozen because revisions are append-only. Snapshots are exported and imported.
+- Instants keep any fractional precision and are compared exactly; the service's own clock
+  has millisecond precision and is frozen once per request. After a reset or an import the clock
+  never reports an instant earlier than the state already holds.
+- Import accepts the stage-1, stage-2 and stage-3 layouts (`state.layout: 3` for this one) and
+  upgrades the older ones: revision 1 for every payment, opening balances, `closed_at`.
 
 ## Design choices
 

@@ -611,3 +611,24 @@ test('a signed-up user opens at zero and has a consistent history', async () => 
   assert.equal((await call('POST', '/_test/import', { body: exp.text })).status, 204);
   assert.equal((await get('/statement', tok)).body.opening_balance, 0);
 });
+
+test('hostile input on the new endpoints never produces a 5xx', async () => {
+  const t = await setup();
+  const queries = ['as_of=%', 'as_of=%00', 'as_of=' + 'x'.repeat(5000), 'as_of=2026-09-20T10:00:00.' + '9'.repeat(5000) + 'Z', 'as_of=9999-12-31T23:59:59Z', 'as_of=0000-01-01T00:00:00Z',
+    'known_at=-1', 'from=1&to=2&known_at=3', 'snapshot=%E0%A4%A', 'snapshot=' + 'a'.repeat(100000), 'limit=99999999999999999999', 'offset=' + '9'.repeat(400), 'to=2026-09-20T10:00:00%2b00:00&from=2026-09-20T10:00:00%2B00:00'];
+  for (const qs of queries) {
+    for (const path of ['/me', '/statement']) {
+      const r = await get(`${path}?${qs}`, t.ada);
+      assert.ok(r.status < 500, `${path}?${qs.slice(0, 40)} -> ${r.status}`);
+      if (r.status >= 400) assert.equal(typeof r.body.error.code, 'string');
+    }
+  }
+  const bodies = ['{}', '[]', 'null', '{"expected_revision":1e999,"amount":1,"effective_at":"x","reason":"r"}', JSON.stringify({ expected_revision: 1, amount: 1, effective_at: D('10:00'), reason: 'r', extra: { a: [[[[1]]]] } }),
+    '{"expected_revision":{},"amount":[],"effective_at":{},"reason":{}}', '{"expected_revision":1,"amount":1,"effective_at":"2026-09-20T10:00:00.' + '9'.repeat(10000) + 'Z","reason":"r"}'];
+  for (const body of bodies) {
+    for (const id of ['p1', 'p3', 'zzz', '%']) {
+      const r = await call('POST', `/payments/${id}/corrections`, { token: t.bob, key: k(), body });
+      assert.ok(r.status < 500, `${id} ${body.slice(0, 40)} -> ${r.status}`);
+    }
+  }
+});
