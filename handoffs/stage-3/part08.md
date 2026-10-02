@@ -1,0 +1,55 @@
+@vibhor15/nightshift-implementer @vibhor15/nightshift-verifier Rows: stage-3 map AA1..ZZ3, stage-2 map M1..V7 with Q11, stage-1 map A1..K10 · Revision: 346e1a9e2cff5a4a338879f217599a6857a555a2 (maps and status; stage-1/ accepted at 77409dda43334b784ca1125d2d990ba51478abf6, stage-2/ accepted at 88b9223d3e56cd9a668499f3cd5b87575d0ea114; stage-3/ does not exist yet) · Files: acceptance/stage-3.md, acceptance/stage-2.md, acceptance/stage-1.md, STATUS.md · Command: n/a · Expected / actual: stage-3/ to be built / not yet built · Repro: n/a · Next: Implementer builds stage-3/ and reports a committed revision; Verifier prepares its checks now and waits for that revision.
+
+STAGE 3 HANDOFF, part 8 of 13. ACCEPTANCE MAP, stage 3 (part 2 of 2: sections EE, FF, ZZ and commands).
+
+## EE. Statements (S3 "GET /statement", "known_at", "Stable statement pagination")
+
+| Row | Requirement | Check |
+|---|---|---|
+| EE1 | `GET /statement?from&to&limit&offset&known_at` requires a token (401 otherwise) and returns `{opening_balance, entries, closing_balance, has_more, snapshot}` plus the `known_at` echo when supplied. Entries are the caller's own sent or received payments only (private ones included, other people's public ones excluded) whose movement falls in the half-open window `[from, to)`. | H, P |
+| EE2 | Each entry: `payment` (the payment object, with `amount` replaced by the selected amount for this statement; all other fields, including `created_at`, original), `delta` (negative for sent, positive for received, 0 for a zero-amount revision, which still appears), `balance_after`, and the selected `revision`, `effective_at`, `recorded_at`. A corrected payment appears once, by its selected revision only. Captures appear exactly once with `authorization_id`; authorisation, release and expiry are not entries. | H, P |
+| EE3 | Order: selected `effective_at` ascending, then payment id ascending. **[D]** Ids compare as strings by code point (the literal reading; `p_10` sorts before `p_9`). Reason: the specification says "payment id ascending" and ids are opaque strings. | P with tied instants |
+| EE4 | `opening_balance` = balance immediately before `from`; `closing_balance` = balance immediately before `to`; `opening_balance` + sum of every `delta` in the full window = `closing_balance`. `balance_after` is the running balance in entry order over the full window. Pagination changes none of these: every page reports the same opening and closing balances and each entry the same `balance_after`. | H, P |
+| EE5 | `from` defaults to the opening of the wallet (so `opening_balance` is the wallet's opening balance). `to` defaults to now. **[D]** The default `to` lies just after everything that has already taken effect when the read begins, so a payment made immediately before the read (same clock tick) is inside the window and `closing_balance` is the current balance. Reason: with a half-open window and millisecond stamps, "now" taken literally would drop a payment made in the same millisecond. | H, P: pay then read at once, repeatedly |
+| EE6 | `from`, `to`, `known_at` invalid or empty -> 422. **[D]** `from` later than `to` -> 422 `validation_failed` (the arithmetic of EE4 cannot hold); `from` equal to `to` is an empty window with `opening_balance = closing_balance`. `limit` and `offset` as in row C9. Unknown query parameters are ignored. | P |
+| EE7 | Every first read returns an opaque `snapshot` token that freezes that read: the selected revisions, the window (including the resolved default `to`), balances and entries. `GET /statement?snapshot=<token>&limit&offset` pages exactly that result (same token returned, same `known_at` echo as the first read) whatever payments, corrections or hold events happen later. The final partial page and offsets beyond the end report `has_more` correctly. | P |
+| EE8 | With `snapshot`, only `limit` and `offset` may accompany it: `from`, `to` or `known_at` present -> 422 `validation_failed`. Unknown token, another user's token, a token from before a reset -> 404 `not_found`. Tokens last until reset; they are not guessable from one another. | P |
+| EE9 | A correction may move a payment into or out of a window in new reads; existing snapshots are unchanged, including while payments and corrections run concurrently. | P bursts |
+| EE10 | With no corrections and no `known_at`, statements behave exactly as the first half of S3 describes (ordering by `created_at`, then id). | H, P |
+
+## FF. Corrections (S3 "Effective time, recorded time, and corrections", "Settlement history")
+
+| Row | Requirement | Check |
+|---|---|---|
+| FF1 | `POST /payments/{payment_id}/corrections` is the eighth idempotent write path (all §7 rules). Body `{expected_revision, amount, effective_at, reason}`, all required. 201 with `payment_id, revision, amount, effective_at, recorded_at, reason`. It appends an immutable revision; parties and visibility never change. | H, P |
+| FF2 | Validation: `expected_revision` a positive integer; `amount` an integer 0..1000000000 (0 reverses the payment); `reason` a string of 1..200 characters (code points); `effective_at` a valid instant not later than now. **[D]** Every invalid or missing field on this endpoint, including a wrong JSON type, is 422 `validation_failed` (S3: "Invalid input is 422"); 400 stays for a body that is not a JSON object. Integral JSON numbers (`1.0`, `4e2`) are valid integers as in row C3. | P |
+| FF3 | Unknown payment -> 404. Any authenticated caller who is not the original sender (the receiver, a third party, an operator) -> 403 `forbidden`. A settlement member or a capture payment -> 422 `linked_payment_immutable`. `expected_revision` not equal to the payment's latest revision number -> 409 `stale_revision`. **[D]** Precedence: 401 -> key -> body -> replay/reuse -> field validation 422 -> 404 -> 403 -> `linked_payment_immutable` -> `stale_revision` -> `insufficient_funds` -> `historical_overdraft`. Reason: same order as rows E5, F5, O6; the last two are ordered by S3. | P |
+| FF4 | Money: the difference from the previous amount moves between the same two wallets in the same atomic step as the revision: an increase debits the original sender, a decrease debits the original receiver. The debited wallet's current `available` below the difference -> 409 `insufficient_funds`. A correction that changes only `effective_at` or `reason` moves no current money. | H, P |
+| FF5 | Otherwise, if under the latest revisions including the proposed one either party's `total` or `available` would be negative at any boundary up to now (movements and hold events at one instant are combined before judging) -> 409 `historical_overdraft`. **[D]** A boundary that was already negative before the correction and is not made lower by it does not reject the correction. Reason: S3 says "makes … negative" and assumes seeded history is consistent; a fixture that is not must not freeze every later correction. | P: raise a past payment beyond what the sender then held; move a received payment later than the spend it funded; with a hold standing at the boundary |
+| FF6 | Either failure, and every other refusal, leaves balances, revision history, statements, snapshots and idempotency state unchanged (the key stays free). | P |
+| FF7 | `recorded_at` is assigned by the service and strictly increases along one payment's revisions, also when two corrections land in the same clock tick. | P |
+| FF8 | A successful replay returns the original revision with 200 even after newer revisions; the same key with a different body is 409 `idempotency_key_reuse`. Concurrent corrections with the same `expected_revision` and different keys: exactly one 201, the others 409 `stale_revision`. | P at 50 in flight |
+| FF9 | The original payment and every original idempotent response stay unchanged: `GET /activity`, the replay of the original `POST /payments`, of a request payment, of a capture and of a settlement return the original amounts. A correction is not a feed item. | P |
+| FF10 | `GET /payments/{payment_id}/revisions` -> `{"revisions":[…]}` in revision order including revision 1 (`reason: ""`), each with `payment_id, revision, amount, effective_at, recorded_at, reason`. Only the two parties may read it; a third party gets 404 even for a public payment (an operator who is not a party included); unknown payment 404; no token 401. | P |
+| FF11 | After any sequence of corrections, current balances sum to the seeded total, `available` is never negative, and requests, authorisations and settlements keep their recorded state (a corrected request payment leaves the request `paid` with its original amount). | P |
+| FF12 | Concurrent payments, holds, captures, corrections and statement reads give results equal to some one-at-a-time order; every row holds at every read. | P at 50 in flight |
+
+## ZZ. Stage boundary
+
+| Row | Requirement | Check |
+|---|---|---|
+| ZZ1 | `stage-3/` implements stages 1 to 3 only: nothing from stage 4. The harness run for stage 3 ends `claimed stage: 3 on the shipped checks` with stages 1, 2 and 3 `pass` and the stage-4 overshoot line `fail`. | H, I |
+| ZZ2 | Written to the specification, not to the supplied checks (which cover about a tenth of S3). | I |
+| ZZ3 | Maintainable: the historical ledger (revisions, views, statements, snapshots) lives in its own modules with unit tests; instants have one parser and one comparison; the synchronous-commit rule and the per-request clock from stage 2 are kept; RUN.md describes the stage-3 design. | I |
+
+## Commands
+
+From `/home/ubuntu/nightshift-claude-run-6/dark-factory-wearedevs`:
+
+```sh
+.venv/bin/python -m harness run --track pocketful --repo ../band-work/result --stage 3 --out ../band-work/checks/<new-name>
+.venv/bin/python -m harness run --track pocketful --repo ../band-work/result --stage 3 --mode isolated --out ../band-work/checks/<new-name>
+```
+
+Every run needs a new `--out` directory. The final check of the stage is the isolated one.
+(end of the stage-3 map; end of part 8 of 13)
