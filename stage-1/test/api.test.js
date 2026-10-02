@@ -430,3 +430,94 @@ test('idempotent replay through an escaped path (N3) and deep unknown fields (N4
   const c = await call('POST', '/payments', { token: t.ada, k: key(), raw: '{"to_handle":"bob","amount":1,"x":' + deep + '}' });
   assert.ok(c.status < 500, c.text);
 });
+
+test('tampered import table: each is 422, state unchanged, service still answers', async () => {
+  const t = await world({ settlement_operator_ids: ['u_op'] });
+  await post('/payments', t.ada, { to_handle: 'bob', amount: 10, visibility: 'private' });
+  const rq = (await post('/requests', t.bob, { payer_handle: 'ada', amount: 5 })).json.request_id;
+  await post(`/requests/${rq}/pay`, t.ada, {});
+  await post('/splits', t.ada, { amount: 9, participant_handles: ['ada', 'bob', 'cy'] });
+  await post('/settlements', t.op, { transfers: [{ from_handle: 'ada', to_handle: 'op', amount: 3 }, { from_handle: 'op', to_handle: 'cy', amount: 3 }] });
+  const e = (await get('/_test/export')).json;
+  const mut = (f) => { const c = JSON.parse(JSON.stringify(e)); f(c.state, c); return c; };
+  const S = e.state;
+  const cases = {
+    seq_big: (s) => { s.seq.rq = 9007199254740992; },
+    seq_neg: (s) => { s.seq.sp = -1; },
+    seq_frac: (s) => { s.seq.st = 1.5; },
+    seq_str: (s) => { s.seq.u = '3'; },
+    seq_missing: (s) => { delete s.seq.p; },
+    seq_null: (s) => { s.seq = null; },
+    pw_short_key: (s) => { s.users[0].pw = s.users[0].pw.replace(/[0-9a-f]{2}$/, ''); },
+    pw_empty: (s) => { s.users[0].pw = ''; },
+    pw_old_format: (s) => { s.users[0].pw = 'scrypt$8192$8$1$' + '0'.repeat(32) + '$' + '0'.repeat(64); },
+    pw_number: (s) => { s.users[0].pw = 5; },
+    bal_neg: (s) => { s.users[0].balance = -1; },
+    bal_frac: (s) => { s.users[0].balance = 1.5; },
+    bal_huge: (s) => { s.users[0].balance = 1e300; },
+    bal_str: (s) => { s.users[0].balance = '5'; },
+    cur_empty: (s) => { s.currency = ''; },
+    mu_bad: (s) => { s.minor_units = 1; },
+    handle_bad: (s) => { s.users[1].handle = 'BAD HANDLE'; },
+    handle_dup: (s) => { s.users[1].handle = s.users[0].handle; },
+    email_dup: (s) => { s.users[1].email = s.users[0].email; },
+    id_dup: (s) => { s.users[1].id = s.users[0].id; },
+    id_long: (s) => { s.users[1].id = 'x'.repeat(65); },
+    id_type: (s) => { s.users[1].id = 5; },
+    users_obj: (s) => { s.users = {}; },
+    state_array: (s, c) => { c.state = []; },
+    state_null: (s, c) => { c.state = null; },
+    tok_unknown_user: (s) => { s.tokens.push(['tt', 'ghost']); },
+    tok_dup: (s) => { s.tokens.push(s.tokens[0]); },
+    tok_shape: (s) => { s.tokens = [{}]; },
+    pay_unknown_user: (s) => { s.payments[0].from_user_id = 'ghost'; },
+    pay_vis: (s) => { s.payments[0].visibility = 'x'; },
+    pay_note: (s) => { s.payments[0].note = null; },
+    pay_amount: (s) => { s.payments[0].amount = -3; },
+    pay_ts: (s) => { s.payments[0].created_at = 'yesterday'; },
+    pay_dup_id: (s) => { s.payments[1].id = s.payments[0].id; },
+    pay_req_id_type: (s) => { s.payments[0].request_id = 5; },
+    pay_settle_type: (s) => { s.payments[0].settlement_id = {}; },
+    req_status: (s) => { s.requests[0].status = 'weird'; },
+    req_user: (s) => { s.requests[0].payer_id = 'ghost'; },
+    req_pid: (s) => { s.requests[0].payment_id = 7; },
+    req_ts: (s) => { s.requests[0].created_at = '2026-01-01'; },
+    split_shares: (s) => { s.splits[0].shares = 'x'; },
+    split_rids: (s) => { s.splits[0].request_ids = [1]; },
+    split_user: (s) => { s.splits[0].requester_id = 'ghost'; },
+    settle_pids: (s) => { s.settlements[0].payment_ids = 'x'; },
+    settle_ts: (s) => { s.settlements[0].committed_at = 5; },
+    op_unknown: (s) => { s.operators = ['ghost']; },
+    idem_scope: (s) => { s.idem[0].scope = 'nope'; },
+    idem_scope_user: (s) => { s.idem[0].scope = JSON.stringify(['ghost', 'POST', '/payments', 'k']); },
+    idem_resp: (s) => { s.idem[0].response = null; },
+    idem_canon: (s) => { s.idem[0].canon = 5; },
+    idem_dup: (s) => { s.idem.push(s.idem[0]); },
+    proto_key: (s) => { s.users[0].id = '__proto__'; },
+    wrong_track: (s, c) => { c.track = 'x'; },
+    wrong_version: (s, c) => { c.format_version = '1'; },
+  };
+  const before = (await get('/_test/export')).text;
+  for (const [name, f] of Object.entries(cases)) {
+    const r = await call('POST', '/_test/import', { body: mut(f) });
+    assert.equal(r.status, 422, `${name}: ${r.status} ${r.text}`);
+    assert.equal(r.json.error.code, 'validation_failed', name);
+  }
+  assert.equal((await get('/_test/export')).text, before);
+  assert.equal((await post('/payments', t.ada, { to_handle: 'bob', amount: 1 })).status, 201);
+  // a busy session round-trips exactly
+  const e1 = (await get('/_test/export')).json;
+  assert.equal((await call('POST', '/_test/import', { body: e1 })).status, 204);
+  assert.deepEqual((await get('/_test/export')).json, e1);
+  assert.equal((await call('POST', '/auth/login', { body: { email: 'ada@example.com', password: 'correct horse' } })).status, 200);
+  err(await call('POST', '/auth/login', { body: { email: 'ada@example.com', password: 'wrong horse!' } }), 401, 'unauthenticated');
+});
+
+test('hash storage: per-user salted, shared passwords, never plaintext', async () => {
+  await world();
+  const s = (await get('/_test/export')).json.state;
+  const pws = s.users.map((u) => u.pw);
+  assert.equal(new Set(pws).size, pws.length);
+  assert.ok(pws.every((p) => /^scrypt-hmac\$2048\$[0-9a-f]{32}\$[0-9a-f]{32}\$[0-9a-f]{64}$/.test(p)));
+  assert.ok(!JSON.stringify(s).includes('correct horse'));
+});

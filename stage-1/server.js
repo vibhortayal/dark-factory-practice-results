@@ -61,34 +61,54 @@ function nowIso() {
 
 function newId(prefix) {
   const exists = prefix === 'u' ? (id) => S.users.has(id) : (id) => S.m[prefix].has(id);
-  let id;
-  do { id = prefix + '_' + (++S.seq[prefix]); } while (exists(id));
-  return id;
+  // The counter strictly increases and is bounded (import rejects counters above MAX_SEQ), so a free
+  // id is found after at most (existing ids + 1) steps; the loop cannot stall.
+  for (let i = 0; i < 100000000; i++) {
+    const n = ++S.seq[prefix];
+    if (!(n <= 2 * MAX_SEQ)) throw new Error('id counter exhausted');
+    const id = prefix + '_' + n;
+    if (!exists(id)) return id;
+  }
+  throw new Error('no free id');
 }
 
 // ---------------------------------------------------------------- passwords
+// Scheme "scrypt-hmac": K = scrypt(password, salt_reset) (N=2048, r=8, p=1, 32 bytes);
+// stored = HMAC-SHA256(K, salt_user) with a random per-user 16-byte salt_user. salt_reset is random
+// per signup and per reset call, so users sharing a password inside one reset share one scrypt run
+// (reset stays fast for big fixtures) while every stored value still differs per user and is derived
+// through a real password-hashing function. Plaintext is never stored.
 
-function hashPw(pw) {
+function scryptKey(pw, salt) {
   return new Promise((resolve, reject) => {
-    const salt = crypto.randomBytes(16);
-    crypto.scrypt(pw, salt, 32, { N: SCRYPT_N, r: 8, p: 1 }, (err, key) => {
-      if (err) return reject(err);
-      resolve(`scrypt$${SCRYPT_N}$8$1$${salt.toString('hex')}$${key.toString('hex')}`);
-    });
+    try {
+      crypto.scrypt(pw, salt, 32, { N: SCRYPT_N, r: 8, p: 1 }, (err, key) => (err ? reject(err) : resolve(key)));
+    } catch (e) { reject(e); }
   });
 }
-const HASH_RE = new RegExp(`^scrypt\\$${SCRYPT_N}\\$8\\$1\\$([0-9a-f]{32})\\$([0-9a-f]{64})$`);
-function verifyPw(pw, stored) {
-  return new Promise((resolve) => {
+async function hashPw(pw, cache) {
+  let entry = cache && cache.get(pw);
+  if (!entry) {
+    const salt = crypto.randomBytes(16);
+    entry = { salt, key: scryptKey(pw, salt) };
+    if (cache) cache.set(pw, entry);
+  }
+  const key = await entry.key;
+  const us = crypto.randomBytes(16);
+  const mac = crypto.createHmac('sha256', key).update(us).digest();
+  return `scrypt-hmac$${SCRYPT_N}$${entry.salt.toString('hex')}$${us.toString('hex')}$${mac.toString('hex')}`;
+}
+const HASH_RE = new RegExp(`^scrypt-hmac\\$${SCRYPT_N}\\$([0-9a-f]{32})\\$([0-9a-f]{32})\\$([0-9a-f]{64})$`);
+async function verifyPw(pw, stored) {
+  try {
     const m = HASH_RE.exec(stored);
-    if (!m) return resolve(false);
-    const salt = Buffer.from(m[1], 'hex');
-    const want = Buffer.from(m[2], 'hex');
-    crypto.scrypt(pw, salt, 32, { N: SCRYPT_N, r: 8, p: 1 }, (err, key) => {
-      if (err) return resolve(false);
-      resolve(crypto.timingSafeEqual(key, want));
-    });
-  });
+    if (!m) return false;
+    const key = await scryptKey(pw, Buffer.from(m[1], 'hex'));
+    const mac = crypto.createHmac('sha256', key).update(Buffer.from(m[2], 'hex')).digest();
+    return crypto.timingSafeEqual(mac, Buffer.from(m[3], 'hex'));
+  } catch (e) {
+    return false;
+  }
 }
 
 // ---------------------------------------------------------------- views
@@ -308,12 +328,20 @@ async function hSignup(ctx) {
 
 async function hLogin(ctx) {
   const o = authBody(ctx, ['email', 'password']);
-  const user = S.byEmail.get(o.email);
   const bad = E(401, 'unauthenticated', 'invalid credentials');
-  if (!user) throw bad;
-  const st = S;
-  const ok = await verifyPw(o.password, user.pw);
-  if (!ok || S !== st || S.users.get(user.id) !== user) throw bad;
+  let user;
+  // A reset/import may land while the hash is being checked; verify again against the new state.
+  for (let attempt = 0; ; attempt++) {
+    const st = S;
+    user = st.byEmail.get(o.email);
+    if (!user) throw bad;
+    const ok = await verifyPw(o.password, user.pw);
+    if (S === st) {
+      if (!ok) throw bad;
+      break;
+    }
+    if (attempt >= 2) throw bad;
+  }
   const token = crypto.randomBytes(24).toString('hex');
   S.tokens.set(token, user.id);
   return { status: 200, body: { user_id: user.id, display_name: user.display_name, token } };
@@ -519,6 +547,7 @@ function serialize() {
   };
 }
 
+const TS_RE = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?\+00:00$/;
 const isStr = (v) => typeof v === 'string';
 const isId = (v) => isStr(v) && v.length >= 1 && v.length <= 64;
 const isInt = (v, min = 0) => typeof v === 'number' && Number.isInteger(v) && v >= min && v <= MAX_SAFE;
@@ -591,7 +620,8 @@ function validateFixture(f) {
 
 async function doReset(f) {
   const { payments, requests, ops } = validateFixture(f);
-  const hashes = await Promise.all(f.users.map((u) => hashPw(u.password)));
+  const cache = new Map();
+  const hashes = await Promise.all(f.users.map((u) => hashPw(u.password, cache)));
   const st = buildState(f, hashes);
   const ts = nowIso();
   const keep = S;
@@ -637,10 +667,15 @@ function doImport(env) {
     need(isStr(u.pw) && HASH_RE.test(u.pw), `users[${i}].pw invalid`);
   });
   const known = (id) => seen.ids.has(id);
-  need(Array.isArray(s.tokens) && s.tokens.every((t) => Array.isArray(t) && t.length === 2 && isStr(t[0]) && known(t[1])), 'state.tokens invalid');
-  const iso = (v) => isStr(v) && v !== '';
+  const tokSeen = new Set();
+  need(Array.isArray(s.tokens) && s.tokens.every((t) => {
+    if (!Array.isArray(t) || t.length !== 2 || !isStr(t[0]) || t[0] === '' || !known(t[1]) || tokSeen.has(t[0])) return false;
+    tokSeen.add(t[0]);
+    return true;
+  }), 'state.tokens invalid');
+  const iso = (v) => isStr(v) && TS_RE.test(v);
   checkMoneyRows(s.payments, 'payments', null, null, (p, i) => {
-    need(known(p.from_user_id) && known(p.to_user_id), `payments[${i}] user unknown`);
+    need(isStr(p.from_user_id) && known(p.from_user_id) && isStr(p.to_user_id) && known(p.to_user_id), `payments[${i}] user unknown`);
     need(isStr(p.note), `payments[${i}].note invalid`);
     need(p.visibility === 'public' || p.visibility === 'private', `payments[${i}].visibility invalid`);
     need(p.request_id === null || isId(p.request_id), `payments[${i}].request_id invalid`);
@@ -648,22 +683,37 @@ function doImport(env) {
     need(iso(p.created_at), `payments[${i}].created_at invalid`);
   });
   checkMoneyRows(s.requests, 'requests', null, null, (r, i) => {
-    need(known(r.requester_id) && known(r.payer_id), `requests[${i}] user unknown`);
+    need(isStr(r.requester_id) && known(r.requester_id) && isStr(r.payer_id) && known(r.payer_id), `requests[${i}] user unknown`);
     need(isStr(r.note), `requests[${i}].note invalid`);
     need(['pending', 'paid', 'declined', 'cancelled'].includes(r.status), `requests[${i}].status invalid`);
     need(r.payment_id === null || isId(r.payment_id), `requests[${i}].payment_id invalid`);
     need(iso(r.created_at), `requests[${i}].created_at invalid`);
   });
   need(Array.isArray(s.splits), 'state.splits must be an array');
+  const spIds = new Set();
   s.splits.forEach((sp, i) => {
-    need(isObj(sp) && isId(sp.id) && Array.isArray(sp.shares) && Array.isArray(sp.request_ids), `splits[${i}] invalid`);
+    need(isObj(sp) && isId(sp.id) && !spIds.has(sp.id), `splits[${i}] invalid`);
+    spIds.add(sp.id);
+    need(isStr(sp.requester_id) && known(sp.requester_id) && isInt(sp.amount, 0) && isStr(sp.note) && iso(sp.created_at), `splits[${i}] fields invalid`);
+    need(Array.isArray(sp.shares) && sp.shares.every((x) => isObj(x) && isStr(x.handle) && isInt(x.amount, 0)), `splits[${i}].shares invalid`);
+    need(Array.isArray(sp.request_ids) && sp.request_ids.every(isId), `splits[${i}].request_ids invalid`);
   });
   need(Array.isArray(s.settlements), 'state.settlements must be an array');
+  const stIds = new Set();
   s.settlements.forEach((x, i) => {
-    need(isObj(x) && isId(x.id) && iso(x.committed_at) && Array.isArray(x.payment_ids), `settlements[${i}] invalid`);
+    need(isObj(x) && isId(x.id) && !stIds.has(x.id) && iso(x.committed_at), `settlements[${i}] invalid`);
+    stIds.add(x.id);
+    need(Array.isArray(x.payment_ids) && x.payment_ids.every(isId), `settlements[${i}].payment_ids invalid`);
   });
-  need(Array.isArray(s.operators) && s.operators.every((id) => known(id)), 'state.operators invalid');
-  need(Array.isArray(s.idem) && s.idem.every((r) => isObj(r) && isStr(r.scope) && isStr(r.canon) && isObj(r.response)), 'state.idem invalid');
+  need(Array.isArray(s.operators) && s.operators.every((id) => isStr(id) && known(id)), 'state.operators invalid');
+  const scopes = new Set();
+  need(Array.isArray(s.idem) && s.idem.every((r) => {
+    if (!isObj(r) || !isStr(r.scope) || !isStr(r.canon) || !isObj(r.response) || scopes.has(r.scope)) return false;
+    scopes.add(r.scope);
+    let sc;
+    try { sc = JSON.parse(r.scope); } catch (e) { return false; }
+    return Array.isArray(sc) && sc.length === 4 && sc.every(isStr) && known(sc[0]);
+  }), 'state.idem invalid');
   need(isObj(s.seq) && ['p', 'rq', 'sp', 'st', 'u'].every((k) => isInt(s.seq[k], 0) && s.seq[k] <= MAX_SEQ), 'state.seq invalid');
 
   const st = emptyState();
