@@ -20,7 +20,7 @@ only part of this map.
 | A8 | Response timestamps are RFC 3339 with an explicit numeric offset (e.g. `+00:00`). **[reading]** emit a numeric offset, not `Z`, because the spec's examples all show one. | Regex on every `created_at` / `committed_at` |
 | A9 | Unknown body fields are ignored, never an error; unknown query parameters are ignored (e.g. `direction`/`status` on `/activity`). | API test |
 | A10 | IDs are opaque strings of at most 64 characters. Seeded ids from the fixture are kept as given. | API test on every id field |
-| A11 | No request yields a 5xx, including under concurrent load and with hostile input (10 kB key, 1000 participants, wrong types, non-object bodies). | Fuzz-style API tests; scan status codes |
+| A11 | No request yields a 5xx, including under concurrent load and with hostile input (10 kB key, 1000 participants, wrong types, non-object bodies, wrong-typed fixture values, numbers of thousands of digits, deeply nested unknown fields). Responses produced by the HTTP layer itself (over-long header line, unsupported method) also carry the §5 JSON error body. **[reading]** JSON nesting the parser accepts is processed normally; nesting it refuses is 400 `malformed_request`. | Fuzz-style API tests; scan status codes |
 
 ## B. Invariants (§1)
 
@@ -58,7 +58,7 @@ only part of this map.
 | D4 | 400 `missing_idempotency_key` when the header is absent or empty on the five idempotent paths. Key longer than 255 characters -> 422 `validation_failed`; 255 accepted, 256 rejected. | API test |
 | D5 | 401 `unauthenticated`: missing, malformed (not `Bearer <token>`) or unknown token, on every endpoint except `/health`, `/_test/*`, `/auth/signup`, `/auth/login`. | API test over all routes |
 | D6 | 403 `forbidden`, 404 `not_found` (no such resource or not visible), 409 `idempotency_key_reuse` as defined per endpoint. | Per-endpoint rows |
-| D7 | `limit`: integer 1..200, default 50; `offset`: integer >= 0, default 0. Written as plain decimal digits only: `1e9`, `4.0`, `+4`, `-1`, `abc`, empty string are 422. `limit=0`, `201` are 422; `1`, `200` valid. | API test on `/requests` and `/activity` |
+| D7 | `limit`: integer 1..200, default 50; `offset`: integer >= 0, default 0. Written as plain decimal digits only: `1e9`, `4.0`, `+4`, `-1`, `abc`, empty string are 422. `limit=0`, `201` are 422; `1`, `200` valid. A `limit` of any number of digits above 200 is 422. **[reading]** an all-digit `offset` of any length is a valid value (the spec sets no maximum) and yields 200 with an empty page, never an error. | API test on `/requests` and `/activity` |
 | D8 | **[reading]** Order of checks on an idempotent write: (1) 401; (2) for `/settlements`, 403 non-operator; (3) missing/empty key 400, over-long key 422; (4) body parse / not an object 400; (5) claimed-key resolution (replay 200 or 409 reuse); (6) field type/validation errors; (7) resource checks (self, 404, 403, state); (8) insufficient funds. Steps 1, 4, 5, 6 order is fixed by §7; the rest is the natural reading. | API tests on combined-error requests |
 | D9 | **[reading]** On `/payments` and `/requests`: field validation (422) first, then self (`self_payment` / `self_request`), then unknown handle 404, then `insufficient_funds`. | API test |
 
