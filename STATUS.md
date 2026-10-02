@@ -5,7 +5,7 @@ Check outputs: `../checks/` (outside this repository).
 
 | Unit | State | Accepted revision | Fix rounds (BLOCK verdicts) | Elapsed |
 |---|---|---|---|---|
-| stage-1 | BUILDING (fix round 2) | n/a | 2 | started 04:11Z |
+| stage-1 | BUILDING (fix round 3) | n/a | 3 | started 04:11Z |
 | stage-2 | PLANNED | n/a | 0 | n/a |
 | stage-3 | PLANNED | n/a | 0 | n/a |
 | stage-4 | PLANNED | n/a | 0 | n/a |
@@ -17,6 +17,8 @@ Check outputs: `../checks/` (outside this repository).
 - 04:58Z Verifier BLOCK #1 on 5493ad0: supplied checks 147/147 isolated (../checks/s1-ver-01), own list 584/595; eight Severity 2 findings (501 HTML on HEAD/OPTIONS/other methods; 500 on >4300-digit limit; 500 on array/object user reference in fixture; 500 on replay of deeply nested body; 500 on malformed absolute-form target; non-integral amounts such as 0.99999999999999999999 accepted; >4300-digit integer amount gives 400 instead of 422; import accepts invalid state). Routed to Implementer with notes N1-N3.
 - 05:05Z Implementer reported 6c6d0a623fbe052d3edb56373e706450238865ea (fix round 1; 147/147 isolated in ../checks/s1-impl-final-02, own 50 OK); complete handoff sent to Verifier.
 - 05:40Z Verifier BLOCK #2 on 6c6d0a6: findings 1-8 and notes N1-N4, N6, N7 confirmed fixed; supplied checks 147/147 isolated (../checks/s1-ver-02), own list 807/827; four new Severity 2 findings in the changed code (R1 number with a 19+ digit exponent gives 500; R2 replay with a non-integer number in an ignored field fails after export/import; R3 own export refused by import after a body nested 898-900 levels; R4 signup accepts control characters in email). Routed to Implementer with a map clarification on zero-padded query integers.
+- 05:50Z Implementer reported df4b305f070db63ec64f768222aeeffeba9081ba (fix round 2; 147/147 isolated in ../checks/s1-impl-final-03, own 58 OK); complete handoff sent to Verifier.
+- 06:20Z Verifier BLOCK #3 on df4b305: R1-R4, N11, N12 confirmed fixed; supplied checks 147/147 isolated (../checks/s1-ver-03), own list 882/884; one Severity 2 finding S1 (import accepts a state whose idempotency `response` holds a non-integer number; export and replay then return 500). Routed to Implementer.
 
 ## Verifier notes (Severity 3 and 4)
 
@@ -35,3 +37,5 @@ From BLOCK #1 on 5493ad0 (stage 1):
 After BLOCK #2 on 6c6d0a6: N1, N2, N3, N4, N6, N7 fixed; N9 partly (became finding R4); N5, N8, N10 stand by Architect decision. New:
 - N11 (S4) `limit`/`offset` with leading zeros and more than 30 characters is treated as 10^30.
 - N12 (S4) a replay writing a non-integer number in an ignored field differently (`1.50` then `1.5`) gives 409 although decision D-7 compares by value.
+
+After BLOCK #3 on df4b305: N11, N12 fixed; no new notes. Open by Architect decision: N5, N8, N10 (all S4).
