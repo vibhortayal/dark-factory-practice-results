@@ -96,3 +96,10 @@ stage-2+ features (no UI, no stage-2 endpoints).
 | MV8 | §11 | Replay 200 original even after later changes; no-op moves keep values; export/import keeps batch receipts | P |
 | S1 | guide | `stage-1/` must not pass the stage-2 suite (no early stage-2 features) | H: `--stage 2` run expected to fail stage-2 suite |
 | S2 | task | Final stage-1 check run with `--mode isolated` passes | H isolated |
+
+## Amendments
+
+- 2026-10-03 (after round-1 BLOCK): row P2/MV5 order fixed by Architect decision — single PATCH uses
+  the same per-booking order as §11 moves: 404 not caller's → non-object body 400 → cancelled 409 →
+  cutoff 409 → field validation → semantic checks → occupancy. Row C3/E2: reset fixture fields of the
+  wrong JSON type are 400 `malformed_request`; right type but invalid value 422; import invalid state 422.
