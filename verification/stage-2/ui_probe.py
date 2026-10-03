@@ -828,6 +828,9 @@ def u_upgrade(browser):
     check("UI.X3b", "X3", "after the upgrade, without reload, the unchanged form retries and shows the original stage-1 reference; uncertainty removed; still one booking",
           okc and s1list and text(pg, "confirmation-reference") == s1list[0]["reference"] and not vis(pg, "booking-uncertain") and not vis(pg, "booking-error") and len(s2list) == 1, f"{text(pg, 'confirmation-reference')!r} vs {s1list} / {s2list}")
     check("UI.X3c", "X3", "the retry carried the same Idempotency-Key and body as the lost request", len(c.posts) == 2 and c.posts[0][1] and c.posts[0][1] == c.posts[1][1] and json.loads(c.posts[0][2]) == json.loads(c.posts[1][2]), [(k, b) for _, k, b in c.posts])
+    det, ctab = text(pg, "confirmation-details"), text(pg, "confirmation-tables")
+    check("UI.X3d", "X3/K1", "recovered confirmation still has restaurant name, table label and local start time; confirmation-tables (if shown) has the label",
+          all(x in det for x in ("Zum Anker", "2", "19:00")) and (count(pg, "confirmation-tables") == 0 or "2" in ctab), f"{det!r} / {ctab!r}")
     check("UI.X2b", "X2", "still signed in after the upgrade without a reload", vis(pg, "current-user") and ADA[2] in text(pg, "current-user"), text(pg, "current-user"))
     shot(pg, "upgrade-recovered-desktop")
     pg.goto(BASE + "/lookup")
@@ -836,6 +839,7 @@ def u_upgrade(browser):
     pg.click(S("lookup-submit"))
     ok = wait_vis(pg, "reservation-detail")
     check("UI.X2d", "X2", "a reference retained from stage 1 opens in lookup with status 'confirmed'", ok and text(pg, "reservation-status") == "confirmed" and not vis(pg, "reservation-error"), text(pg, "reservation-status"))
+    check("UI.X2e", "X2/UC2", "lookup of the stage-1-era reservation shows its table label (reservation-tables or detail text)", "3" in (text(pg, "reservation-tables") or text(pg, "reservation-detail")), text(pg, "reservation-tables"))
     c.close()
 
 

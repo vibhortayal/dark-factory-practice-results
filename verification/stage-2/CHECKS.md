@@ -66,3 +66,7 @@ row S2-0), `probe2.py` (API, ids P2.*), `ui_probe.py` (browser, ids UI.*).
 - UI.X2 [X2] browser signed in against the stage-1 service; after export → import into stage 2 (no reload) it is still signed in; the retained reference opens in lookup.
 - UI.X3 [X3] booking sent to the stage-1 service, response lost; after the upgrade the unchanged form retries with the same key and body and shows the original reference.
 - UI.EXT [S2-D] no request left the service origin during any UI probe; NOTE console errors.
+
+## Round 2 additions (code changed in 0d321ce)
+- UI.X3d [X3, K1] the confirmation recovered after the upgrade still shows restaurant name, table label and local start time.
+- UI.X2e [X2, UC2] lookup of a stage-1-era reservation after the upgrade shows its table label.

@@ -1,0 +1,35 @@
+== export of 0d321ce2763bcfb4f0732d0131fea33c3c4814a6
+.
+..
+.dockerignore
+.gitignore
+Dockerfile
+RUN.md
+app
+requirements.txt
+tests
+== D.4 stage-1 unchanged since a8301bb: 0 changed lines of stat
+== nested .git/__pycache__: 0
+== D.3 external URLs in shipped files:
+== D.1 docker build --no-cache
+BUILD OK
+== D.2 stage-2 container A (PORT=9000) and B (default port), stage-1 container
+healthy after .337997620 s
+healthy after .345316918 s
+healthy after .337309732 s
+no outbound: [Errno 101] Network is unreachable
+== S0 stage-1 check list against the stage-2 image
+probe1 exit: 0
+TOTAL 392 checks: 392 passed, 0 failed, 6 notes
+== P2 stage-2 API probes
+probe2 exit: 0
+TOTAL 98 checks: 98 passed, 0 failed, 1 notes
+== UI browser probes
+ui exit: 0
+TOTAL 95 checks: 95 passed, 0 failed, 2 notes
+== container state
+/tkv2-a running=true oom=false
+/tkv2-b running=true oom=false
+tkv2-a mem=198.9MiB / 2GiB
+tkv2-b mem=26.64MiB / 2GiB
+stderr lines container A: 0

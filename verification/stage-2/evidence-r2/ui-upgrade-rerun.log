@@ -1,0 +1,18 @@
+
+=== u_upgrade ===
+PASS UI.X2a [X2] browser signs in while the stage-1 service is behind the API (token issued by stage 1)
+PASS UI.X3a [X3] booking sent before the upgrade, response lost: booking-uncertain; stage 1 committed exactly one booking
+PASS UI.X1 [X1] stage-2 imports the stage-1 export -> 204
+PASS UI.X3b [X3] after the upgrade, without reload, the unchanged form retries and shows the original stage-1 reference; uncertainty removed; still one booking
+PASS UI.X3c [X3] the retry carried the same Idempotency-Key and body as the lost request
+PASS UI.X3d [X3/K1] recovered confirmation still has restaurant name, table label and local start time; confirmation-tables (if shown) has the label
+PASS UI.X2b [X2] still signed in after the upgrade without a reload
+PASS UI.X2c [X2] still signed in after navigating (token issued by stage 1 accepted by stage 2)
+PASS UI.X2d [X2] a reference retained from stage 1 opens in lookup with status 'confirmed'
+PASS UI.X2e [X2/UC2] lookup of the stage-1-era reservation shows its table label (reservation-tables or detail text)
+
+=== final audits ===
+PASS UI.EXT [S2-D] no browser request left the service origin during the UI probes
+NOTE UI.CONSOLE 1 browser console errors (aborted/4xx fetches are expected) :: ['Failed to load resource: net::ERR_FAILED']
+
+TOTAL 11 checks: 11 passed, 0 failed, 1 notes
