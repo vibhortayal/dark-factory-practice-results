@@ -1,0 +1,16 @@
+<section class="narrow">
+  <h1>Create your account</h1>
+  <p class="lede">An account lets you book tables and manage your reservations.</p>
+  <form id="signup-form" class="card form-stack" novalidate>
+    <div class="field"><label for="signup-display-name">Your name</label>
+      <input id="signup-display-name" data-testid="signup-display-name" autocomplete="name" required></div>
+    <div class="field"><label for="signup-email">Email</label>
+      <input id="signup-email" data-testid="signup-email" type="email" autocomplete="email" required></div>
+    <div class="field"><label for="signup-password">Password <span class="hint">(at least 8 characters)</span></label>
+      <input id="signup-password" data-testid="signup-password" type="password" autocomplete="new-password" required></div>
+    <div id="auth-slot"></div>
+    <button type="submit" class="btn btn-primary" data-testid="signup-submit">Create account</button>
+    <p class="alt">Already registered? <a href="/login">Log in</a></p>
+  </form>
+  <div id="auth-done"></div>
+</section>
