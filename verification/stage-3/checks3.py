@@ -731,9 +731,78 @@ def c_roundtrip(t, S):
     t.ok(r.status == 200 and r.j == cr.j, f"replay of the correction after import: {r!r}")
     t.err(S.call("POST", f"/payments/{pid}/corrections", dict(body, amount=1), token=toks["ada"], key=key), 409, "idempotency_key_reuse", "correction key with another body after import")
     t.err(S.call("POST", f"/payments/{pid}/corrections", body, token=toks["ada"], key=k()), 409, "stale_revision", "revision counter preserved by import")
-    r = S.call("GET", "/statement" + qs(snapshot=old_tok), token=toks["ada"])
-    t.probe(is_err(r, 404, "not_found"), f"snapshot token from before an import: got {r.status} (specification names reset only)")
     t.eq(sum(S.call("GET", "/me", token=tok).j.get("balance") for tok in toks.values()), 14000, "sum of balances after import")
+
+
+@check("AB4-snapshots-survive-import", "stage-3 Stable statement pagination ('Tokens last until reset'); stage-1 §10 (import replaces state; existing tokens stay valid)", "AA4,AB4", "A snapshot token issued before GET /_test/export pages the identical frozen result after POST /_test/import, in the same and in another stage-3 container; a token not in the imported state (issued on the destination before the import, or on the source after the export) is 404; another user's token stays 404; reset clears imported tokens; export and import stay under 10 s")
+def c_snap_import(t, S):
+    S.reset(basefx(payments=[], requests=[]))
+    toks = {h: S.token(h) for h in HS}
+    made = []
+    for i in range(6):
+        frm, to = ("ada", "bob") if i % 2 == 0 else ("bob", "ada")
+        r = S.call("POST", "/payments", {"to_handle": to, "amount": 20 + i, "note": f"s{i}"}, as_=frm, key=k())
+        made.append(r.j["payment_id"])
+    full = stmt(S, "ada", limit="200")
+    tok = full.get("snapshot")
+    win = stmt(S, "ada", **{"from": full["entries"][1]["effective_at"], "to": full["entries"][4]["effective_at"], "limit": "200"})
+    tok_w = win.get("snapshot")
+    tok_bob = stmt(S, "bob").get("snapshot")
+    # mutate after the snapshots, then export
+    S.call("POST", "/payments", {"to_handle": "bob", "amount": 777}, as_="ada", key=k())
+    t.st(correct(S, "ada", made[0], 1, 1, now() - dt.timedelta(seconds=1)), 201, "correction after the snapshots")
+    r = S.call("GET", "/_test/export")
+    t.ok(r.status == 200 and r.secs < 10.0, f"export with live snapshots: {r.status} in {r.secs:.2f}s")
+    exp = r.j
+    late = stmt(S, "ada").get("snapshot")
+
+    def frozen(X, label):
+        got = X.call("GET", "/statement" + qs(snapshot=tok, limit="200"), token=toks["ada"])
+        t.ok(got.status == 200 and (got.j or {}).get("entries") == full["entries"] and
+             ((got.j or {}).get("opening_balance"), (got.j or {}).get("closing_balance"), (got.j or {}).get("has_more")) == (full["opening_balance"], full["closing_balance"], False),
+             f"{label}: token issued before the export must page the identical frozen result: {got!r}"[:330])
+        pages = []
+        for off in range(0, 6, 4):
+            pg = X.call("GET", "/statement" + qs(snapshot=tok, limit="4", offset=str(off)), token=toks["ada"])
+            t.ok(pg.status == 200 and (pg.j or {}).get("has_more") == (off + 4 < 6), f"{label}: snapshot paging offset={off}: {pg.status}")
+            pages += (pg.j or {}).get("entries", [])
+        t.ok(pages == full["entries"], f"{label}: snapshot pages differ from the frozen entries")
+        gw = X.call("GET", "/statement" + qs(snapshot=tok_w, limit="200"), token=toks["ada"])
+        t.ok(gw.status == 200 and (gw.j or {}).get("entries") == win["entries"] and (gw.j or {}).get("opening_balance") == win["opening_balance"]
+             and (gw.j or {}).get("closing_balance") == win["closing_balance"], f"{label}: windowed snapshot not preserved: {gw!r}"[:300])
+        t.err(X.call("GET", "/statement" + qs(snapshot=tok_bob), token=toks["ada"]), 404, "not_found", f"{label}: another user's imported token")
+        t.st(X.call("GET", "/statement" + qs(snapshot=tok_bob), token=toks["bob"]), 200, f"{label}: bob's own imported token")
+        t.err(X.call("GET", "/statement" + qs(snapshot=late), token=toks["ada"]), 404, "not_found", f"{label}: token issued on the source after the export")
+        t.err(X.call("GET", "/statement" + qs(snapshot=tok, to=iso(now())), token=toks["ada"]), 422, "validation_failed", f"{label}: imported snapshot with to")
+        live = X.call("GET", "/statement?limit=200", token=toks["ada"]).j or {}
+        t.ok(len(live.get("entries", [])) == 7 and live.get("closing_balance") != full["closing_balance"], f"{label}: live statement must reflect the imported later writes")
+    # same container: destination state replaced in between
+    S.reset(OTHERFX)
+    dest_tok = stmt(S, "zed").get("snapshot")
+    r = S.call("POST", "/_test/import", exp)
+    t.ok(r.status == 204 and r.secs < 10.0, f"import with snapshots: {r.status} in {r.secs:.2f}s")
+    S.tok = {}
+    frozen(S, "same container")
+    t.err(S.call("GET", "/statement" + qs(snapshot=dest_tok), token=toks["ada"]), 404, "not_found", "token issued on the destination before the import")
+    t.st(S.call("POST", "/_test/import", exp), 204, "import repeated")
+    frozen(S, "same container, second import")
+    e2 = S.call("GET", "/_test/export").j
+    t.st(S.call("POST", "/_test/import", e2), 204, "import of a re-export")
+    frozen(S, "after re-export and import")
+    if isinstance(exp.get("state"), dict):
+        r = S.call("POST", "/_test/import", dict(exp, state="x"))
+        t.err(r, 422, "validation_failed", "invalid state still 422")
+        frozen(S, "after a rejected import")
+    b3 = os.environ.get("S3B")
+    if b3:
+        X = c1.Sess(b3)
+        r = X.call("POST", "/_test/import", exp)
+        t.ok(r.status == 204, f"import into another stage-3 container: {r!r}")
+        frozen(X, "another container")
+    else:
+        t.ok(False, "cross-container part not run: needs S3B (a second stage-3 container)")
+    S.reset(basefx(payments=[], requests=[]))
+    t.err(S.call("GET", "/statement" + qs(snapshot=tok), as_="ada"), 404, "not_found", "reset clears imported snapshot tokens")
 
 
 # --------------------------------------------------------------------------- load

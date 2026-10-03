@@ -80,7 +80,7 @@ def main():
     if not all(h is not None for h in hs):
         return finish(sh, log, clean)
 
-    cmd = (f"cd {HERE} && S1BASE={bases1} S2BASE={bases2} {sys.executable} checks3.py --base {base} --base2 {base2} "
+    cmd = (f"cd {HERE} && S1BASE={bases1} S2BASE={bases2} S3B={baseui} {sys.executable} checks3.py --base {base} --base2 {base2} "
            f"--kill-cmd 'docker kill {names[3]}' --json {a.out}/checks.json > {a.out}/checks.log 2>&1")
     log(f"$ {cmd}")
     rc = subprocess.run(cmd, shell=True).returncode

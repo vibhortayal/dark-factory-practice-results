@@ -1,0 +1,272 @@
+[
+ {
+  "id": "M1-signup-login",
+  "viewport": "375",
+  "clause": "stage-2 Signup and login",
+  "row": "M1,M2,M3,M4,L1,L3",
+  "status": "PASS",
+  "fails": [],
+  "notes": []
+ },
+ {
+  "id": "N1-format",
+  "viewport": "375",
+  "clause": "stage-2 Balance and pay (formatted amount); UI table for holds",
+  "row": "N1,N2,N3,N4,U4",
+  "status": "PASS",
+  "fails": [],
+  "notes": []
+ },
+ {
+  "id": "N5-pay",
+  "viewport": "375",
+  "clause": "stage-2 Balance and pay; Activity feed",
+  "row": "N5,N7,N8,N10,N11",
+  "status": "PASS",
+  "fails": [],
+  "notes": []
+ },
+ {
+  "id": "N6-decimals",
+  "viewport": "375",
+  "clause": "stage-2 Balance and pay (decimal input)",
+  "row": "N6",
+  "status": "PASS",
+  "fails": [],
+  "notes": []
+ },
+ {
+  "id": "N9-request-form",
+  "viewport": "375",
+  "clause": "stage-2 Balance and pay (request form)",
+  "row": "N9,N11",
+  "status": "PASS",
+  "fails": [],
+  "notes": []
+ },
+ {
+  "id": "N10-feed",
+  "viewport": "375",
+  "clause": "stage-2 Activity feed",
+  "row": "N10,Q1",
+  "status": "PASS",
+  "fails": [],
+  "notes": []
+ },
+ {
+  "id": "N12-refresh",
+  "viewport": "375",
+  "clause": "stage-2 Competing clients and uncertain outcomes",
+  "row": "N12,N13,N14,U4",
+  "status": "PASS",
+  "fails": [],
+  "notes": []
+ },
+ {
+  "id": "N15-lost-response",
+  "viewport": "375",
+  "clause": "stage-2 Competing clients and uncertain outcomes",
+  "row": "N15",
+  "status": "PASS",
+  "fails": [],
+  "notes": []
+ },
+ {
+  "id": "O1-requests",
+  "viewport": "375",
+  "clause": "stage-2 Requests screen; Competing clients",
+  "row": "O1,O2,O3,O4,N11,R3",
+  "status": "PASS",
+  "fails": [],
+  "notes": []
+ },
+ {
+  "id": "P1-split",
+  "viewport": "375",
+  "clause": "stage-2 Split; stage-1 \u00a79",
+  "row": "P1,P2,P3",
+  "status": "PASS",
+  "fails": [],
+  "notes": []
+ },
+ {
+  "id": "U1-authorize-form",
+  "viewport": "375",
+  "clause": "stage-2 UI table (authorise form, wallet numbers)",
+  "row": "U1,U4,N6",
+  "status": "PASS",
+  "fails": [],
+  "notes": []
+ },
+ {
+  "id": "U2-authorizations-screen",
+  "viewport": "375",
+  "clause": "stage-2 UI table (/authorizations)",
+  "row": "U2,U3,U4",
+  "status": "PASS",
+  "fails": [],
+  "notes": []
+ },
+ {
+  "id": "R2-upgrade-browser",
+  "viewport": "375",
+  "clause": "stage-2 Existing clients after an upgrade",
+  "row": "R2,R3,R4",
+  "status": "PASS",
+  "fails": [],
+  "notes": []
+ },
+ {
+  "id": "Q2-labels-focus",
+  "viewport": "375",
+  "clause": "stage-2 Product and visual direction",
+  "row": "Q1,Q2,Q3,Q4",
+  "status": "PASS",
+  "fails": [],
+  "notes": []
+ },
+ {
+  "id": "K2-no-external-requests",
+  "viewport": "375",
+  "clause": "stage-1 \u00a72 (no outbound network; runtime assets in the image)",
+  "row": "K2",
+  "status": "PASS",
+  "fails": [],
+  "notes": []
+ },
+ {
+  "id": "M1-signup-login",
+  "viewport": "1280",
+  "clause": "stage-2 Signup and login",
+  "row": "M1,M2,M3,M4,L1,L3",
+  "status": "PASS",
+  "fails": [],
+  "notes": []
+ },
+ {
+  "id": "N1-format",
+  "viewport": "1280",
+  "clause": "stage-2 Balance and pay (formatted amount); UI table for holds",
+  "row": "N1,N2,N3,N4,U4",
+  "status": "PASS",
+  "fails": [],
+  "notes": []
+ },
+ {
+  "id": "N5-pay",
+  "viewport": "1280",
+  "clause": "stage-2 Balance and pay; Activity feed",
+  "row": "N5,N7,N8,N10,N11",
+  "status": "PASS",
+  "fails": [],
+  "notes": []
+ },
+ {
+  "id": "N6-decimals",
+  "viewport": "1280",
+  "clause": "stage-2 Balance and pay (decimal input)",
+  "row": "N6",
+  "status": "PASS",
+  "fails": [],
+  "notes": []
+ },
+ {
+  "id": "N9-request-form",
+  "viewport": "1280",
+  "clause": "stage-2 Balance and pay (request form)",
+  "row": "N9,N11",
+  "status": "PASS",
+  "fails": [],
+  "notes": []
+ },
+ {
+  "id": "N10-feed",
+  "viewport": "1280",
+  "clause": "stage-2 Activity feed",
+  "row": "N10,Q1",
+  "status": "PASS",
+  "fails": [],
+  "notes": []
+ },
+ {
+  "id": "N12-refresh",
+  "viewport": "1280",
+  "clause": "stage-2 Competing clients and uncertain outcomes",
+  "row": "N12,N13,N14,U4",
+  "status": "PASS",
+  "fails": [],
+  "notes": []
+ },
+ {
+  "id": "N15-lost-response",
+  "viewport": "1280",
+  "clause": "stage-2 Competing clients and uncertain outcomes",
+  "row": "N15",
+  "status": "PASS",
+  "fails": [],
+  "notes": []
+ },
+ {
+  "id": "O1-requests",
+  "viewport": "1280",
+  "clause": "stage-2 Requests screen; Competing clients",
+  "row": "O1,O2,O3,O4,N11,R3",
+  "status": "PASS",
+  "fails": [],
+  "notes": []
+ },
+ {
+  "id": "P1-split",
+  "viewport": "1280",
+  "clause": "stage-2 Split; stage-1 \u00a79",
+  "row": "P1,P2,P3",
+  "status": "PASS",
+  "fails": [],
+  "notes": []
+ },
+ {
+  "id": "U1-authorize-form",
+  "viewport": "1280",
+  "clause": "stage-2 UI table (authorise form, wallet numbers)",
+  "row": "U1,U4,N6",
+  "status": "PASS",
+  "fails": [],
+  "notes": []
+ },
+ {
+  "id": "U2-authorizations-screen",
+  "viewport": "1280",
+  "clause": "stage-2 UI table (/authorizations)",
+  "row": "U2,U3,U4",
+  "status": "PASS",
+  "fails": [],
+  "notes": []
+ },
+ {
+  "id": "R2-upgrade-browser",
+  "viewport": "1280",
+  "clause": "stage-2 Existing clients after an upgrade",
+  "row": "R2,R3,R4",
+  "status": "PASS",
+  "fails": [],
+  "notes": []
+ },
+ {
+  "id": "Q2-labels-focus",
+  "viewport": "1280",
+  "clause": "stage-2 Product and visual direction",
+  "row": "Q1,Q2,Q3,Q4",
+  "status": "PASS",
+  "fails": [],
+  "notes": []
+ },
+ {
+  "id": "K2-no-external-requests",
+  "viewport": "1280",
+  "clause": "stage-1 \u00a72 (no outbound network; runtime assets in the image)",
+  "row": "K2",
+  "status": "PASS",
+  "fails": [],
+  "notes": []
+ }
+]

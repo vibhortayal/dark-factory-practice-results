@@ -6,8 +6,11 @@ limits; runs the two below), `checks3.py` (API: the stage-1 list `checks1.py` an
 `checks2.py` unchanged, then the stage-3 checks), `ui.py` (the stage-2 browser list unchanged, at 375 and
 1280 px, against the stage-3 service).
 
+Amended after the Architect's map change of 21:15Z (rows AA4, AB4): check AB4-snapshots-survive-import added; the
+earlier probe 'snapshot token after an import' in AB2 removed.
+
 Probes (recorded, never a failure): `/me` without temporal parameters carrying `as_of`; an unencoded `+`
-in an instant; `reason`/`effective_at` of a non-string type 422 vs 400; snapshot token after an import.
+in an instant; `reason`/`effective_at` of a non-string type 422 vs 400.
 
 Sizes: fixtures of 5-60 users, up to 60 seeded payments, 40-payment histories, at most 50 requests in
 flight, ttl of 2 s for expiry checks.
@@ -116,6 +119,7 @@ flight, ttl of 2 s for expiry checks.
 | A6-no-5xx | §5 last line | A6 | Across every request sent by this run: no 5xx response and no transport error |
 | A7-content-type | §3.4 | A7 | Across every response with a body: Content-Type is application/json; charset=utf-8 |
 | A5-latency | §2 resource limits | A5 | Across every request sent by this run: under 5 s (10 s for /_test/* control calls) |
+| AB4-snapshots-survive-import | stage-3 Stable statement pagination ('Tokens last until reset'); stage-1 §10 (import replaces state; existing tokens stay valid) | AA4,AB4 | A snapshot token issued before GET /_test/export pages the identical frozen result after POST /_test/import, in the same and in another stage-3 container; a token not in the imported state (issued on the destination before the import, or on the source after the export) is 404; another user's token stays 404; reset clears imported tokens; export and import stay under 10 s |
 
 ## Browser (ui.py, unchanged from stage 2)
 
