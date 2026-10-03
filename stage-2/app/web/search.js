@@ -48,6 +48,7 @@
 
   function renderGrid() {
     results.textContent = "";
+    results.removeAttribute("aria-busy");
     var rest = ctx.rest, avail = ctx.avail;
     if (!avail.slots.length) {
       results.appendChild(TK.el("div", { class: "empty-state", "data-testid": "no-slots" },
@@ -103,13 +104,14 @@
     var mine = ++searchSeq;
     ctx = null; closeBooking();
     results.textContent = "";
+    results.setAttribute("aria-busy", "true");
     results.appendChild(TK.el("div", { class: "loading", role: "status" }, TK.el("span", { class: "spinner" }), "Finding free tables…"));
     var wanted = { id: select.value, date: dateInput.value, party: Number(party) };
     fetchSearch(wanted.id, wanted.date, wanted.party).then(function (pair) {
       if (mine !== searchSeq) return;                       // a newer search superseded this one
       var avail = pair[0], rest = pair[1];
       if (avail.status !== 200 || rest.status !== 200) {
-        results.textContent = "";
+        results.textContent = ""; results.removeAttribute("aria-busy");
         results.appendChild(TK.el("p", { class: "notice notice-refused", role: "alert" }, avail.status === 404 ? "We couldn't find that restaurant." : "We couldn't load availability. Please try again."));
         return;
       }
@@ -117,7 +119,7 @@
       renderGrid();
     }, function () {
       if (mine !== searchSeq) return;
-      results.textContent = "";
+      results.textContent = ""; results.removeAttribute("aria-busy");
       results.appendChild(TK.el("p", { class: "notice notice-refused", role: "alert" }, "We couldn't reach the server. Check your connection and search again."));
     });
   }
@@ -197,7 +199,7 @@
     TK.api("POST", "/reservations", { body: pending.body, key: pending.key, auth: true }).then(function (res) {
       sel.uncertain = false;
       if (res.status === 201 || res.status === 200) {
-        if (live()) showConfirmation(res.data, sel, feedback, confirmation);
+        if (live()) safeConfirmation(res.data, sel, feedback, confirmation);
         settle(); refreshAvailability();
         return;
       }
@@ -218,6 +220,16 @@
       if (live()) showUncertain(feedback, confirmation);
       settle();
     });
+  }
+
+  /* A rendering fault must never leave the diner with no outcome: fall back to the bare reference. */
+  function safeConfirmation(rez, sel, feedback, confirmation) {
+    try { showConfirmation(rez, sel, feedback, confirmation); } catch (e) {
+      feedback.textContent = ""; confirmation.textContent = "";
+      confirmation.appendChild(TK.el("section", { class: "confirmation", "data-testid": "confirmation", role: "status" },
+        TK.el("h3", {}, "You're booked"),
+        TK.el("span", { class: "reference", "data-testid": "confirmation-reference" }, String(rez && rez.reference || ""))));
+    }
   }
 
   function showUncertain(feedback, confirmation) {
