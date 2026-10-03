@@ -4,6 +4,7 @@
 > | | |
 > |---|---|
 > | Run | Run 7. Four-stage run, Claude Code seats |
+> | What this run tested | Compared with the two stage-1 tests of the same text: all four Pocketful stages, dispatched by the owner, in the room the judges read |
 > | When | 2026-10-02, 21:11 to 23:38 UTC |
 > | Band room | `Nightshift \| Pocketful \| Stages 1-4 \| Run 7 \| 2026-10-02` (`a951641e`) |
 > | Mandates | PR #54 head `91b753b3`, merged to `main` of `nightshift-factory` as `ee236a1` (the submitted set) |
