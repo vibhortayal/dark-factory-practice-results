@@ -1,0 +1,32 @@
+[PASS] M1-signup-login @375 (stage-2 Signup and login; rows M1,M2,M3,M4,L1,L3) 9.7s
+[PASS] N1-format @375 (stage-2 Balance and pay (formatted amount); UI table for holds; rows N1,N2,N3,N4,U4) 7.8s
+[PASS] N5-pay @375 (stage-2 Balance and pay; Activity feed; rows N5,N7,N8,N10,N11) 3.8s
+[PASS] N6-decimals @375 (stage-2 Balance and pay (decimal input); rows N6) 9.5s
+[PASS] N9-request-form @375 (stage-2 Balance and pay (request form); rows N9,N11) 1.9s
+[PASS] N10-feed @375 (stage-2 Activity feed; rows N10,Q1) 6.9s
+[PASS] N12-refresh @375 (stage-2 Competing clients and uncertain outcomes; rows N12,N13,N14,U4) 3.8s
+[PASS] N15-lost-response @375 (stage-2 Competing clients and uncertain outcomes; rows N15) 3.4s
+[PASS] O1-requests @375 (stage-2 Requests screen; Competing clients; rows O1,O2,O3,O4,N11,R3) 4.0s
+[PASS] P1-split @375 (stage-2 Split; stage-1 §9; rows P1,P2,P3) 4.5s
+[PASS] U1-authorize-form @375 (stage-2 UI table (authorise form, wallet numbers); rows U1,U4,N6) 4.3s
+[PASS] U2-authorizations-screen @375 (stage-2 UI table (/authorizations); rows U2,U3,U4) 6.5s
+[PASS] R2-upgrade-browser @375 (stage-2 Existing clients after an upgrade; rows R2,R3,R4) 3.9s
+[PASS] Q2-labels-focus @375 (stage-2 Product and visual direction; rows Q1,Q2,Q3,Q4) 7.5s
+[PASS] K2-no-external-requests @375 (stage-1 §2 (no outbound network; runtime assets in the image); rows K2) 0.0s
+[PASS] M1-signup-login @1280 (stage-2 Signup and login; rows M1,M2,M3,M4,L1,L3) 9.6s
+[PASS] N1-format @1280 (stage-2 Balance and pay (formatted amount); UI table for holds; rows N1,N2,N3,N4,U4) 7.8s
+[PASS] N5-pay @1280 (stage-2 Balance and pay; Activity feed; rows N5,N7,N8,N10,N11) 4.0s
+[PASS] N6-decimals @1280 (stage-2 Balance and pay (decimal input); rows N6) 9.5s
+[PASS] N9-request-form @1280 (stage-2 Balance and pay (request form); rows N9,N11) 1.9s
+[PASS] N10-feed @1280 (stage-2 Activity feed; rows N10,Q1) 7.0s
+[PASS] N12-refresh @1280 (stage-2 Competing clients and uncertain outcomes; rows N12,N13,N14,U4) 3.8s
+[PASS] N15-lost-response @1280 (stage-2 Competing clients and uncertain outcomes; rows N15) 3.5s
+[PASS] O1-requests @1280 (stage-2 Requests screen; Competing clients; rows O1,O2,O3,O4,N11,R3) 4.0s
+[PASS] P1-split @1280 (stage-2 Split; stage-1 §9; rows P1,P2,P3) 4.5s
+[PASS] U1-authorize-form @1280 (stage-2 UI table (authorise form, wallet numbers); rows U1,U4,N6) 4.3s
+[PASS] U2-authorizations-screen @1280 (stage-2 UI table (/authorizations); rows U2,U3,U4) 6.6s
+[PASS] R2-upgrade-browser @1280 (stage-2 Existing clients after an upgrade; rows R2,R3,R4) 3.9s
+[PASS] Q2-labels-focus @1280 (stage-2 Product and visual direction; rows Q1,Q2,Q3,Q4) 7.6s
+[PASS] K2-no-external-requests @1280 (stage-1 §2 (no outbound network; runtime assets in the image); rows K2) 0.0s
+
+UI TOTAL 30 checks: 30 passed, 0 failed; side-channel 5xx/transport errors: 0

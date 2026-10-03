@@ -1,0 +1,2 @@
+viewport 375: refund item amount '2.50 EUR', parties '@bob → @ada', newest first True, balance '92.50 EUR', no h-scroll True, page errors []
+viewport 1280: refund item amount '2.50 EUR', parties '@bob → @ada', newest first True, balance '92.50 EUR', no h-scroll True, page errors []
