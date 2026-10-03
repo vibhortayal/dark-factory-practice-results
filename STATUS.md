@@ -7,7 +7,7 @@ Run started: 2026-10-03 (architect dispatch).
 | stage-1 | DONE | a8301bb9379977851db1c64ff468cbddc30011ff | 2 | Verifier PASS round 3 (verdict commit 9b3c5b8). Harness stage 1: 120 passed host + isolated; stage-2 suite fails on stage-1 (required); 392/392 verifier probes. Started 10:24 UTC, accepted 10:54 UTC (~30 min) |
 | stage-2 | DONE | 0d321ce2763bcfb4f0732d0131fea33c3c4814a6 | 1 | Verifier PASS round 2 (verdict commit cbd829e). Suite 1 120 + suite 2 25 passed host + isolated; stage-3 suite fails on stage-2 (required); 392 + 98 API probes, 97 browser probes. Started 10:57 UTC, accepted 11:18 UTC (~21 min) |
 | stage-3 | DONE | fcdb0a2b3d4257c041607cdad6e77c91e2187e76 | 0 | Verifier PASS round 1 (verdict commit 56e3be9). Suites 1/2/3 = 120/25/7 passed host + isolated; stage-4 suite fails on stage-3 (required); 392 + 98 + 174 API probes, 108 browser probes. Started 11:24 UTC, accepted 11:36 UTC (~12 min) |
-| stage-4 | VERIFYING | — | 0 | Candidate 5b21fe642ab1ee1d9e6b7892e050eda00f477225. Map: acceptance/stage-4.md. Started 11:37 UTC |
+| stage-4 | DONE | 5b21fe642ab1ee1d9e6b7892e050eda00f477225 | 0 | Verifier PASS round 1 (verdict commit 3e8b30e). Suites 1/2/3/4 = 120/25/7/6 passed host + isolated; --all isolated: every folder claims its own stage, highest contiguous stage 4; 392 + 98 + 171 + 100 API probes, 480 planner-oracle scenarios, browser probes all pass. Started 11:37 UTC, accepted 12:00 UTC (~23 min). Whole run 10:24–12:00 UTC (~96 min) |
 
 ## Verifier notes
 
@@ -25,3 +25,11 @@ Run started: 2026-10-03 (architect dispatch).
 - No BLOCK rounds.
 - Non-blocking: (1) PATCH with an unparseable body on an unknown reference answers 400 in stage 3 (map decision 2) while stages 1–2 answer 404 (stage-1 amendment); spec states no order. (2) History "at" uses +00:00. (3) Seeded/imported reservations get one created entry at created_at (map decision 4). (4) Not probed (spec silent): policy with empty opening_hours; echo of unknown fields in the 201 policy body. (5) Earlier notes still apply (reset time, scrypt n=2^12, lookup needs sign-in, UI treats 5xx/timeouts as uncertain). (7) Verifier's first stage-1 list run used a stale derived script (7 false failures); regenerated and rerun 392/392.
 - Not tested: shipped stage-3 sample is about a fifth of the graded suite; exact cutoff equality; browsers other than Chromium; real 2-vCPU host.
+
+### stage-4 (PASS on 5b21fe6, evidence verification/stage-4/)
+- No BLOCK rounds.
+- Non-blocking: (1) planning_limit is a node budget (150000), not a count limit; 9 considered bookings still answered in 0.05 s. (2) Restaurants imported from stage-1/2 exports have no managers, so nobody can replan them (spec gives no way to add managers). (3) Confirmation screen is not refreshed after a later plan (no polling required); lookup and grid reflect the plan. (4) PATCH with unparseable body on unknown reference: 400 in stages 3–4, 404 in stages 1–2. (5) Earlier notes still apply.
+- Not tested: shipped stage-4 sample is a small part of the graded suite; exact cutoff equality; browsers other than Chromium; real 2-vCPU host; planner inputs far beyond the stated limits.
+
+## Run summary
+All four units DONE. Total BLOCK verdicts: stage-1 2, stage-2 1, stage-3 0, stage-4 0. Check outputs: ../checks/ (band-work/checks). Evidence: verification/stage-N/.
