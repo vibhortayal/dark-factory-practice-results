@@ -4,7 +4,7 @@ import hmac
 import os
 import secrets
 
-N, R, P = 2 ** 13, 8, 1
+N, R, P = 2 ** 12, 8, 1
 
 
 def hash_password(password):
