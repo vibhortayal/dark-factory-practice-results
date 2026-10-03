@@ -6,8 +6,8 @@ Run started: 2026-10-03T19:42Z. Track: pocketful.
 |---|---|---|---|---|---|
 | stage-1 | DONE | 172a3180c731a310e00e403ea1c4990a4a78b5d4 | 0 | 19:43Z–20:02Z (19 min) | Verifier PASS, verdict commit 7a52d057; map `acceptance/stage-1.md` |
 | stage-2 | DONE | c59be33b9aaed102d1728cf7f6d9df7a2e0f571f | 1 | 20:05Z–20:47Z (42 min) | BLOCK #1 on 60a459ae (verdict commit 0c88a232, collapsed Requests/Holds layout, rows Q1/Q3/Q4); PASS on c59be33b (verdict commit 65ec9d11); map `acceptance/stage-2.md` |
-| stage-3 | BUILDING (reopened by Architect) | — (3a39ddfe had Verifier PASS, verdict commit f17eadc9; superseded) | 0 | started 20:50Z | First PASS at 21:09Z. Reopened 21:15Z: the Architect's map wrongly said snapshot tokens die on import; stage 4 needs stage-3 exports to carry snapshots. Map rows AA4/AB4 amended; a new stage-3 revision needs a new verdict |
-| stage-4 | PLANNED | — | 0 | — | starts after stage-3 is accepted again |
+| stage-3 | DONE | 9dcc200f61001f800d2aa8248df03da636f36c0f | 0 | 20:50Z–21:37Z (47 min) | PASS on 3a39ddfe (verdict commit f17eadc9) superseded after the Architect amended map rows AA4/AB4 (snapshots must survive export/import); PASS on 9dcc200f (verdict commit 3d12cdd2); map `acceptance/stage-3.md` |
+| stage-4 | BUILDING | — | 0 | started 21:38Z | map `acceptance/stage-4.md` |
 
 ## Stage 1 — Verifier verdict (PASS, revision 172a3180)
 
@@ -58,3 +58,26 @@ Notes (non-blocking), copied from the verdict:
 
 Remaining risk: hidden judging tests; UI quality judging is subjective; only Chromium at 375/768/1280/1920 px;
 timing measured on this host.
+
+## Stage 3 — Verifier verdict (PASS, revision 9dcc200f; replaces the PASS on 3a39ddfe)
+
+Evidence: `verification/stage-3/` (CHECKS.md, checks1/2/3.py, ui.py, deliver3.py, VERDICT.md,
+VERDICT-round-2.md, run-1/, run-2/), harness output in `../checks/verifier-s3-r2` and
+`../checks/verifier-s3-r2-isolated`.
+
+- Amended rows AA4/AB4 met: a snapshot token issued before export pages the identical frozen result after
+  import (same container, repeated import, re-export, second container); foreign/late tokens 404.
+- Delivery checks 13/13; API list 87/87 (5123 requests, 0 responses ≥ 500), with real stage-1 and stage-2
+  exports imported; browser list 30/30 at 375 and 1280 px.
+- Supplied checks: stages 1, 2, 3 pass, host mode and `--mode isolated`.
+- Implementer's tests: API 120 OK (1 skipped), browser 24 OK. No refund or batch code in stage-3.
+
+Notes (non-blocking), copied from the verdict:
+
+1. Snapshot memory bound 50 000 snapshots or 600 000 stored rows; beyond it the oldest tokens are dropped (404).
+2. Export carries every live snapshot, so it grows with statement reads (Implementer measured 400 000 rows:
+   0.71 s export, 0.99 s import).
+3. An unencoded `+` in an instant is accepted; statement `from` after `to` is 422; legacy voided authorizations
+   import as having held nothing; stage-1/2 carry-overs; historical reads cost O(user's payments + all authorizations).
+
+Remaining risk: hidden judging tests; large histories, many snapshots and long runs not measured; host timing only.
