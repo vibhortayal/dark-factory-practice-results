@@ -1,0 +1,35 @@
+PASS combo cell present+true
+PASS single too small false
+PASS summary names both tables
+PASS confirmation tables
+PASS resubmit same ref
+PASS lookup tables
+PASS cancelled status
+PASS pair free after cancel
+PASS both singles free after cancel
+PASS R1 late A ignored: grid is B
+PASS R1 form still B
+PASS R2 no confirmation
+PASS R2 form kept with input
+PASS R2 grid refreshed
+PASS R3 uncertain text (upgrade=False)
+PASS R3 retry same key/body (upgrade=False)
+PASS R3 cleared (upgrade=False)
+PASS R3 exactly one booking (upgrade=False)
+PASS R3 uncertain text (upgrade=True)
+PASS R3 retry same key/body (upgrade=True)
+PASS R3 cleared (upgrade=True)
+PASS R3 exactly one booking (upgrade=True)
+PASS X2 still signed in
+PASS 375px no h-scroll /signup
+PASS 375px no h-scroll /login
+PASS 375px no h-scroll /lookup
+PASS 375px no h-scroll grid
+PASS 375px no h-scroll booking
+PASS current-user on /
+PASS current-user on /signup
+PASS current-user on /login
+PASS current-user on /lookup
+PASS logout removes current-user
+PASS focus outline on tab
+34/34 passed

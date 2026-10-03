@@ -1,0 +1,7 @@
+signed out / {}
+signed out /signup {}
+signed out /login {}
+signed out /lookup {}
+signed-out lookup: {'reservation-error': (1, 'Please log in to look up your bookings. Log in')}
+signed in, grid: {'current-user': 1}
+form open: {'current-user': 1, 'booking-form': 1}

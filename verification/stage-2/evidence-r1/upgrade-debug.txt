@@ -1,0 +1,10 @@
+combo cells: {'slot-t_1+t_2-18:00': 'true', 'slot-t_3+t_2-18:00': 'true', 'slot-t_1+t_2-21:00': 'true', 'slot-t_3+t_2-21:00': 'true', 'slot-t_1+t_2-21:30': 'true', 'slot-t_3+t_2-21:30': 'true'}
+api 21:00: {'starts_at_local': '2026-10-10T21:00', 'starts_at': '2026-10-10T21:00:00+02:00', 'available_table_ids': [], 'available_options': [{'table_ids': ['t_1', 't_2'], 'capacity': 6}, {'table_ids': ['t_3', 't_2'], 'capacity': 8}]}
+count 1 visible True
+uncertain: True
+import: 204
+('POST', '/reservations', 200, '{"reservation_id": "res_1", "reference": "U5F5QOKC", "restaurant_id": "r_anker", "table_id": "t_2", "party_size": 4, "status": "confirmed", "starts_at_local": "2026-10-10T19:00", "starts_at": "2026-10-10T19:00:00+02:00", "ends_at": "2026-10-10T20:30:00+02:00", "created_at": "2026-10-03T11:07:31+00:0')
+confirmation False ''
+booking-error False ''
+booking-uncertain False ''
+console: ['Failed to load resource: net::ERR_FAILED', "pageerror: Cannot read properties of undefined (reading 'map')"]

@@ -1,0 +1,43 @@
+== export of 21475bce83bbe00c825c5795a1764fbe46bed467
+.
+..
+.dockerignore
+.gitignore
+Dockerfile
+RUN.md
+app
+requirements.txt
+tests
+== D.4 stage-1 unchanged since a8301bb: 0 changed lines of stat
+== nested .git/__pycache__: 0
+== D.3 external URLs in shipped files:
+== D.1 docker build --no-cache
+BUILD OK
+== D.2 stage-2 container A (PORT=9000) and B (default port), stage-1 container
+healthy after .333784268 s
+healthy after .333651096 s
+healthy after .335308366 s
+no outbound: [Errno 101] Network is unreachable
+== S0 stage-1 check list against the stage-2 image
+probe1 exit: 0
+TOTAL 392 checks: 392 passed, 0 failed, 6 notes
+== P2 stage-2 API probes
+probe2 exit: 0
+TOTAL 98 checks: 98 passed, 0 failed, 1 notes
+== UI browser probes
+ui exit: 1
+TOTAL 91 checks: 89 passed, 2 failed, 2 notes
+  FAIL CRASH.u_layout [-] section u_layout ran to completion ::  await self._channel.send(
+  File "/home/ubuntu/nightshift-claude-tk-full/dark-factory-wearedevs/.venv/lib/python3.12/site-packages/playwright/_impl/_connection.py", line 76, in send
+    return await self._connection.wrap_api_call(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/ubuntu/nightshift-claude-tk-full/dark-factory-wearedevs/.venv/lib/python3.12/site-packages/playwright/_impl/_connection.py", line 632, in wrap_api_call
+    raise rewrite_error(error, f"{parsed_st['apiName']}: {error}") from None
+playwright._impl._errors.TimeoutError: Locator.scroll_into_view_if_needed: T
+  FAIL UI.X3b [X3] after the upgrade, without reload, the unchanged form retries and shows the original stage-1 reference; uncertainty removed; still one booking :: '' vs [{'reservation_id': 'res_2', 'reference': 'YT4ZZ98I', 'restaurant_id': 'r_anker', 'table_id': 't_2', 'party_size': 4, 'status': 'confirmed', 'starts_at_local': '2026-10-10T19:00', 'starts_at': '2026-10-10T19:00:00+02:00', 'ends_at': '2026-10-10T20:30:00+02:00', 'created_at': '2026-10-03T11:07:04+00:00'}] / [{'reservation_id': '
+== container state
+/tkv2-a running=true oom=false
+/tkv2-b running=true oom=false
+tkv2-a mem=154.7MiB / 2GiB
+tkv2-b mem=26.64MiB / 2GiB
+stderr lines container A: 0

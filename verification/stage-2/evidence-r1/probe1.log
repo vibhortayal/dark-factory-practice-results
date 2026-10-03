@@ -1,0 +1,432 @@
+
+=== s_health_reset ===
+PASS C2.1 [C2 §3.2] GET /health -> 200 {status: ok}
+PASS M1.1 [M1 §4] spec example fixture accepted verbatim -> 204 with empty body
+PASS M2.1 [M2 §4] seeded user logs in immediately; user_id/display_name from fixture
+PASS C3.1 [C3 §3.3] reset without auth -> 204
+PASS C3.0 [C3 §3.3] setup before second reset (bookings created)
+PASS C3.3 [C3 §3.3] repeated reset of same fixture -> 204 twice
+PASS C3.2a [C3 §3.3] token issued before reset is no longer valid -> 401 unauthenticated
+PASS C3.2b [C3 §3.3] user signed up before reset cannot log in -> 401 unauthenticated
+PASS C3.2c [C3 §3.3] reservations from before reset are gone
+PASS C3.2d [C3 §3.3] table free again after reset
+PASS C3.2e [C3 §3.3] idempotency key used before reset is fresh (different body) -> 201
+PASS C3.3b [C3 §3.3] reset with a different fixture -> 204
+PASS C3.2f [C3 §3.3] only the new fixture's restaurants are visible
+PASS C3.2g [C3 §3.3] restaurant of previous fixture gone -> 404 not_found
+PASS C3.2h [C3 §3.3] user of previous fixture gone -> 401 unauthenticated
+PASS C3.4a [C3 §5] reset with unparseable body -> 400 malformed_request
+PASS C3.4b [C3 §5] reset with users of wrong JSON type -> 400 malformed_request
+PASS C3.4c [C3/E2 §5] reset with restaurants of wrong JSON type (object) -> 400 malformed_request
+PASS C3.4d [C3/E2 §5] reset with slot_minutes of wrong JSON type (string) -> 400 malformed_request
+PASS C3.4e [C3/E2 §5] reset with restaurant id of wrong JSON type (number) -> 400 malformed_request
+PASS C3.4f [C3/E2 §5] reset with user email of wrong JSON type (number) -> 400 malformed_request
+PASS E1.1a [E1 §5] unknown route -> 4xx with error body
+PASS E1.1b [E1 §5] unsupported method -> 4xx with error body
+
+=== s_auth ===
+PASS A1.1 [A1 §6] signup -> 201 {user_id, display_name, token} (unknown field ignored, C6.1)
+PASS A1.2 [A1 §6] signup token authenticates
+PASS A2.1 [A2 §6] login -> 200 same shape and same user_id
+PASS A7.1 [A7 §6] signup token and two login tokens all valid concurrently
+PASS A3.1a [A3 §6] signup with an already registered email -> 409 email_taken
+PASS A3.1b [A3 §6] signup with a seeded email -> 409 email_taken
+PASS A3.1c [A3 §6] rejected duplicate signup did not change the password
+PASS A4.1a [A4 §6] password of 7 characters -> 422 validation_failed
+PASS A4.1b [A4 §6] password of 8 characters -> 201
+PASS A4.2a [A4 §6] signup email 'nodomain' not local@domain -> 422 validation_failed
+PASS A4.2b [A4 §6] signup email '@x.com' not local@domain -> 422 validation_failed
+PASS A4.2c [A4 §6] signup email 'a@' not local@domain -> 422 validation_failed
+PASS A4.2d [A4 §6] signup email '' not local@domain -> 422 validation_failed
+PASS A4.3a [A4 §5] signup missing email -> 422 validation_failed
+PASS A4.3b [A4 §5] signup missing password -> 422 validation_failed
+PASS A4.3c [A4 §5] login missing password -> 422 validation_failed
+PASS E2.3a [E2 §5] signup email of wrong JSON type (number) -> 400 malformed_request
+PASS E2.3b [E2 §5] signup password of wrong JSON type (number) -> 400 malformed_request
+PASS E2.3g [E2 §5] signup display_name of wrong JSON type (number) -> 400 malformed_request
+PASS E2.3c [E2 §5] login password of wrong JSON type (array) -> 400 malformed_request
+PASS E2.1a [E2 §5] signup unparseable body -> 400 malformed_request
+PASS E2.1b [E2 §5] login unparseable body -> 400 malformed_request
+PASS E2.2a [E2 §5] signup body is a JSON array, not an object -> 400 malformed_request
+PASS A5.1a [A5 §6] login wrong password -> 401 unauthenticated
+PASS A5.1b [A5 §6] login unknown email -> 401 unauthenticated
+NOTE A4.3n1 signup without display_name :: POST /auth/signup -> 422 {"error": {"code": "validation_failed", "message": "display_name is required"}}
+NOTE A4.3n2 signup with dot-less domain x@localhost :: POST /auth/signup -> 201 {"user_id": "u_3", "display_name": "X", "token": "uc0zyPEod0KYcj4S1FjJWdQdtv5X9yEiolWkq7CPVMY"}
+NOTE A3.n1 signup with upper-cased duplicate email :: POST /auth/signup -> 409 {"error": {"code": "email_taken", "message": "email already registered"}}
+PASS A6.1a [A6 §6] GET /reservations without/malformed/unknown token -> 401 unauthenticated
+PASS A6.1b [A6 §6] GET /reservations/{ref} without/malformed/unknown token -> 401 unauthenticated
+PASS A6.1c [A6 §6] POST /reservations/{ref}/cancel without/malformed/unknown token -> 401 unauthenticated
+PASS A6.1d [A6 §6] PATCH /reservations/{ref} without/malformed/unknown token -> 401 unauthenticated
+PASS A6.1e [A6 §6] POST /reservations without/malformed/unknown token -> 401 unauthenticated
+PASS A6.1f [A6 §6] POST /reservation-moves without/malformed/unknown token -> 401 unauthenticated
+PASS A6.1g [A6 §6] unauthenticated attempts changed nothing
+PASS A6.2 [A6 §6/§8] public endpoints answer 200 without a token
+
+=== s_restaurants_availability ===
+PASS R1.1 [R1 §8] GET /restaurants lists every restaurant with id, name, timezone (unknown query param ignored, C6.2)
+PASS R2.1 [R2 §8] GET /restaurants/{id} returns config, opening_hours and tables in the fixture's shape
+PASS R2.2 [R2 §8] GET /restaurants/{unknown} -> 404 not_found
+PASS V1.1a [V1 §8] availability missing restaurant_id -> 422 validation_failed
+PASS V1.1b [V1 §8] availability missing date -> 422 validation_failed
+PASS V1.1c [V1 §8] availability missing party_size -> 422 validation_failed
+PASS V2.1a [V2/E3 §5] availability date=2026-02-30 -> 422 validation_failed
+PASS V2.1b [V2/E3 §5] availability date=2026-13-01 -> 422 validation_failed
+PASS V2.1c [V2/E3 §5] availability date=24-09-2026 -> 422 validation_failed
+PASS V2.1d [V2/E3 §5] availability date=tomorrow -> 422 validation_failed
+PASS E6.1a [E6 §5] availability party_size='1e9' -> 422 validation_failed
+PASS E6.1b [E6 §5] availability party_size='4.0' -> 422 validation_failed
+PASS E6.1c [E6 §5] availability party_size='%2B4' -> 422 validation_failed
+PASS E6.1d [E6 §5] availability party_size='abc' -> 422 validation_failed
+PASS E6.1e [E6 §5] availability party_size='-1' -> 422 validation_failed
+PASS E6.1f [E6 §5] availability party_size='0' -> 422 validation_failed
+PASS E6.1g [E6 §5] availability party_size='' -> 422 validation_failed
+PASS V2.2 [V2 §8] availability unknown restaurant -> 404 not_found
+PASS V3.1 [V3 §8] availability top-level shape (restaurant_id, date, timezone, slots) with unknown query params ignored
+PASS V4.1a [V4 §8] Thu 18:00-23:00, slot 30, duration 90 -> slots 18:00..21:30
+PASS V3.2 [V3 §8] each slot has starts_at_local, starts_at (+02:00), available_table_ids
+PASS V4.2a [V4 §8] party 4 (= capacity of t_2) -> [t_2] in every slot
+PASS V4.2b [V4 §8] party 2 (= capacity of t_1) -> [t_1, t_2]
+PASS V4.2c [V4 §8] party 3 (capacity+1 of t_1) -> [t_2]
+PASS V4.2d [V4 §8] party 5: slots still appear, each with empty list
+PASS V4.1b [V4 §8] Fri closes 23:30 -> last slot 22:00 (9 slots)
+PASS V4.1c [V4 §8] grid from opens: 18:15 / 20 min / 45 min / closes 20:00 -> 18:15,18:35,18:55,19:15
+PASS V4.2e [V4 §8] available_table_ids in fixture order (t_z, t_a, t_m)
+PASS V4.2f [V4 §8] fixture order kept after capacity filter (t_z, t_m)
+PASS V5.1 [V5/M5 §8/§4] closed weekday -> 200 with slots []
+PASS V4.3 [V4/B3 §8/§1] booking 19:30-21:00 on t_2 removes t_2 from 18:30..20:30 only (half-open)
+PASS V4.2g [V4 §8] large party_size (100) -> 200 with empty lists
+
+=== s_create ===
+PASS B1.1 [B1 §8] create -> 201 with all fields (unknown body fields ignored, C6.1)
+PASS B1.2 [B1/C5 §8/§3.4] starts_at/ends_at correct instants and +02:00 offset
+PASS B1.3 [B1 §8] created_at is the creation time (within 120 s of now)
+PASS B3.1a [B3 §8] same table, same slot (same user, new key) -> 409 table_unavailable
+PASS B3.1b [B3 §8] same table, same slot (other user) -> 409 table_unavailable
+PASS B3.1c [B3 §8] overlapping earlier slot 18:00 -> 409 table_unavailable
+PASS B3.1d [B3 §8] overlapping later slot 20:00 -> 409 table_unavailable
+PASS B3.1e [B3 §1] adjacent slot 20:30 after 19:00+90min -> 201
+PASS B3.1f [B3 §8] cancel the 19:00 booking -> 200
+PASS B3.1g [B3 §8] cancelled booking does not block: 19:00 bookable again -> 201
+PASS B4.1a [B4 §8] 19:10 off grid -> 422 not_on_slot_grid
+PASS B4.1b [B4 §8] 19:15 off grid -> 422 not_on_slot_grid
+PASS B4.1c [B4 §4] r_odd 18:30 (grid runs from opens 18:15 in 20-min steps) -> 422 not_on_slot_grid
+PASS B4.1d [B4 §4] r_odd 18:35 on grid -> 201
+PASS B5.1a [B5 §8] Thu 22:00 would end 23:30 > closes 23:00 -> 422 outside_opening_hours
+PASS B5.1b [B5/B6 §8] Thu 21:30 ends exactly at closes; party = capacity 2 -> 201
+PASS B5.1c [B5 §8] Fri 22:00 ends exactly at closes 23:30 -> 201
+PASS B5.1d [B5 §8] Fri 22:30 ends after closes -> 422 outside_opening_hours
+PASS B5.1e [B5 §8/§4] closed day (Wed) 19:00 -> 422 outside_opening_hours
+PASS B5.1f [B5 §8] Thu 23:00 (at closes) -> 422 outside_opening_hours
+PASS B5.1g [B5 §8] r_odd 19:35 on grid but ends 20:20 > closes -> 422 outside_opening_hours
+PASS B5.1h [B5 §8] Thu 17:30 before opening -> 422 (outside_opening_hours or not_on_slot_grid)
+PASS B6.1 [B6 §8] party 3 on table of capacity 2 -> 422 party_exceeds_capacity
+PASS E4.1a [E4 §5/§8] party_size 0 -> 422 validation_failed
+PASS E4.1b [E4 §5/§8] party_size -1 -> 422 validation_failed
+PASS E4.1c [E4 §5/§8] party_size string '4' -> 422 validation_failed
+PASS E4.1d [E4 §5/§8] party_size true -> 422 validation_failed
+PASS E4.1e [E4 §5/§8] party_size 2.5 -> 422 validation_failed
+PASS E4.1f [E4 §5/§8] party_size null -> 422 validation_failed
+PASS E4.2a [E4 §5] POST /reservations missing party_size -> 422 validation_failed
+PASS E4.2b [E4 §5] POST /reservations missing restaurant_id -> 422 validation_failed
+PASS E4.2c [E4 §5] POST /reservations missing table_id -> 422 validation_failed
+PASS E4.2d [E4 §5] POST /reservations missing starts_at_local -> 422 validation_failed
+PASS E5.1a [E5 §5/§8] starts_at_local '2027-09-23T18:00:00' -> 422 validation_failed
+PASS E5.1b [E5 §5/§8] starts_at_local '2027-09-23T18:00+02:00' -> 422 validation_failed
+PASS E5.1c [E5 §5/§8] starts_at_local '2027-09-23T18:00Z' -> 422 validation_failed
+PASS E5.1d [E5 §5/§8] starts_at_local '2027-09-23 18:00' -> 422 validation_failed
+PASS E5.1e [E5 §5/§8] starts_at_local 'garbage' -> 422 validation_failed
+PASS E5.1f [E5 §5/§8] starts_at_local '2027-02-30T18:00' -> 422 validation_failed
+PASS E5.1g [E5 §5/§8] starts_at_local '2027-09-23T25:00' -> 422 validation_failed
+PASS E5.1h [E5 §5/§8] starts_at_local '' -> 422 validation_failed
+PASS E2.3d [E2 §5] starts_at_local of wrong JSON type (number) -> 400 malformed_request
+PASS E2.3e [E2 §5] restaurant_id of wrong JSON type (number) -> 400 malformed_request
+PASS E2.3f [E2 §5] table_id of wrong JSON type (array) -> 400 malformed_request
+PASS E2.1c [E2 §5] POST /reservations unparseable body -> 400 malformed_request
+PASS E2.2b [E2 §5/§7] POST /reservations body is a JSON array -> 400 malformed_request
+PASS E2.2c [E2 §5/§7] POST /reservations body is a JSON string -> 400 malformed_request
+PASS B8.1a [B8 §8] unknown restaurant -> 404 not_found
+PASS B8.1b [B8 §8] unknown table -> 404 not_found
+PASS B8.1c [B8 §8] table belongs to another restaurant -> 404 not_found
+PASS E7.2a [E7/I2 §7] POST /reservations without Idempotency-Key -> 400 missing_idempotency_key
+PASS E7.2b [E7/I2 §7] POST /reservations with empty Idempotency-Key -> 400 missing_idempotency_key
+PASS E7.2c [E7/I5 §7] no key + body failing field validation (idempotency resolved first) -> 400 missing_idempotency_key
+PASS E7.1a [E7 §5] Idempotency-Key of 256 characters -> 422 validation_failed
+PASS E7.1b [E7 §5] Idempotency-Key of 255 characters -> 201
+PASS E7.1c [E7 §5] Idempotency-Key of 1 character -> 201
+PASS M4.1 [M4 §4] booking with a start in the past (2020) -> 201
+PASS M4.2a [M4/X3 §4/§8] cancel a past booking -> 409 cutoff_passed
+PASS M4.2b [M4/P2 §4/§8] PATCH a past booking -> 409 cutoff_passed
+PASS M4.2c [M4 §8] past booking unchanged after refused cancel/PATCH
+PASS B2.1a [B2 §8] 32 further bookings all 201
+PASS B2.1b [B2 §8] all references match [A-Z0-9]{6,12} and are unique
+PASS B2.1c [C7 §3.4] reservation_id values unique
+PASS B0.1 [B1 §1] rejected requests created nothing: caller's list holds exactly the 201 responses
+
+=== s_idempotency ===
+PASS I6.1 [I6 §7] first use 201, replay 200 with identical JSON
+PASS I4.1 [I4 §7] replay with reordered keys and different whitespace -> 200 identical
+PASS I6.1b [I6 §7] replays created no second reservation
+PASS I6.2a [I6 §7] same key, different body (party_size) -> 409 idempotency_key_reuse
+PASS I6.2b [I6 §7] same key, body with an extra unknown field (different JSON value) -> 409 idempotency_key_reuse
+PASS I5.1a [I5 §7] used key + different body with invalid party_size -> 409 idempotency_key_reuse
+PASS I5.1b [I5 §7] used key + different body with unknown restaurant -> 409 idempotency_key_reuse
+PASS I5.1c [I5 §7] used key + different body missing fields -> 409 idempotency_key_reuse
+PASS I3.1 [I3 §7] other user, same key string, different body -> independent 201
+PASS I3.1b [I3 §7] other user's replay returns their own response
+PASS I4.2 [I4 §7] same key + same body on the other write path succeeds normally (201, not a replay)
+PASS I4.3 [I4 §7] each path then replays its own response
+PASS I7.1a [I7 §7] key reused after 422 with a valid different body -> 201
+PASS I7.1b [I7 §7] key that failed 409 table_unavailable, same body after the table was freed -> 201
+PASS I7.1c [I7 §7] key reused after 404 -> 201
+PASS I8.1 [I8 §7] 20 concurrent identical requests: exactly one 201, nineteen 200, identical body
+PASS I8.1b [I8 §7] operation took effect once
+PASS I9.1a [I9 §7] replay after cancel -> 200 with original (confirmed) body; reservation stays cancelled
+PASS I9.1b [I9 §7] replay after cancel did not re-occupy the table
+PASS I9.1c [I9/I1 §7] replay after PATCH (no key needed) -> 200 original body; amended value kept
+
+=== s_list_get_cancel ===
+PASS L1.1a [L1 §8] empty list is exactly {reservations: []} (unknown query param ignored)
+PASS L1.0 [L1 §8] setup bookings created
+PASS L1.1b [L1 §8] list ordered by starts_at descending as instants (NY 14:00 after Berlin 19:00 same day)
+PASS L1.1c [L1 §8] list entries equal the create responses (same shape)
+PASS L1.1d [L1 §8] list has only the caller's reservations
+PASS G1.1a [G1 §8] GET own reservation -> 200 equal to create body
+PASS G1.1b [G1 §8] GET another user's reservation -> 404 not_found
+PASS G1.1c [G1 §8] GET unknown reference -> 404 not_found
+PASS X4.1a [X4 §8] cancel another user's reservation -> 404 not_found
+PASS X4.1b [X4 §8] cancel unknown reference -> 404 not_found
+PASS P4.1a [P4 §8] PATCH another user's reservation -> 404 not_found
+PASS P4.1b [P4 §8] PATCH unknown reference -> 404 not_found
+PASS X4.1c [X4 §8] reservation untouched by other user's attempts
+PASS X1.1a [X1 §8] cancel -> 200, status cancelled, all other fields unchanged
+PASS X1.1b [X1 §8] next availability offers the slot again
+PASS X2.1 [X2 §8] cancel twice -> 200 with current (cancelled) state
+PASS X1.1c [X1 §8] freed table is bookable again -> 201
+PASS L1.1e [L1 §8] list includes cancelled reservations, order unchanged
+PASS G1.1d [G1 §8] GET cancelled reservation -> 200 status cancelled
+
+=== s_patch ===
+PASS P1.1a [P1 §8] PATCH party_size only (unknown field ignored) -> 200, other fields unchanged
+PASS P2.1a [P2 §8] PATCH table to t_1 (capacity 2) with party 3 -> 422 party_exceeds_capacity
+PASS P2.1b [P2 §8] PATCH party_size 5 on capacity 4 -> 422 party_exceeds_capacity
+PASS P2.1c [P2 §8] PATCH starts_at_local off grid -> 422 not_on_slot_grid
+PASS P2.1d [P2 §8] PATCH starts_at_local ending after closes -> 422 outside_opening_hours
+PASS P2.1e [P2 §8] PATCH starts_at_local on closed day -> 422 outside_opening_hours
+PASS P2.1f [P2 §8] PATCH starts_at_local with seconds -> 422 validation_failed
+PASS P2.1g [P2 §8] PATCH party_size string -> 422 validation_failed
+PASS P2.1h [P2 §8] PATCH party_size 0 -> 422 validation_failed
+PASS P2.1i [P2 §8] PATCH table_id wrong JSON type -> 400 malformed_request
+PASS P2.1j [P2 §8] PATCH unknown table -> 404 not_found
+PASS P2.1k [P2 §8] PATCH table of another restaurant -> 404 not_found
+PASS P2.1l [P2 §8] PATCH unparseable body -> 400 malformed_request
+PASS P2.1m [P2 §8] PATCH without token -> 401 unauthenticated
+PASS P2.1n [P2 §8] PATCH into a slot/table held by another booking -> 409 table_unavailable
+PASS P2.1o [P2 §8] PATCH into a slot overlapping another booking -> 409 table_unavailable
+PASS P3.2 [P3 §8] every failed PATCH left the booking and availability unchanged
+PASS P1.1b [P1 §8] PATCH table_id only -> 200
+PASS P3.1a [P1/P3 §8] PATCH starts_at_local only into a slot overlapping its own old slot -> 200, ends_at recomputed
+PASS P3.1b [P3 §8] old slot released and new one occupied together (t_1 free at 18:00, taken 18:30..20:30)
+PASS P1.1c [P1/P4 §8] PATCH all three fields -> 200; reference, reservation_id, created_at unchanged
+PASS P1.1d [P1 §8] GET and list reflect the amendment
+PASS P3.1c [P3 §8] Thursday slot fully released after move to Friday
+NOTE P1.n1 PATCH with empty object :: PATCH /reservations/C7IP2HDV -> 200 {"reservation_id": "res_1", "reference": "C7IP2HDV", "restaurant_id": "r_anker", "party_size": 4, "status": "confirmed", "starts_at_local": "2027-09-24T20:00", "starts_at": "2027-09-24T20:00:00+02:00", "ends_at": "2027-09-24T21:30:00+02:00"
+PASS P2.2a [P2 §8] PATCH a cancelled reservation -> 409 reservation_cancelled
+PASS P2.2b [P2/M4 §8/§4] booking beyond cutoff may be moved to a past time (cutoff measured against current start) -> 200
+PASS P2.2c [P2 §8] the booking now starts in the past: further PATCH -> 409 cutoff_passed
+PASS P2.2d [X3 §8] the booking now starts in the past: cancel -> 409 cutoff_passed
+
+=== s_cutoff_dynamic ===
+PASS X3.0 [X3 §8] setup: booking ~1 h ahead (2026-10-03T14:15) in restaurant with 600 min cutoff
+PASS X3.1a [X3 §8] cancel within cutoff (start ~1 h ahead, cutoff 600 min) -> 409 cutoff_passed
+PASS X3.1b [P2 §8] PATCH within cutoff -> 409 cutoff_passed
+PASS X3.1c [X3 §8] booking unchanged after refused cancel
+PASS X3.1d [P2 §8] PATCH beyond cutoff (start ~1 h ahead, cutoff 30 min) -> 200
+PASS X3.1e [X3 §8] cancel beyond cutoff (start ~1 h ahead, cutoff 30 min) -> 200
+PASS X3.1f [X3 §8] cancel beyond cutoff (start ~11 h ahead 2026-10-04T00:15, cutoff 600 min) -> 200
+
+=== s_dst ===
+PASS T1.1a [T1 §9] Berlin 2026-03-29: 02:00/02:30 absent; +01:00 before, +02:00 from 03:00
+PASS T1.1b [T1 §9] New York 2026-03-08: 02:00/02:30 absent; -05:00 before, -04:00 from 03:00
+PASS T2.1a [T2 §9] Berlin 2026-10-25: every slot once; 02:00/02:30 first occurrence +02:00; 03:00 +01:00
+PASS T2.1b [T2 §9] New York 2026-11-01: every slot once; 01:00/01:30 first occurrence -04:00; 02:00 -05:00
+PASS T1.2a [T1/B7 §9] r_night_b 2026-03-29 02:00 does not exist -> 422 invalid_local_time
+PASS T1.2c [T1/B7 §9] r_night_b 2026-03-29 02:30 does not exist -> 422 invalid_local_time
+PASS T1.2b [T1/B7 §9] r_night_ny 2026-03-08 02:00 does not exist -> 422 invalid_local_time
+PASS T1.2d [T1/B7 §9] r_night_ny 2026-03-08 02:30 does not exist -> 422 invalid_local_time
+PASS T3.1a [T3 §9] NY fall-back 01:30 -> starts 01:30-04:00, ends 02:00-05:00
+PASS T3.1b [T3 §9] Berlin fall-back 01:30 -> ends 02:00+01:00
+PASS T3.1c [T3 §9] Berlin spring 01:30 -> ends 04:00+02:00
+PASS T3.1d [T3 §9] NY spring 01:00 -> ends 03:30-04:00
+PASS T5.1a [T5 §9/§8] spring: availability overlap computed on instants (01:30 booking blocks 03:00 and 03:30, not 04:00)
+PASS T5.1b [T5 §9] spring: 03:00 overlaps the 01:30 booking -> 409 table_unavailable
+PASS T5.1c [T5 §9] spring: 03:30 overlaps the 01:30 booking -> 409 table_unavailable
+PASS T5.1d [T5 §9] spring: 04:00 is free -> 201
+PASS T2.2 [T2/T3 §9] Berlin fall-back 02:30 resolves to first occurrence (+02:00), ends 03:00+01:00
+PASS T5.1e [T5 §9/§8] fall: 02:30(first) booking frees nb_2 from 03:00 CET; 01:00 CEST (ends 02:30 CEST) free, 01:30 blocked
+PASS T5.1f [T5 §9] fall: 03:00 (+01:00) does not overlap the 02:30 (+02:00) booking -> 201
+PASS T5.1g [T5 §9] fall: 02:00 (first occurrence) overlaps the 02:30 booking -> 409 table_unavailable
+PASS T4.1a [T4 §9] r_ny 2026-01-15 offset -05:00
+PASS T4.1b [T4 §9] r_ny 2026-07-16 offset -04:00
+PASS T4.1c [T4 §9] r_anker 2026-01-15 offset +01:00
+PASS T4.1d [T4 §9] r_anker 2026-07-16 offset +02:00
+PASS T1.3 [T1/P2 §9/§8] PATCH into the skipped hour (Berlin 2027-03-28 02:30) -> 422 invalid_local_time
+PASS T1.3b [P3 §8] booking unchanged after refused PATCH
+
+=== s_moves ===
+PASS MV1.1a [MV1 §11] moves without token -> 401 unauthenticated
+PASS MV1.1b [MV1 §7] moves without Idempotency-Key -> 400 missing_idempotency_key
+PASS MV1.1c [MV1/E7 §5] moves with 256-char Idempotency-Key -> 422 validation_failed
+PASS MV1.1d [E2 §5] moves unparseable body -> 400 malformed_request
+PASS MV2.1a [MV2 §11] moves missing -> 422 validation_failed
+PASS MV2.1b [MV2 §11] moves empty (0 items) -> 422 validation_failed
+PASS MV2.1c [MV2 §11] duplicate references -> 422 validation_failed
+PASS MV2.1d [MV2 §11] item without reference -> 422 validation_failed
+PASS MV2.n1 [MV2 §11/§5] moves is a string -> 422 validation_failed or 400 malformed_request
+PASS MV2.n2 [MV2 §11/§5] moves item is a number -> 422 validation_failed or 400 malformed_request
+PASS MV2.n3 [MV2 §11/§5] reference is a number -> 422 validation_failed or 400 malformed_request
+PASS MV2.1e [MV7 §11] rejected shapes changed nothing
+PASS MV3.1a [MV3 §11] unknown reference -> 404 not_found
+PASS MV3.1b [MV3 §11] another owner's reference -> 404 not_found
+PASS MV3.1c [MV3 §11] bookings from different restaurants -> 422 validation_failed
+PASS MV3.1d [MV7 §11] nothing changed after 404/422 (first item's valid change not applied)
+PASS MV6.0 [MV6 §8] single PATCH of A onto B's table is refused (table occupied) -> 409 table_unavailable
+PASS MV6.1a [MV6/MV7 §11] swap tables of two listed bookings -> 201 {reservations} in input order
+PASS MV6.1b [MV7 §11] swap is visible via GET
+PASS MV1.1e [MV1/MV8 §7/§11] replay -> 200 identical body
+PASS MV1.1f [MV1 §7] same key, different body -> 409 idempotency_key_reuse
+PASS MV4.1 [MV4 §11] item starts_at_local + party_size applied, table retained, unknown item field ignored, identity kept
+PASS MV8.1a [MV8 §11] replay of the swap after a later amendment -> 200 original body, no state change
+PASS MV8.1b [MV8 §11] no-op move -> 201, all existing values retained
+PASS MV6.1c [MV6 §11] result overlaps an unlisted booking -> 409 table_unavailable
+PASS MV7.1a [MV7 §11] all-or-nothing: first item's party change not applied, availability unchanged
+PASS MV6.1d [MV6 §11] unchanged listed booking retains its occupancy -> 409 table_unavailable
+PASS MV6.1e [MV6 §11] two results on the same table and time -> 409 table_unavailable
+PASS MV7.1b [MV7 §11] nothing changed after occupancy failures
+PASS MV7.1c [MV7/I7 §11/§7] key of the failed move is reusable as a first use -> 201
+PASS MV4.2 [MV4 §11] two bookings moved in time together -> 201, input order
+PASS MV5.0 [MV5 §11] setup bookings created
+PASS MV5.1a [MV5 §11] cancelled booking listed -> 409 reservation_cancelled
+PASS MV5.1b [MV5 §11] booking past its cutoff listed -> 409 cutoff_passed
+PASS MV5.2a [MV5 §11] cutoff precedes other errors of the same booking (off-grid change on past booking) -> 409 cutoff_passed
+PASS MV5.2b [MV5 §11] input order: [off-grid item, past-cutoff item] -> 422 not_on_slot_grid
+PASS MV5.2c [MV5 §11] input order: [past-cutoff item, off-grid item] -> 409 cutoff_passed
+PASS MV5.2e [MV5 §11] cutoff precedes an invalid party_size change of the same booking -> 409 cutoff_passed
+PASS MV5.2f [MV5 §11] input order: [past-cutoff item, item with invalid party_size] -> 409 cutoff_passed
+PASS MV5.2d [MV5 §11] non-occupancy error (2nd item off-grid) wins over occupancy conflict (1st item) -> 422 not_on_slot_grid
+PASS MV5.1c [MV5 §11] item ending after closes -> 422 outside_opening_hours
+PASS MV5.1d [MV5 §11] item party exceeds capacity -> 422 party_exceeds_capacity
+PASS MV5.1e [MV5 §11] item party_size 0 -> 422 validation_failed
+PASS MV5.1f [MV5 §11] item starts_at_local with seconds -> 422 validation_failed
+PASS MV5.1g [MV5 §11] item unknown table -> 404 not_found
+PASS MV5.1h [MV5 §11] item off grid -> 422 not_on_slot_grid
+PASS MV7.1d [MV7 §11] nothing changed after all refused moves
+PASS MV2.1f [MV2 §11] 9 moves -> 422 validation_failed
+PASS MV2.1g [MV2 §11] 8 moves -> 201 in input order
+PASS MV9.1 [MV1/I8 §7] 20 concurrent identical moves: one 201, nineteen 200, identical body
+PASS MV8.1c [MV8 §11] replay after cancellation -> 200 original; booking stays cancelled
+
+=== s_seeded ===
+PASS M3.1a [M3 §4] seeded reservation visible to owner: id, reference, confirmed, computed starts_at/ends_at, full shape
+PASS M3.1b [M3/L1 §4] seeded reservations in owner's list, starts_at descending
+PASS M3.2a [M3 §4] other user cannot see a seeded reservation -> 404 not_found
+PASS M3.2b [M3 §4] seeded reservation occupies its table in availability
+PASS M3.2c [M3 §4] booking over a seeded reservation -> 409 table_unavailable
+PASS M3.3a [M3 §4] seeded reservation can be amended by owner
+PASS M3.3b [M3/X3 §4] seeded past reservation: cancel -> 409 cutoff_passed
+PASS M3.3c [M3 §4] seeded reservation can be cancelled by owner; table freed
+PASS B2.2 [B2 §8] generated references/ids never collide with seeded ones
+
+=== s_ids ===
+PASS C7.1 [C7 §3.4] fixture ids of exactly 64 characters accepted and usable (user, restaurant, table, reservation)
+PASS C7.2a [C7 §3.4/§5] reset fixture with 65-character user id -> 422 validation_failed
+PASS C7.2b [C7 §3.4/§5] reset fixture with 65-character restaurant id -> 422 validation_failed
+PASS C7.2c [C7 §3.4/§5] reset fixture with 65-character table id -> 422 validation_failed
+PASS C7.2d [C7 §3.4/§5] reset fixture with 65-character reservation id -> 422 validation_failed
+
+=== s_export_import ===
+PASS IE0.1 [IE1 §10] setup state created
+PASS IE1.1 [IE1 §10] export -> 200 {track: tablekeeper, format_version: 1, state: object}, unauthenticated
+PASS A8.1 [A8 §6] export holds no plaintext password
+PASS IE1.2a [IE1 §10] export is read-only (visible state identical afterwards)
+PASS IE0.2 [IE1 §10] post-export writes succeeded
+PASS IE2.1a [IE2 §10] import of unchanged export -> 204 with empty body
+PASS IE1.2b [IE1/IE2/IE3 §10] after import the visible state equals the state at export time (restaurants, reservations incl. statuses/timestamps, availability, tokens)
+PASS IE2.1b [IE2 §10] user created after the export cannot log in (replacement, not merge) -> 401 unauthenticated
+PASS IE2.1c [IE2 §10] token created after the export is invalid -> 401 unauthenticated
+PASS IE2.1d [IE2 §10] reservation created after the export is gone -> 404 not_found
+PASS IE2.1e [IE2 §10] repeated import -> 204, no duplicates
+PASS IE3.1 [IE3 §10] accounts and hashed-password login preserved (ids unchanged, wrong password still refused)
+PASS IE3.1s [IE3 §10] seeded reservation preserved with id and confirmed status
+PASS IE3.2a [IE3 §10] replay of completed create key -> 200 original body
+PASS IE3.2b [IE3/MV8 §10/§11] replay of batch receipt -> 200 original body
+PASS IE3.2c [IE3 §10] used key with different body -> 409 idempotency_key_reuse
+PASS IE3.2d [IE3 §10] replays after import changed nothing
+PASS IE4.1a [IE4 §10] import with unparseable body -> 400 malformed_request
+PASS IE4.1b [IE4 §10] import with missing track -> 422 validation_failed
+PASS IE4.1c [IE4 §10] import with missing format_version -> 422 validation_failed
+PASS IE4.1d [IE4 §10] import with missing state -> 422 validation_failed
+PASS IE4.1e [IE4 §10] import with wrong track -> 422 validation_failed
+PASS IE4.1f [IE4 §10] import with wrong format_version 2 -> 422 validation_failed
+PASS IE4.1g [IE4 §10] import with invalid state (every top-level value replaced by a number) -> 422 validation_failed
+PASS IE4.1h [IE4 §10] import with empty object -> 422 validation_failed
+PASS IE4.1i [IE4 §10/§5] import with state of wrong JSON type -> 422 validation_failed or 400 malformed_request
+PASS IE4.2 [IE4 §10] destination unchanged after every rejected import
+PASS IE5.1a [IE5 §10] import into a second container -> 204
+PASS IE5.1b [IE5/IE3 §10] second container shows the exported state; source tokens valid there
+PASS IE5.1c [IE2 §10] import removed the destination's previous credentials (old token) -> 401 unauthenticated
+PASS IE5.1d [IE2 §10] import removed the destination's previous accounts -> 401 unauthenticated
+PASS IE3.1x [IE3 §10] accounts and hashed-password login preserved (ids unchanged, wrong password still refused)
+PASS IE3.1xs [IE3 §10] seeded reservation preserved with id and confirmed status
+PASS IE3.2xa [IE3 §10] replay of completed create key -> 200 original body
+PASS IE3.2xb [IE3/MV8 §10/§11] replay of batch receipt -> 200 original body
+PASS IE3.2xc [IE3 §10] used key with different body -> 409 idempotency_key_reuse
+PASS IE5.1e [IE3 §10] second container: the failed key replays nothing (same body still 409 table_unavailable, i.e. evaluated as first use) -> 409 table_unavailable
+PASS IE5.1f [IE1 §10] second container can export again
+PASS IE5.1g [IE5 §10] reset clears imported state (tokens invalid, only new fixture)
+PASS IE3.2e [IE3 §10] key that failed before the export is a first use after import (new valid body) -> 201
+PASS IE6.1a [IE6 §10/§8] new reservations after import: unique references and ids, no collision with imported ones
+PASS IE6.1b [IE6 §10] new signup after import gets a user_id distinct from imported users
+PASS IE5.2 [IE5/C3 §10] reset clears imported state on the source too (imported tokens invalid)
+
+=== s_load ===
+PASS LOAD.0 [D3 §2] reset with 50 users -> 204 (within 10 s, audited)
+PASS LOAD.1a [D3/E8 §2] 50 concurrent logins all 200
+PASS LOAD.1b [D3/E8 §2] 50 concurrent signups all 201 with distinct user_ids
+PASS LOAD.1c [A3 §6] 20 concurrent signups of one email: exactly one 201, others 409 email_taken
+PASS B9.1 [B9 §1] 50 concurrent creates for one table+slot: exactly one 201, 49 x 409 table_unavailable
+PASS B9.2 [B9 §1] 50 concurrent creates over overlapping slots: no overlapping confirmed reservations; every non-201 is 409
+PASS LOAD.2a [D3/E8 §2/§5] 4 rounds x 50 in-flight mixed requests (894 requests): only 200/201/409
+PASS LOAD.2b [B9 §1] after load: no two confirmed reservations overlap on a table (46 confirmed)
+PASS LOAD.3 [D3 §2] service healthy after load
+
+=== s_round2 ===
+PASS C3.5a [C3/E4 §5/§4] reset: seeded reservation party_size of string type (party_size exemption) -> 422 validation_failed
+PASS C3.5b [C3/E4 §5/§4] reset: seeded reservation party_size true -> 422 validation_failed
+PASS C3.5c [C3/E4 §5/§4] reset: seeded reservation party_size 0 -> 422 validation_failed
+PASS C3.5d [C3/E5 §5/§4] reset: seeded starts_at_local with seconds -> 422 validation_failed
+PASS C3.5e [C3/E2 §5] reset: seeded restaurant_id of wrong JSON type -> 400 malformed_request
+PASS C3.5f [C3/E2 §5] reset: seeded table_id of wrong JSON type (array) -> 400 malformed_request
+PASS C3.5g [C3/E2 §5] reset: seeded starts_at_local of wrong JSON type (number) -> 400 malformed_request
+PASS C3.5h [C3 §3.3] reset: valid seeded fixture -> 204
+NOTE C3.n1 state after a rejected reset :: old token valid=True
+PASS P2.3a [P2 §8/§11 (map amendment 1)] PATCH past-cutoff booking with party_size 0: cutoff first -> 409 cutoff_passed
+PASS P2.3b [P2 §8/§11 (map amendment 1)] PATCH past-cutoff booking with table_id of wrong type: cutoff first -> 409 cutoff_passed
+PASS P2.3c [P2 §8/§11 (map amendment 1)] PATCH cancelled booking with invalid starts_at_local: cancelled first -> 409 reservation_cancelled
+PASS P2.3d [P2 §5] PATCH past-cutoff booking with unparseable body -> 400 malformed_request
+PASS P2.3e [P4 §8] PATCH unknown reference with unparseable body: 404 first (map amendment 1) -> 404 not_found
+PASS C3.6a [C3 §3.3] concurrent resets all 204; concurrent readers only ever see one complete fixture
+PASS C3.6b [C3 §3.3] after the last reset returns 204 only that fixture is visible (users and restaurants)
+PASS C3.6c [C3/E8 §3.3/§5] reset racing with 96 bookings: only 201/401/204 seen, no 5xx
+PASS C3.6d [C3 §3.3] after reset returned, state is exactly the fixture (no reservation survives, table free)
+PASS C3.6e [C3/E8 §3.3/§5] 20 signups racing a reset: only 201/204
+NOTE C3.n2 reset with 502 users (no size stated by spec) :: status=204 took 3.72s login_last_user=ok
+PASS C3.6f [C3/M2 §3.3/§4] after a 502-user reset the last seeded user logs in immediately
+
+=== final audits ===
+PASS E8.1 [E8 §5] no 5xx response in any probe request
+PASS E1.1 [E1 §5] every 4xx/5xx body is {error: {code, message}}
+PASS C4.1 [C4 §3.4] every response body is application/json; charset=utf-8
+PASS C5.1 [C5 §3.4] every starts_at/ends_at/created_at is RFC 3339 with explicit offset
+PASS D3.2 [D3 §2] every request within 5 s (reset/export/import within 10 s)
+
+TOTAL 392 checks: 392 passed, 0 failed, 6 notes
