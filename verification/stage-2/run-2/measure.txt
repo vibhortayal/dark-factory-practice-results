@@ -1,0 +1,8 @@
+viewport 375 /requests: item width 343 px at x=16; {'main_w': 343, 'main_x': 16, 'summary_x': 16, 'summary_y': 233, 'summary_w': 343, 'main_y': 417}
+viewport 375 /authorizations: item width 343 px at x=16; {'main_w': 343, 'main_x': 16, 'summary_x': 16, 'summary_y': 233, 'summary_w': 343, 'main_y': 1077}
+viewport 768 /requests: item width 736 px at x=16; {'main_w': 736, 'main_x': 16, 'summary_x': 16, 'summary_y': 189, 'summary_w': 736, 'main_y': 393}
+viewport 768 /authorizations: item width 736 px at x=16; {'main_w': 736, 'main_x': 16, 'summary_x': 16, 'summary_y': 189, 'summary_w': 736, 'main_y': 1015}
+viewport 1280 /requests: item width 657 px at x=507; {'main_w': 657, 'main_x': 507, 'summary_x': 116, 'summary_y': 189, 'summary_w': 375, 'main_y': 189}
+viewport 1280 /authorizations: item width 657 px at x=507; {'main_w': 657, 'main_x': 507, 'summary_x': 116, 'summary_y': 189, 'summary_w': 375, 'main_y': 189}
+viewport 1920 /requests: item width 657 px at x=827; {'main_w': 657, 'main_x': 827, 'summary_x': 436, 'summary_y': 189, 'summary_w': 375, 'main_y': 189}
+viewport 1920 /authorizations: item width 657 px at x=827; {'main_w': 657, 'main_x': 827, 'summary_x': 436, 'summary_y': 189, 'summary_w': 375, 'main_y': 189}

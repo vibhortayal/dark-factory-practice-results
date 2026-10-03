@@ -1,0 +1,678 @@
+[
+ {
+  "id": "A4-health",
+  "clause": "\u00a73.2",
+  "row": "A4",
+  "status": "PASS",
+  "fails": [],
+  "notes": [],
+  "secs": 0.0
+ },
+ {
+  "id": "A8-unknown-fields",
+  "clause": "\u00a73.4",
+  "row": "A8",
+  "status": "PASS",
+  "fails": [],
+  "notes": [],
+  "secs": 0.11
+ },
+ {
+  "id": "A9-ids",
+  "clause": "\u00a73.4",
+  "row": "A9",
+  "status": "PASS",
+  "fails": [],
+  "notes": [],
+  "secs": 0.09
+ },
+ {
+  "id": "A10-out-of-scope",
+  "clause": "\u00a71, \u00a74",
+  "row": "A10",
+  "status": "PASS",
+  "fails": [],
+  "notes": [],
+  "secs": 0.11
+ },
+ {
+  "id": "B2-overspend",
+  "clause": "\u00a71 inv 1,2",
+  "row": "B1,B2",
+  "status": "PASS",
+  "fails": [],
+  "notes": [],
+  "secs": 0.38
+ },
+ {
+  "id": "B3-pay-once",
+  "clause": "\u00a71 inv 3, \u00a78 pay",
+  "row": "B3",
+  "status": "PASS",
+  "fails": [],
+  "notes": [],
+  "secs": 0.35
+ },
+ {
+  "id": "B3-race-terminal",
+  "clause": "\u00a71 inv 3, \u00a74 requests",
+  "row": "B3",
+  "status": "PASS",
+  "fails": [],
+  "notes": [],
+  "secs": 0.58
+ },
+ {
+  "id": "B4-exact-2p53",
+  "clause": "\u00a74 arithmetic range",
+  "row": "B4",
+  "status": "PASS",
+  "fails": [],
+  "notes": [],
+  "secs": 0.05
+ },
+ {
+  "id": "C1-reset-replaces",
+  "clause": "\u00a73.3",
+  "row": "C1,C7",
+  "status": "PASS",
+  "fails": [],
+  "notes": [],
+  "secs": 0.2
+ },
+ {
+  "id": "C2-seeded-users",
+  "clause": "\u00a74 fixture, \u00a78 /me",
+  "row": "C2,C3,G1",
+  "status": "PASS",
+  "fails": [],
+  "notes": [],
+  "secs": 0.16
+ },
+ {
+  "id": "C4-seeded-records",
+  "clause": "\u00a74 fixture, feed contract",
+  "row": "C4",
+  "status": "PASS",
+  "fails": [],
+  "notes": [],
+  "secs": 0.11
+ },
+ {
+  "id": "C5-negative-balance",
+  "clause": "\u00a74 fixture",
+  "row": "C5",
+  "status": "PASS",
+  "fails": [],
+  "notes": [],
+  "secs": 0.08
+ },
+ {
+  "id": "C6-currencies",
+  "clause": "\u00a74 model, fixture",
+  "row": "C6",
+  "status": "PASS",
+  "fails": [],
+  "notes": [],
+  "secs": 0.23
+ },
+ {
+  "id": "C8-reset-malformed",
+  "clause": "\u00a73.3, \u00a75",
+  "row": "C8",
+  "status": "PASS",
+  "fails": [],
+  "notes": [],
+  "secs": 0.06
+ },
+ {
+  "id": "D1-error-shape",
+  "clause": "\u00a75",
+  "row": "D1",
+  "status": "PASS",
+  "fails": [],
+  "notes": [],
+  "secs": 0.07
+ },
+ {
+  "id": "D2-malformed",
+  "clause": "\u00a75",
+  "row": "D2",
+  "status": "PASS",
+  "fails": [],
+  "notes": [
+   "POST /settlements {\"transfers\": [{\"from_handle\": 5, \"to_handle\": \"bob\", \"amount\": 1}]}: got (422, 'validation_failed') (open choice; first reading (400, 'malformed_request'))"
+  ],
+  "secs": 0.15
+ },
+ {
+  "id": "D3-field-rules",
+  "clause": "\u00a75 bullet 1, \u00a78, \u00a711",
+  "row": "D3,D5,D6",
+  "status": "PASS",
+  "fails": [],
+  "notes": [],
+  "secs": 0.18
+ },
+ {
+  "id": "D4-integral-forms",
+  "clause": "\u00a74 model",
+  "row": "D4",
+  "status": "PASS",
+  "fails": [],
+  "notes": [],
+  "secs": 0.09
+ },
+ {
+  "id": "D5-amount-bounds",
+  "clause": "\u00a74 arithmetic range, \u00a78, \u00a711",
+  "row": "D5",
+  "status": "PASS",
+  "fails": [],
+  "notes": [],
+  "secs": 0.11
+ },
+ {
+  "id": "D6-note",
+  "clause": "\u00a78 payments note",
+  "row": "D6",
+  "status": "PASS",
+  "fails": [],
+  "notes": [],
+  "secs": 0.14
+ },
+ {
+  "id": "D7-missing-fields",
+  "clause": "\u00a75",
+  "row": "D7",
+  "status": "PASS",
+  "fails": [],
+  "notes": [],
+  "secs": 0.13
+ },
+ {
+  "id": "D8-query-digits",
+  "clause": "\u00a75 bullet 2",
+  "row": "D8",
+  "status": "PASS",
+  "fails": [],
+  "notes": [],
+  "secs": 0.1
+ },
+ {
+  "id": "D9-limit-offset",
+  "clause": "\u00a75 shared ranges, \u00a78 GET /requests, GET /activity",
+  "row": "D9,G12,G16",
+  "status": "PASS",
+  "fails": [],
+  "notes": [],
+  "secs": 0.11
+ },
+ {
+  "id": "D10-idem-key-header",
+  "clause": "\u00a75 shared ranges, \u00a77",
+  "row": "D10",
+  "status": "PASS",
+  "fails": [],
+  "notes": [],
+  "secs": 0.59
+ },
+ {
+  "id": "D11-unauthenticated",
+  "clause": "\u00a75, \u00a76, \u00a711",
+  "row": "D11,E9,F10,I1",
+  "status": "PASS",
+  "fails": [],
+  "notes": [],
+  "secs": 0.19
+ },
+ {
+  "id": "E1-signup",
+  "clause": "\u00a76, \u00a74 users",
+  "row": "E1,B1",
+  "status": "PASS",
+  "fails": [],
+  "notes": [],
+  "secs": 0.14
+ },
+ {
+  "id": "E2-handle-derivation",
+  "clause": "\u00a74 users and handles",
+  "row": "E2,E8",
+  "status": "PASS",
+  "fails": [],
+  "notes": [],
+  "secs": 0.19
+ },
+ {
+  "id": "E3-signup-conflicts",
+  "clause": "\u00a76 table, \u00a74",
+  "row": "E3",
+  "status": "PASS",
+  "fails": [],
+  "notes": [],
+  "secs": 0.23
+ },
+ {
+  "id": "E4-signup-validation",
+  "clause": "\u00a76 table",
+  "row": "E4",
+  "status": "PASS",
+  "fails": [],
+  "notes": [],
+  "secs": 0.08
+ },
+ {
+  "id": "E5-login",
+  "clause": "\u00a76",
+  "row": "E5,E6",
+  "status": "PASS",
+  "fails": [],
+  "notes": [],
+  "secs": 0.15
+ },
+ {
+  "id": "F1-replay",
+  "clause": "\u00a77 table",
+  "row": "F1,F3,F9",
+  "status": "PASS",
+  "fails": [],
+  "notes": [],
+  "secs": 0.66
+ },
+ {
+  "id": "F2-same-body",
+  "clause": "\u00a77",
+  "row": "F2",
+  "status": "PASS",
+  "fails": [],
+  "notes": [],
+  "secs": 0.08
+ },
+ {
+  "id": "F4-key-scope",
+  "clause": "\u00a77",
+  "row": "F4,F5",
+  "status": "PASS",
+  "fails": [],
+  "notes": [],
+  "secs": 0.1
+ },
+ {
+  "id": "F6-failed-key-reusable",
+  "clause": "\u00a77 table",
+  "row": "F6",
+  "status": "PASS",
+  "fails": [],
+  "notes": [],
+  "secs": 0.1
+ },
+ {
+  "id": "F7-concurrent-identical",
+  "clause": "\u00a77",
+  "row": "F7,B1",
+  "status": "PASS",
+  "fails": [],
+  "notes": [],
+  "secs": 0.63
+ },
+ {
+  "id": "F8-replay-after-change",
+  "clause": "\u00a77",
+  "row": "F8,G9",
+  "status": "PASS",
+  "fails": [],
+  "notes": [],
+  "secs": 0.11
+ },
+ {
+  "id": "F10-order",
+  "clause": "\u00a77 last paragraph, \u00a75",
+  "row": "F10",
+  "status": "PASS",
+  "fails": [],
+  "notes": [],
+  "secs": 0.08
+ },
+ {
+  "id": "G2-payment",
+  "clause": "\u00a78 POST /payments",
+  "row": "G2,G3,G4",
+  "status": "PASS",
+  "fails": [],
+  "notes": [],
+  "secs": 0.12
+ },
+ {
+  "id": "G5-request",
+  "clause": "\u00a78 POST /requests, \u00a74 requests",
+  "row": "G5,G6",
+  "status": "PASS",
+  "fails": [],
+  "notes": [],
+  "secs": 0.11
+ },
+ {
+  "id": "G7-pay",
+  "clause": "\u00a78 pay, \u00a74 requests",
+  "row": "G7,G8,G17",
+  "status": "PASS",
+  "fails": [],
+  "notes": [],
+  "secs": 0.23
+ },
+ {
+  "id": "G10-decline-cancel",
+  "clause": "\u00a78 decline, cancel; \u00a74 requests",
+  "row": "G10,G11",
+  "status": "PASS",
+  "fails": [],
+  "notes": [],
+  "secs": 0.12
+ },
+ {
+  "id": "G12-list-requests",
+  "clause": "\u00a78 GET /requests, \u00a74 feed contract",
+  "row": "G12,G17",
+  "status": "PASS",
+  "fails": [],
+  "notes": [],
+  "secs": 3.48
+ },
+ {
+  "id": "G13-split",
+  "clause": "\u00a78 POST /splits",
+  "row": "G13,G14,G15,G17",
+  "status": "PASS",
+  "fails": [],
+  "notes": [],
+  "secs": 0.12
+ },
+ {
+  "id": "G16-activity",
+  "clause": "\u00a74 feed contract, \u00a78 GET /activity",
+  "row": "G16,G17",
+  "status": "PASS",
+  "fails": [],
+  "notes": [],
+  "secs": 4.53
+ },
+ {
+  "id": "H1-rounding",
+  "clause": "\u00a79",
+  "row": "H1,H2",
+  "status": "PASS",
+  "fails": [],
+  "notes": [
+   "paying a zero-amount split request returns 201 {\"payment_id\":\"p_14bd661ff6c45adf\",\"from_user_id\":\"u_bob\",\"from_handle\":\"bob\",\"to_user_id\":\"u_ada\",\"to_handle\":\"ada\",\"amount\":0,\"currency\":\"EUR\",\"note\":\"zero\",\" (specification is silent)"
+  ],
+  "secs": 0.12
+ },
+ {
+  "id": "H3-splits-paid",
+  "clause": "\u00a79 last paragraph",
+  "row": "H3,B1",
+  "status": "PASS",
+  "fails": [],
+  "notes": [],
+  "secs": 0.12
+ },
+ {
+  "id": "I1-settlement-auth",
+  "clause": "\u00a711",
+  "row": "I1,I2",
+  "status": "PASS",
+  "fails": [],
+  "notes": [],
+  "secs": 0.12
+ },
+ {
+  "id": "I3-settlement-shape",
+  "clause": "\u00a711",
+  "row": "I3,I4,D3",
+  "status": "PASS",
+  "fails": [],
+  "notes": [],
+  "secs": 0.12
+ },
+ {
+  "id": "I4-settlement-errors",
+  "clause": "\u00a711",
+  "row": "I4,I6",
+  "status": "PASS",
+  "fails": [],
+  "notes": [],
+  "secs": 0.12
+ },
+ {
+  "id": "I5-net-affordability",
+  "clause": "\u00a711",
+  "row": "I5,B1,B2",
+  "status": "PASS",
+  "fails": [],
+  "notes": [],
+  "secs": 0.24
+ },
+ {
+  "id": "I7-settlement-response",
+  "clause": "\u00a711",
+  "row": "I7,I8",
+  "status": "PASS",
+  "fails": [],
+  "notes": [],
+  "secs": 0.11
+ },
+ {
+  "id": "A5-load-50",
+  "clause": "\u00a72 resource limits, \u00a75 last line, \u00a71 invariants",
+  "row": "A5,A6,B1",
+  "status": "PASS",
+  "fails": [],
+  "notes": [
+   "load: slowest mixed request 0.036s; slowest of 50 concurrent logins 0.384s",
+   "reset of a 60-user fixture took 0.588s"
+  ],
+  "secs": 1.36
+ },
+ {
+  "id": "J1-export-import",
+  "clause": "\u00a710",
+  "row": "J1,J2,J3,J4,E7",
+  "status": "PASS",
+  "fails": [],
+  "notes": [],
+  "secs": 0.35
+ },
+ {
+  "id": "J5-import-invalid",
+  "clause": "\u00a710, \u00a75",
+  "row": "J5",
+  "status": "PASS",
+  "fails": [],
+  "notes": [
+   "import non-object body []: got (422, 'validation_failed') (open choice; first reading (400, 'malformed_request'))",
+   "import non-object body \"x\": got (422, 'validation_failed') (open choice; first reading (400, 'malformed_request'))",
+   "import non-object body 7: got (422, 'validation_failed') (open choice; first reading (400, 'malformed_request'))"
+  ],
+  "secs": 0.11
+ },
+ {
+  "id": "T1-me-fields",
+  "clause": "stage-2 API GET /me; existing API changes",
+  "row": "T1,S7",
+  "status": "PASS",
+  "fails": [],
+  "notes": [],
+  "secs": 0.16
+ },
+ {
+  "id": "S6-ttl-fixture",
+  "clause": "stage-2 Model",
+  "row": "S6",
+  "status": "PASS",
+  "fails": [],
+  "notes": [],
+  "secs": 0.41
+ },
+ {
+  "id": "S7-seeded-auths",
+  "clause": "stage-2 Model, GET /authorizations",
+  "row": "S7,T12,T4",
+  "status": "PASS",
+  "fails": [],
+  "notes": [],
+  "secs": 0.18
+ },
+ {
+  "id": "S8-seeded-holds-vs-balance",
+  "clause": "stage-2 Model",
+  "row": "S8",
+  "status": "PASS",
+  "fails": [],
+  "notes": [],
+  "secs": 0.35
+ },
+ {
+  "id": "S9-expiry-by-clock",
+  "clause": "stage-2 Model (expiry), capture table",
+  "row": "S9,T9,T11",
+  "status": "PASS",
+  "fails": [],
+  "notes": [],
+  "secs": 3.72
+ },
+ {
+  "id": "T2-authorize",
+  "clause": "stage-2 POST /authorizations; invariants 1,2",
+  "row": "T2,T3,T4,T14,S2",
+  "status": "PASS",
+  "fails": [],
+  "notes": [],
+  "secs": 0.24
+ },
+ {
+  "id": "T5-capture-final",
+  "clause": "stage-2 POST /authorizations/{id}/capture",
+  "row": "T5,T6,T7,S4",
+  "status": "PASS",
+  "fails": [],
+  "notes": [],
+  "secs": 0.13
+ },
+ {
+  "id": "T8-capture-extended",
+  "clause": "stage-2 Extended capture mode",
+  "row": "T8,T9,T11",
+  "status": "PASS",
+  "fails": [],
+  "notes": [],
+  "secs": 0.13
+ },
+ {
+  "id": "T9-capture-void-permissions",
+  "clause": "stage-2 capture and void tables",
+  "row": "T9,T10",
+  "status": "PASS",
+  "fails": [],
+  "notes": [],
+  "secs": 0.11
+ },
+ {
+  "id": "T12-list-authorizations",
+  "clause": "stage-2 GET /authorizations",
+  "row": "T12",
+  "status": "PASS",
+  "fails": [],
+  "notes": [],
+  "secs": 3.47
+ },
+ {
+  "id": "T13-idempotency-new-paths",
+  "clause": "stage-2 'seven idempotent write paths'; stage-1 \u00a77",
+  "row": "T13,T7",
+  "status": "PASS",
+  "fails": [],
+  "notes": [],
+  "secs": 0.13
+ },
+ {
+  "id": "S3-concurrent",
+  "clause": "stage-2 invariants 1-3; Concurrent operations",
+  "row": "S1,S2,S3,S5,T13,K5",
+  "status": "PASS",
+  "fails": [],
+  "notes": [
+   "stage-2 load: slowest request 0.035s"
+  ],
+  "secs": 0.64
+ },
+ {
+  "id": "L2-content-negotiation",
+  "clause": "stage-2 intro (shared routes)",
+  "row": "L1,L2",
+  "status": "PASS",
+  "fails": [],
+  "notes": [],
+  "secs": 0.08
+ },
+ {
+  "id": "R5-export-import-holds",
+  "clause": "stage-1 \u00a710 applied to stage 2; stage-2 seven idempotent paths",
+  "row": "R5",
+  "status": "PASS",
+  "fails": [],
+  "notes": [],
+  "secs": 0.2
+ },
+ {
+  "id": "R1-upgrade-import",
+  "clause": "stage-2 Existing clients after an upgrade; stage-1 \u00a710",
+  "row": "R1,R3,R4",
+  "status": "PASS",
+  "fails": [],
+  "notes": [],
+  "secs": 0.23
+ },
+ {
+  "id": "J6-cross-container",
+  "clause": "\u00a710",
+  "row": "J3,J6",
+  "status": "PASS",
+  "fails": [],
+  "notes": [
+   "source container stopped with: docker kill nsv-stage2-a"
+  ],
+  "secs": 0.41
+ },
+ {
+  "id": "A6-no-5xx",
+  "clause": "\u00a75 last line",
+  "row": "A6",
+  "status": "PASS",
+  "fails": [],
+  "notes": [
+   "3909 requests audited"
+  ],
+  "secs": 0.0
+ },
+ {
+  "id": "A7-content-type",
+  "clause": "\u00a73.4",
+  "row": "A7",
+  "status": "PASS",
+  "fails": [],
+  "notes": [],
+  "secs": 0.0
+ },
+ {
+  "id": "A5-latency",
+  "clause": "\u00a72 resource limits",
+  "row": "A5",
+  "status": "PASS",
+  "fails": [],
+  "notes": [
+   "slowest request: POST /_test/reset 0.588s"
+  ],
+  "secs": 0.0
+ }
+]
