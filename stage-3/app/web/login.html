@@ -1,0 +1,14 @@
+<section class="narrow">
+  <h1>Welcome back</h1>
+  <p class="lede">Log in to book a table or manage a reservation.</p>
+  <form id="login-form" class="card form-stack" novalidate>
+    <div class="field"><label for="login-email">Email</label>
+      <input id="login-email" data-testid="login-email" type="email" autocomplete="email" required></div>
+    <div class="field"><label for="login-password">Password</label>
+      <input id="login-password" data-testid="login-password" type="password" autocomplete="current-password" required></div>
+    <div id="auth-slot"></div>
+    <button type="submit" class="btn btn-primary" data-testid="login-submit">Log in</button>
+    <p class="alt">New here? <a href="/signup">Create an account</a></p>
+  </form>
+  <div id="auth-done"></div>
+</section>
