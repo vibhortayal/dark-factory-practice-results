@@ -33,6 +33,14 @@ class ConcurrencyTests(ApiTestCase):
         self.assertEqual({r[1]["error"]["code"] for r in res if r[0] == 409}, {"request_not_pending"})
         self.assertEqual(self.balance("ada"), 9950)
 
+    def test_pay_same_key_concurrent(self):
+        rid = self.call("POST", "/requests", {"payer_handle": "ada", "amount": 50}, who="bob", key="r")[1]["request_id"]
+        res = run_parallel([lambda: self.call("POST", "/requests/%s/pay" % rid, {}, who="ada", key="same")
+                            for _ in range(20)])
+        self.assertEqual(sorted(r[0] for r in res), [200] * 19 + [201])
+        self.assertEqual(len({str(r[1]) for r in res}), 1)
+        self.assertEqual(self.balance("ada"), 9950)
+
     def test_pay_decline_cancel_race(self):
         rid = self.call("POST", "/requests", {"payer_handle": "ada", "amount": 50}, who="bob", key="r")[1]["request_id"]
         fns = [lambda: self.call("POST", "/requests/%s/pay" % rid, {}, who="ada", key="p"),
