@@ -5,8 +5,8 @@ Run started: 2026-10-03T19:42Z. Track: pocketful.
 | Unit | State | Accepted revision | BLOCK rounds | Elapsed | Notes |
 |---|---|---|---|---|---|
 | stage-1 | DONE | 172a3180c731a310e00e403ea1c4990a4a78b5d4 | 0 | 19:43Z–20:02Z (19 min) | Verifier PASS, verdict commit 7a52d057; map `acceptance/stage-1.md` |
-| stage-2 | BUILDING (fix round 1) | — | 1 | started 20:05Z | map `acceptance/stage-2.md`; BLOCK #1 on 60a459ae (verdict commit 0c88a232): Requests/Holds screens laid out in a collapsed column (rows Q1, Q3, Q4); all other checks passed |
-| stage-3 | PLANNED | — | 0 | — | |
+| stage-2 | DONE | c59be33b9aaed102d1728cf7f6d9df7a2e0f571f | 1 | 20:05Z–20:47Z (42 min) | BLOCK #1 on 60a459ae (verdict commit 0c88a232, collapsed Requests/Holds layout, rows Q1/Q3/Q4); PASS on c59be33b (verdict commit 65ec9d11); map `acceptance/stage-2.md` |
+| stage-3 | BUILDING | — | 0 | started 20:50Z | map `acceptance/stage-3.md` |
 | stage-4 | PLANNED | — | 0 | — | |
 
 ## Stage 1 — Verifier verdict (PASS, revision 172a3180)
@@ -34,3 +34,27 @@ Notes (non-blocking), copied from the verdict:
 
 Remaining risk: hidden judging tests may read the open choices in notes 1, 2, 4 differently; timing
 measured on this host only; long-run memory growth not measured.
+
+## Stage 2 — Verifier verdict (PASS, revision c59be33b; round 1 BLOCK on 60a459ae)
+
+Evidence: `verification/stage-2/` (check lists, scripts, VERDICT files, run-1/, run-2/ with measurements
+and screenshots), harness output in `../checks/verifier-s2-r2` and `../checks/verifier-s2-r2-isolated`.
+
+- Round-1 finding (request and hold cards 34–264 px wide, summary below the list) fixed: cards 343 px at
+  375 px, 657 px at 1280/1920 px; summary above the list on mobile, beside it on desktop.
+- Delivery checks 12/12; API list 73/73 (3909 requests, 0 responses ≥ 500); browser list 30/30 at 375 and 1280 px.
+- Supplied checks: stage 1 pass, stage 2 pass, host mode and `--mode isolated`.
+- Implementer's tests: API 82 OK (1 skipped), browser 24 OK. `git diff 172a3180 -- stage-1` empty.
+
+Notes (non-blocking), copied from the verdict:
+
+1. Carried from stage 1: settlement entry with a non-string handle → 422; import with a non-object body → 422;
+   zero-amount split request pays as a 0 payment.
+2. Capture of an authorization past `expires_at` or seeded `expired` answers `authorization_expired`
+   (the table also lists `authorization_not_open`); matches the recorded choice.
+3. `authorization-expires-{id}` shows RFC 3339 text with microseconds for API-created holds.
+4. Below 900 px the Holds screen puts the hold form above the list (holds start ~1080 px down at 375 px).
+5. Lazy expiry under the global lock, cost proportional to open holds; state in memory and unpruned.
+
+Remaining risk: hidden judging tests; UI quality judging is subjective; only Chromium at 375/768/1280/1920 px;
+timing measured on this host.
