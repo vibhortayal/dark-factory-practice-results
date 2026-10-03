@@ -1,0 +1,6 @@
+PASS UI4.AP9a [AP9] plan previewed and applied by the manager; the diner's booking moved off t_2 to table 1 (party 2, no unused seat)
+PASS UI4.AP9b [AP9] lookup shows the booking with its new table (label 1, no longer 2), still confirmed
+PASS UI4.AP9c [AP9] availability grid shows the closed table unavailable in every overlapping slot (and bookable again at 20:30); no combination with it is offered there; table 1 is taken at 19:00
+PASS UI4.AP9d [AP9] the closed cell cannot be opened for booking
+
+TOTAL 4 checks: 4 passed, 0 failed

@@ -1,0 +1,13 @@
+
+=== s_oracle ===
+PASS P4.O1 [RP3/RP4/RP5 Seating changes] oracle: 200 randomised scenarios (6 tables, 4 random pairs, 3-9 bookings, policies changing capacities/duration, cancelled bookings, second closures): service plan == brute-force optimum (assignments in reference order, changed flags, moved_count, unused_seats) or no_feasible_plan exactly when infeasible [277 plans, 10 infeasible, considered max 6, planning_limit beyond 6: 0]
+PASS P4.O2 [AP4/AP6 Seating changes] oracle: 138 plans applied: every considered booking sits on its assigned tables, revision +1 only when changed, times/party/terms identical, no overlaps; later plans respect applied closures
+
+=== final audits ===
+PASS E8.1 [E8 §5] no 5xx response in any probe request
+PASS E1.1 [E1 §5] every 4xx/5xx body is {error: {code, message}}
+PASS C4.1 [C4 §3.4] every response body is application/json; charset=utf-8
+PASS C5.1 [C5 §3.4] every starts_at/ends_at/created_at is RFC 3339 with explicit offset
+PASS D3.2 [D3 §2] every request within 5 s (reset/export/import within 10 s)
+
+TOTAL 7 checks: 7 passed, 0 failed, 0 notes

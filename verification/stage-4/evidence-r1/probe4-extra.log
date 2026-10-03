@@ -1,0 +1,14 @@
+
+=== s_plan_series ===
+PASS P4.AP8a [AP8 Amend recurring reservations] a repair moves series occurrences: each affected series revision +1 once; exception flags, references, indices, scheduled dates and terms preserved; restaurant revision +1 once
+PASS P4.AP8b [AP8 Amend recurring reservations] occurrences outside the closure are untouched
+PASS P4.SA4b [SA4/AP8 Amend recurring reservations] amending a series whose occurrence 0 was moved by the plan (not an exception): it is still eligible, keeps the plan's tables and its scheduled date; occurrence 1 keeps p_3
+
+=== final audits ===
+PASS E8.1 [E8 §5] no 5xx response in any probe request
+PASS E1.1 [E1 §5] every 4xx/5xx body is {error: {code, message}}
+PASS C4.1 [C4 §3.4] every response body is application/json; charset=utf-8
+PASS C5.1 [C5 §3.4] every starts_at/ends_at/created_at is RFC 3339 with explicit offset
+PASS D3.2 [D3 §2] every request within 5 s (reset/export/import within 10 s)
+
+TOTAL 8 checks: 8 passed, 0 failed, 0 notes

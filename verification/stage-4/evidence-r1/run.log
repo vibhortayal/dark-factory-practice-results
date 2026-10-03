@@ -1,0 +1,51 @@
+== export of 5b21fe642ab1ee1d9e6b7892e050eda00f477225
+.
+..
+.dockerignore
+.gitignore
+Dockerfile
+RUN.md
+app
+requirements.txt
+tests
+== earlier folders unchanged: stage-1 vs a8301bb: 0 lines; stage-2 vs 0d321ce: 0 lines; stage-3 vs fcdb0a2: 0 lines
+== nested .git/__pycache__: 0
+== external URLs in shipped files:
+== docker build --no-cache
+BUILD OK
+healthy after .333509999 s
+healthy after .334435767 s
+healthy after .333446989 s
+healthy after .335769567 s
+healthy after .349743074 s
+no outbound: [Errno 101] Network is unreachable
+== S0a stage-1 list on the stage-4 image (revision ignored in equality checks)
+probe1 exit: 0
+TOTAL 392 checks: 392 passed, 0 failed, 6 notes
+== S0b stage-2 API list on the stage-4 image (upgrade source: stage-1 container)
+probe2 exit: 0
+TOTAL 98 checks: 98 passed, 0 failed, 1 notes
+== S0c stage-3 list on the stage-4 image
+probe3 exit: 0
+TOTAL 171 checks: 171 passed, 0 failed, 1 notes
+== P4 stage-4 list (oracle, apply, amend, upgrades, load)
+probe4 exit: 0
+TOTAL 99 checks: 99 passed, 0 failed, 3 notes
+== UI4 browser: screens reflect an applied plan
+ui4 exit: 0
+TOTAL 4 checks: 4 passed, 0 failed
+== UI browser list (upgrade source: stage-1 container)
+ui exit: 0
+TOTAL 97 checks: 97 passed, 0 failed, 2 notes
+== UI upgrade section again with the stage-2 container as the source
+ui upgrade s2 exit: 0
+TOTAL 11 checks: 11 passed, 0 failed, 1 notes
+== UI upgrade section again with the stage-3 container as the source
+ui upgrade s3 exit: 0
+TOTAL 11 checks: 11 passed, 0 failed, 1 notes
+== container state
+/tkv4-a running=true oom=false
+/tkv4-b running=true oom=false
+tkv4-a mem=116.8MiB / 2GiB
+tkv4-b mem=26.98MiB / 2GiB
+stderr lines container A: 0

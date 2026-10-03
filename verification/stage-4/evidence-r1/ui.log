@@ -1,0 +1,125 @@
+
+=== u_routes ===
+PASS UI.U1a [U1] GET / -> 200 text/html
+PASS UI.U1b [U1] GET /signup -> 200 text/html
+PASS UI.U1c [U1] GET /login -> 200 text/html
+PASS UI.U1d [U1] GET /lookup -> 200 text/html
+PASS UI.U1e [U1] unknown path still JSON 404 with error body
+PASS UI.U1f [U1] API /restaurants still application/json; charset=utf-8
+
+=== u_auth ===
+PASS UI.U3a [U3] login screen has login-email, login-password, login-submit
+PASS UI.U4a [U4] auth-error absent from the DOM on a fresh /login; current-user absent when signed out
+PASS UI.U4b [U3/U4] bad login shows a nonempty auth-error and does not sign in
+PASS UI.U3b [U3/U5] good login -> current-user contains the display name
+PASS UI.U4c [U4] auth-error gone after a successful login
+PASS UI.U5a [U5] current-user (with display name) and logout-button visible on all four routes when signed in
+PASS UI.U5b [U5] logout-button signs out: current-user gone, also after navigation
+PASS UI.U2a [U2] signup screen has signup-email, signup-password, signup-display-name, signup-submit; no auth-error initially
+PASS UI.U4d [U4] signup with a 5-character password shows auth-error (or is blocked) and does not sign in
+PASS UI.U2b [U2] signup signs the user in: current-user contains the display name
+PASS UI.U2c [U2] the account exists on the server
+PASS UI.U4e [U4] signup with a registered email shows a nonempty auth-error
+
+=== u_grid ===
+PASS UI.G1a [G1] search screen has restaurant-select, date-input, party-size-input, search-button
+PASS UI.G1b [G1] restaurant-select option values are exactly the restaurant ids
+PASS UI.G1c [G1/Q1] options show the restaurant names
+PASS UI.G1d [G1] date-input is a date field and party-size-input a number field
+PASS UI.G2a [G2] party 2: one cell per table per slot (24), data-available equals available_table_ids membership; availability-grid visible
+PASS UI.UC1a [UC1] party 2: combination cells slot-t_1+t_2-/slot-t_3+t_2- are available exactly for pairs in available_options (6); no reversed-id testid
+PASS UI.G2b [G2] party 4: one cell per table per slot (24), data-available equals available_table_ids membership; availability-grid visible
+PASS UI.UC1b [UC1] party 4: combination cells slot-t_1+t_2-/slot-t_3+t_2- are available exactly for pairs in available_options (6); no reversed-id testid
+PASS UI.G2c [G2] party 6: one cell per table per slot (24), data-available equals available_table_ids membership; availability-grid visible
+PASS UI.UC1c [UC1] party 6: combination cells slot-t_1+t_2-/slot-t_3+t_2- are available exactly for pairs in available_options (6); no reversed-id testid
+PASS UI.G3a [G3] day without slots: no-slots visible and no slot cells shown
+PASS UI.G3b [G3] searching an open day afterwards: grid back, no-slots gone
+PASS UI.G4a [G4] click on an unavailable cell does nothing (no booking form)
+PASS UI.G4b [G4/F1] click on an available cell opens the booking form: summary has table label and 19:00, party prefilled with 4, submit button present
+PASS UI.F1a [F1/Q1] booking-summary shows the table label 'Fenster' and the local start time 12:00
+PASS UI.G5 [G5] signed out: click on an available cell shows auth-error or navigates to /login
+
+=== u_booking ===
+PASS UI.K1a [K1] no confirmation before submitting
+PASS UI.K1b [K1] confirmation shown; confirmation-reference is exactly the server's reference
+PASS UI.K1c [K1] confirmation-details contains restaurant name, table label and local start time
+PASS UI.K1d [K1] the reservation on the server is the selected one (t_2, 19:00, party 4)
+PASS UI.UC2s [UC2] single booking: confirmation-tables (if shown) contains the table label
+PASS UI.F2a [F2] booking form stays on screen after success; no booking-error
+PASS UI.F2b [F2] resubmitting the unchanged form: same confirmation-reference, no booking-error, still one reservation
+PASS UI.F2c [F2] both submissions carried the same Idempotency-Key and the same body
+PASS UI.F3 [F3] after changing booking-party-size the next submission is a new request (new key, party_size 3 in the body)
+PASS UI.F3b [F3/R3] that new request is refused by the server (own booking holds the table): booking-error shown
+PASS UI.F4 [F4] double click on booking-submit leaves exactly one new reservation, a confirmation and no booking-error
+
+=== u_conflict ===
+PASS UI.R2a [R2] table taken by another client after the form opened: nonempty booking-error, no confirmation
+PASS UI.R2b [R2] availability refreshed: the cell is now data-available=false
+PASS UI.R2c [R2] form and its inputs preserved (form visible, party size 3, summary still names 19:00)
+PASS UI.R2d [R2] no reservation was created for the diner
+
+=== u_race ===
+NOTE UI.Q2n loading state while a search is pending :: aria-busy element present=True; see loading-desktop.png
+PASS UI.R1a [R1] search A (Hafenblick) answered after search B (Zum Anker): grid shows B's cells only
+PASS UI.R1b [R1] search controls still describe B
+PASS UI.R1c [R1] booking form opened afterwards describes B (table 2, 19:00, party 4), nothing of A
+PASS UI.R1d [R1] the booking made from that form is for B's restaurant and table
+
+=== u_lost ===
+PASS UI.R3a [R3] response lost after commit: nonempty booking-uncertain, no booking-error, no confirmation
+PASS UI.R3b [R3] the booking did commit on the server exactly once
+PASS UI.R3c [R3] retry of the unchanged form shows the original reference; uncertainty and error removed; still one reservation
+PASS UI.R3d [R3] the retry used the same Idempotency-Key and the same body
+PASS UI.R3e [R3] request lost before commit: booking-uncertain, no confirmation for this selection, nothing new on the server
+PASS UI.R3f [R3] retry then succeeds: confirmation with the server's reference, uncertainty removed
+PASS UI.R3g [R3] retry answered by a confirmed rejection (409): booking-error, no confirmation
+
+=== u_combo ===
+PASS UI.UC1h [UC1] party 8 at Hafenblick: combination cell slot-h_b+h_a-12:00 available (ids in combinable order), singles unavailable, no slot-h_a+h_b testid
+PASS UI.Q1a [Q1] combination cell text is human-readable (table labels, not raw ids)
+PASS UI.UC2a [UC2/Q1] booking-summary names both tables (Garten, Fenster) and 12:00, without raw 'h_b+h_a'
+PASS UI.R4a [R4] combination booking, response lost after commit: booking-uncertain, no error, no confirmation; one pair booking on the server
+PASS UI.R4b [R4/UC3] retry recovers the original reference; same key and body; still one booking
+PASS UI.UC2b [UC2] confirmation-tables contains every table label (Garten, Fenster); details have restaurant name and time
+PASS UI.R4c [R4] combination refused with 409 (a member was taken): booking-error, no new confirmation for it, form kept, cell no longer available
+PASS UI.UC2c [UC2/UC3] lookup of the combination: reservation-detail, status exactly 'confirmed', reservation-tables names both tables
+PASS UI.UC3 [UC3/L2] cancel of the combination: status exactly 'cancelled', cancel button absent, both tables free on the server
+
+=== u_lookup ===
+PASS UI.L1a [L1] lookup screen has lookup-reference-input and lookup-submit; no detail or error before a lookup
+PASS UI.L3a [L3] unknown reference: nonempty reservation-error, no reservation-detail
+PASS UI.L3b [L3] another diner's reference: reservation-error, no detail
+PASS UI.L1b [L1] own reference: reservation-detail shown, reservation-status exactly 'confirmed', cancel button present, error gone
+PASS UI.L1c [L1/Q1] detail shows the reference, restaurant name and local time
+PASS UI.UC2d [UC2] reservation-tables of a single booking contains its label
+PASS UI.L2a [L2] cancel: status exactly 'cancelled' without reload, cancel button absent, slot free on the server
+PASS UI.L2b [L2] lookup of a cancelled booking: status 'cancelled', no cancel button
+PASS UI.L3c [L3] refused cancel (booking already started): nonempty reservation-error, status stays 'confirmed'
+
+=== u_layout ===
+PASS UI.Q3-mobile [Q3] 375px: no horizontal page scroll on the four routes, populated grid, combination grid, form, confirmation, lookup detail; whole flow completes
+PASS UI.Q4a-mobile [Q4] 375px: every required input has a visible label element
+PASS UI.Q4c-mobile [Q4] 375px: text contrast >= 4.5:1 (3:1 large text) on visible text elements
+PASS UI.Q3-desktop [Q3] 1280px: no horizontal page scroll on the four routes, populated grid, combination grid, form, confirmation, lookup detail; whole flow completes
+PASS UI.Q4a-desktop [Q4] 1280px: every required input has a visible label element
+PASS UI.Q4c-desktop [Q4] 1280px: text contrast >= 4.5:1 (3:1 large text) on visible text elements
+PASS UI.Q4b [Q4] keyboard focus is apparent: focused control reachable by Tab and its outline/shadow/border differs from the unfocused state
+PASS UI.Q4d [Q4] the same navigation links on all four routes, covering search, lookup and sign-in
+
+=== u_upgrade ===
+PASS UI.X2a [X2] browser signs in while the stage-1 service is behind the API (token issued by stage 1)
+PASS UI.X3a [X3] booking sent before the upgrade, response lost: booking-uncertain; stage 1 committed exactly one booking
+PASS UI.X1 [X1] stage-2 imports the stage-1 export -> 204
+PASS UI.X3b [X3] after the upgrade, without reload, the unchanged form retries and shows the original stage-1 reference; uncertainty removed; still one booking
+PASS UI.X3c [X3] the retry carried the same Idempotency-Key and body as the lost request
+PASS UI.X3d [X3/K1] recovered confirmation still has restaurant name, table label and local start time; confirmation-tables (if shown) has the label
+PASS UI.X2b [X2] still signed in after the upgrade without a reload
+PASS UI.X2c [X2] still signed in after navigating (token issued by stage 1 accepted by stage 2)
+PASS UI.X2d [X2] a reference retained from stage 1 opens in lookup with status 'confirmed'
+PASS UI.X2e [X2/UC2] lookup of the stage-1-era reservation shows its table label (reservation-tables or detail text)
+
+=== final audits ===
+PASS UI.EXT [S2-D] no browser request left the service origin during the UI probes
+NOTE UI.CONSOLE 15 browser console errors (aborted/4xx fetches are expected) :: ['Failed to load resource: net::ERR_FAILED', 'Failed to load resource: the server responded with a status of 401 (Unauthorized)', 'Failed to load resource: the server responded with a status of 404 (Not Found)', 'Failed to load resource: the server responded with a status of 409 (Conflict)', 'Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)']
+
+TOTAL 97 checks: 97 passed, 0 failed, 2 notes

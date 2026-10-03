@@ -1,0 +1,128 @@
+
+=== s_preview ===
+PASS P4.RP1a [RP1 Seating changes] preview without token -> 401 unauthenticated
+PASS P4.RP1b [RP1 Seating changes] preview at an unknown restaurant -> 404 not_found
+PASS P4.RP1c [RP1 Seating changes] preview by a non-manager -> 403 forbidden
+PASS P4.RP1d [RP1 stage-1 §7] preview without Idempotency-Key -> 400 missing_idempotency_key
+PASS P4.RP2a [RP2 Seating changes] invalid interval (from >= to, no offset, garbage, wrong type, missing fields) -> 422 validation_failed
+PASS P4.RP2b [RP2 Seating changes] unknown table -> 404 not_found
+PASS P4.RP2c [RP2 Seating changes] table of another restaurant -> 404 not_found
+PASS P4.RP2d [RP2 stage-1 §5] table_id of wrong JSON type -> 400 malformed_request
+PASS P4.RP7a [RP7/RP3 Seating changes] 201 {plan_id, restaurant_revision, closure, assignments, moved_count, unused_seats}: considered = the two confirmed bookings overlapping the interval (not the later one, not the cancelled one), in reference order; closure echoed
+PASS P4.RP8a [RP8/RR1 Seating changes] preview changed nothing: reservations, revisions, histories, availability (no closure), restaurant revision
+PASS P4.RP1e [RP1 stage-1 §7] replay of the preview -> 200 identical (same plan_id)
+PASS P4.RP1f [RP1 stage-1 §7] same key, different body -> 409 idempotency_key_reuse
+PASS P4.RP2e [RP2 Seating changes] instants with Z offset accepted and compared as instants (same interval -> same assignments)
+PASS P4.RP3a [RP3 Seating changes] half-open intervals: a closure ending at the booking's start or starting at its end considers nothing on that table; one minute of overlap considers it
+PASS P4.RP7b [RP7 map decision 4] interval with no bookings: 201 with empty assignments, moved_count 0, unused_seats 0
+PASS P4.RP8b [RP8/RP4 Seating changes] no feasible plan (party 8: p_6 closed, pair p_5+p_6 closed, pair p_3+p_4 blocked by a fixed booking) -> 409 no_feasible_plan, nothing changed
+PASS P4.RP8c [RP8 stage-1 §7] the key of the failed preview is reusable (different body -> 201)
+PASS P4.RP4a [RP4 Seating changes] capacity under the booking's OWN accepted terms: party 3 accepted under the fixture capacities goes to p_4 (4 seats then), not to p_1/p_2 (6 only under the newer policy)
+PASS P4.RP4b [RP4 Seating changes] diner cutoffs do not prevent a repair: a booking in the past is planned and moved by apply
+
+=== s_apply ===
+PASS P4.AP1a [AP1 Seating changes] apply without token -> 401 unauthenticated
+PASS P4.AP1b [AP1 Seating changes] apply by a non-manager -> 403 forbidden
+PASS P4.AP1c [AP1 stage-1 §7] apply without Idempotency-Key -> 400 missing_idempotency_key
+PASS P4.AP3a [AP3 Seating changes] apply an unknown plan -> 404 not_found
+PASS P4.AP3b [AP3 Seating changes] apply a plan that belongs to another restaurant -> 404 not_found
+PASS P4.AP1d [AP1 Seating changes] apply at an unknown restaurant -> 404 not_found
+PASS P4.AP3c [AP3 Seating changes] an intervening restaurant revision (a new booking) invalidates the plan: 409 stale_plan, nothing changed
+PASS P4.AP2 [AP2/AP7 Seating changes] apply -> 201 {plan_id, restaurant_revision = preview + 1, reservations = every considered booking in reference order as ordinary responses}; a write at another restaurant did not invalidate the plan
+PASS P4.AP4a [AP4 Seating changes] moved booking: revision 2, same times/party/terms; one reassigned history entry with a table_ids change (complete lists), plan_id, resulting revision and unchanged terms
+PASS P4.AP4b [AP4 Seating changes] unmoved considered booking gained nothing (revision 1, one history entry)
+PASS P4.RR1a [RR1/AP4 Seating changes] restaurant revision +1 once for the whole plan
+PASS P4.AP3d [AP3 Seating changes] replay of the successful apply key -> 200 original response
+PASS P4.AP3e [AP3 Seating changes] the applied plan under a different key -> 409 plan_already_applied
+PASS P4.AP5a [AP5 Seating changes] closure 19:00-20:30 on p_3 removes the single and its pairs from every overlapping slot (18:00..20:00) and from no other (17:30 ends at 19:00, 20:30 starts at the end)
+PASS P4.AP5b [AP5 Seating changes] explain: no_overlap false for the closed table inside the closure (capacity true), true outside
+PASS P4.AP5c [AP5 Seating changes] create on the closed table inside the closure -> 409 table_unavailable
+PASS P4.AP5d [AP5 Seating changes] create on a pair containing the closed table -> 409 table_unavailable
+PASS P4.AP5e [AP5 Seating changes] PATCH onto the closed table -> 409 table_unavailable
+PASS P4.AP5f [AP5 Seating changes] moves onto the closed table -> 409 table_unavailable
+PASS P4.AP5g [AP5 Seating changes] outside [from,to) the table is bookable: 17:30 (ends at from), 20:30 (starts at to), another day
+PASS P4.AP5h [AP5 Seating changes] series adoption whose occurrence falls into the closure -> 409 table_unavailable
+PASS P4.AP3f [AP3 Seating changes] replay of the apply key after later changes -> 200 original response
+PASS P4.AP6 [AP6 Seating changes] a later plan does not assign the previously closed table (the party of 4 leaves p_4 for a free table that is not p_3)
+PASS P4.AP7 [AP7 Seating changes] 10 concurrent applies of two plans made at one revision: exactly one 201, the rest 409 (stale_plan or plan_already_applied); exactly one plan's move is in effect, restaurant revision +1
+
+=== s_plan_series ===
+PASS P4.AP8a [AP8 Amend recurring reservations] a repair moves series occurrences: each affected series revision +1 once; exception flags, references, indices, scheduled dates and terms preserved; restaurant revision +1 once
+PASS P4.AP8b [AP8 Amend recurring reservations] occurrences outside the closure are untouched
+
+=== s_revision ===
+PASS P4.RR1 [RR1 Seating changes] restaurant revision: 0 after reset; +1 per booking, real amendment, cancellation, policy publication, plan application, once per moves batch, series adoption and series amendment; unchanged by replays, failures, no-ops, previews and other restaurants' writes
+PASS P4.RR1b [RR1 Seating changes] the other restaurant has its own counter
+
+=== s_limits ===
+PASS P4.RP6a [RP6 Seating changes] 6 tables, 4 pairs, 6 considered bookings filling every table, closing one: answered within 5 s with 409 no_feasible_plan (5 tables for 6 bookings)
+PASS P4.RP6b [RP6/RP5 Seating changes] 5 considered: only the booking on the closed table moves, to the first free single (p_1), within 5 s
+PASS P4.RP6c [RP6 Seating changes] 9 considered bookings (beyond the stated limit): a plan or 422 planning_limit, within 5 s, never 5xx
+NOTE P4.RP6n beyond-limit behaviour (9 considered) :: 201 None in 0.05s
+
+=== s_amend ===
+PASS P4.SA1a [SA1 Amend recurring reservations] amend without token -> 401 unauthenticated
+PASS P4.SA1b [SA1 Amend recurring reservations] amend another owner's series -> 404 not_found
+PASS P4.SA1c [SA1 Amend recurring reservations] amend an unknown series -> 404 not_found
+PASS P4.SA1d [SA1 stage-1 §7] amend without Idempotency-Key -> 400 missing_idempotency_key
+PASS P4.SA2 [SA2 Amend recurring reservations] invalid expected_revision / from_index / local_time (booleans, strings, out of range, wrong format, missing) -> 422 validation_failed
+PASS P4.SA3a [SA3 Amend recurring reservations] mismatched series revision -> 409 stale_revision
+PASS P4.SA3b [SA3 Amend recurring reservations] mismatched revision comes before booking validation (off-grid time) -> 409 stale_revision
+PASS P4.SA6a [SA6/SA7 Amend recurring reservations] a resulting occurrence overlapping another diner's booking -> 409 table_unavailable; series, histories and revisions unchanged
+PASS P4.SA5n [SA5 Amend recurring reservations] amend to a time off the grid -> 422 not_on_slot_grid, nothing changed
+PASS P4.SA5o [SA5 Amend recurring reservations] amend to a time ending after closes -> 422 outside_opening_hours, nothing changed
+PASS P4.SA6b [SA6 Amend recurring reservations] non-occupancy error takes precedence: index 3 would overlap (20:30-22:00 vs a booking at 21:00) but index 4 ends after its date's policy closes -> 422 outside_opening_hours
+PASS P4.SA8a [SA8/SA4/SA7 Amend recurring reservations] amend from index 2 to 20:00 (the key of the failed attempt is reusable; unknown field ignored) -> 201 current series: indices 2..4 at 20:00 on their original dates, 0..1 untouched; references, party and tables kept; series revision 2; no exception marks
+PASS P4.SA8b [SA8 Amend recurring reservations] each changed occurrence: reservation revision 2 and one changed history entry naming starts_at_local; unchanged ones keep revision 1; restaurant revision +1 once
+PASS P4.SA5a [SA5 Amend recurring reservations] each real change adopts the policy of its resulting date: index 4 now has the 60-minute policy's terms and end (21:00); indices 2-3 keep policy 0 (21:30)
+PASS P4.SA8c [SA8/SA5 Amend recurring reservations] all-no-op amend -> 201 with unchanged series, reservation and restaurant revisions
+PASS P4.SA4 [SA4/SA6 Amend recurring reservations] amend from index 0 skips the exception (index 3) and the cancelled occurrence (index 4); others move to 19:30 (overlapping their own old slot); flags unchanged; series revision 5
+PASS P4.SA8d [SA8 Amend recurring reservations] empty eligible set (only an exception and a cancelled occurrence from index 3) -> 201, nothing changed
+PASS P4.SA1e [SA1 Amend recurring reservations] replay of the first successful amend key -> 200 with the original response, after further edits and a cancellation; nothing changes
+PASS P4.SA1f [SA1 stage-1 §7] same key, different body -> 409 idempotency_key_reuse
+PASS P4.SA6c [SA6/AP5 Amend recurring reservations] amend into an applied closure (index 1 would run 20:00-21:30, t_2 closed 21:00-22:30) -> 409 table_unavailable, nothing changed
+PASS P4.SA9 [SA9 Amend recurring reservations] 12 concurrent amends from one expected revision: exactly one 201, the rest 409 stale_revision; series revision +1
+PASS P4.SA5d [SA5 Amend recurring reservations] amend to a clock time that does not exist on occurrence 1's date (2027-03-28 02:30) -> 422 invalid_local_time
+
+=== s_export_import ===
+PASS P4.UP5a [UP5 stage-1 §10] setup (apply, amend, pending plan) and export ok
+PASS P4.UP5b [UP5 stage-1 §10] import restores reservations, series, reassigned history, the closure (availability and explain) and both restaurant revisions; a rejected import changed nothing
+PASS P4.UP5c [UP5 stage-1 §10] replan, apply and amend receipts replay 200 with the original bodies after import
+PASS P4.UP5d [UP5/AP3 stage-1 §10] the applied plan is still applied after import (different key) -> 409 plan_already_applied
+PASS P4.UP5e [UP5 stage-1 §10] the pending plan made before the export can be applied after import (201, revision continues)
+PASS P4.UP5f [UP5 stage-1 §10] import into a second stage-4 container shows the same state
+
+=== s_upgrade ===
+PASS P4.UP4s1a [UP4 Amend recurring reservations (upgrade paragraph)] stage-4 import of the unchanged stage-1 export -> 204
+PASS P4.UP4s1b [UP4 upgrade] sessions valid; imported reservations keep every earlier field; the original booking retry replays 200 unchanged
+PASS P4.UP4s1c [UP4 Amend recurring reservations (upgrade paragraph)] adoption and series amend work on a reservation imported from this stage
+NOTE P4.UP4s1n replan on an imported restaurant without managers :: POST /restaurants/r_anker/replans -> 401 {"error": {"code": "unauthenticated", "message": "unknown bearer token"}}
+PASS P4.UP4s2a [UP4 Amend recurring reservations (upgrade paragraph)] stage-4 import of the unchanged stage-2 export -> 204
+PASS P4.UP4s2b [UP4 upgrade] sessions valid; imported reservations keep every earlier field; the original booking retry replays 200 unchanged
+PASS P4.UP4s2c [UP4 Amend recurring reservations (upgrade paragraph)] adoption and series amend work on a reservation imported from this stage
+NOTE P4.UP4s2n replan on an imported restaurant without managers :: POST /restaurants/r_anker/replans -> 401 {"error": {"code": "unauthenticated", "message": "unknown bearer token"}}
+PASS P4.UP4s3a [UP4 Amend recurring reservations (upgrade paragraph)] stage-4 import of the unchanged stage-3 export -> 204
+PASS P4.UP4s3b [UP4 upgrade] sessions valid; imported reservations keep every earlier field; the original booking retry replays 200 unchanged
+PASS P4.UP4s3c [UP4/RR1 upgrade] restaurant revision is taken from the stage-3 export (booking + adoption + amendment + cancel = 4); the series receipt replays unchanged
+PASS P4.UP4s3d [UP4/SA4 Amend recurring reservations (upgrade paragraph)] series amend works on an imported series with a moved (exception) and a cancelled occurrence: only indices 0 and 3 change
+PASS P4.UP4s3e [UP4/AP8 Amend recurring reservations (upgrade paragraph)] a replan moves the imported exception occurrence off the closed table; it stays an exception; series revision +1
+
+=== s_oracle ===
+PASS P4.O1 [RP3/RP4/RP5 Seating changes] oracle: 80 randomised scenarios (6 tables, 4 random pairs, 3-9 bookings, policies changing capacities/duration, cancelled bookings, second closures): service plan == brute-force optimum (assignments in reference order, changed flags, moved_count, unused_seats) or no_feasible_plan exactly when infeasible [105 plans, 7 infeasible, considered max 6, planning_limit beyond 6: 0]
+PASS P4.O2 [AP4/AP6 Seating changes] oracle: 53 plans applied: every considered booking sits on its assigned tables, revision +1 only when changed, times/party/terms identical, no overlaps; later plans respect applied closures
+
+=== s_concurrency ===
+PASS P4.CC4a [CC4 Seating changes] 4 rounds x 50 in flight (book, PATCH, cancel, series + amend, preview + apply; 264 requests, 0 plans applied): only 200/201/409 (or 422 planning_limit); no overlapping confirmed bookings; no confirmed booking on a closed table inside its closure
+PASS P4.CC4b [CC4 Reservation history] after load every sampled reservation has history seq 1..k and revision k (reassigned entries included)
+
+=== s_amend_cutoff ===
+PASS P4.SA5c [SA5 Amend recurring reservations] each real change checks its old accepted cutoff: once the anchor has started, amend from index 0 -> 409 cutoff_passed (nothing changed); from index 1 (a week ahead) -> 201
+
+=== final audits ===
+PASS E8.1 [E8 §5] no 5xx response in any probe request
+PASS E1.1 [E1 §5] every 4xx/5xx body is {error: {code, message}}
+PASS C4.1 [C4 §3.4] every response body is application/json; charset=utf-8
+PASS C5.1 [C5 §3.4] every starts_at/ends_at/created_at is RFC 3339 with explicit offset
+PASS D3.2 [D3 §2] every request within 5 s (reset/export/import within 10 s)
+
+TOTAL 99 checks: 99 passed, 0 failed, 3 notes
