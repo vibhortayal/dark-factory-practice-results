@@ -1,71 +1,243 @@
-# Nightshift practice archive
+# Nightshift Factory: every run, and what each one taught us
 
-Private archival evidence. This is not the submission repository and does not certify a clean autonomous run or hidden-test coverage.
+This repository keeps every run Team Nightshift made while building its Dark Factory for the Band hackathon (Pocketful track). There is one branch per run, numbered in the order the runs happened. **Run 7 (branch `runs/20-2026-10-02-run-7-submitted`) is the run we submitted**; its public repository is `vibhortayal/nightshift-pocketful`. Every other branch is a practice run, a rehearsal or a test.
 
-| Run | Dated branch | Original name | Exact archived HEAD | Classification |
-| --- | --- | --- | --- | --- |
-| R1 | practice-r1-2026-09-28 | `r1/stage-1` in `nightshift-practice-r1` | c91817f42a50c0ffb1f8ac2709849c251ae3bb82 | Intervened development evidence |
-| R2 | practice-r2-2026-09-29 | run2 | fa201f49880987f92e391d12db0db26dfb617291 | Intervened development evidence |
-| R3 | practice-r3-2026-09-29 | run3 | ab8b9bbfbea9d2d8ba075e7ce1f2ec30b2fab03c | Blocked preflight evidence |
+Each run changed one thing in the factory (its seat instructions, a setting, or the track) and watched what happened. Below, every run is told the same way: what changed, why, what happened, what we concluded, and what we did next. The same text opens each branch's `README.md` and `FACTORY.md`; below it, the branch keeps the run's own files and history unchanged.
 
-These are the September 28-29 practice runs. They are not the later "Run 2" and "Run 3" on Claude Code seats; those are archived separately below under the `nightshift-` branch names. R2 and R3 were first archived under the branch names `run2` and `run3`. Those names were removed on 2026-10-01 (UTC) on Vibhor's word in BAND Bridge 54830dd7-3477-48a5-8f6f-a9fc340e83bb; the commits are unchanged under the dated names. The source repository `nightshift-practice-r1` was archived read-only at the same time.
+## The runs at a glance
 
-R1's own `PRACTICE-LEARNINGS.md` catalogues its development interventions. R2 includes outside operator intervention, and its shipped-check pass does not prove clean autonomy or hidden-check coverage. R3 stopped at blocked preflight and was not rescued or reused. The run branches preserve their original histories; this main branch holds the index, plus one retained private draft folder, `video-demo/` (a narration audio file and a shot list added on 2026-09-30), which is not run evidence.
+| # | Date | Run | Scope | Outcome |
+|---|---|---|---|---|
+| 01 | Sep 28 | Practice run R1 | Stage 1 only, practice | Stage 1 built, with human corrections |
+| 02 | Sep 29 | Practice run R2 | Stage 1 only, practice | Stage 1 built, with outside help |
+| 03 | Sep 29 | Practice run R3 | Preflight, practice | Blocked early |
+| 04 | Oct 1 | Rehearsal 1 | Stage 1 only | Stage 1 accepted in 49 min; one restart |
+| 05 | Oct 1 | Run 2 | All four stages | 4 stages in 4 h 08; one restart |
+| 06 | Oct 1 | Run 3 | All four stages | 4 stages; 4 h 37 stall, one restart |
+| 07 | Oct 1 | Stage-1 test on the Run 3 text | Stage 1 test | Stopped after first rejection |
+| 08 | Oct 1 | Stage-1 test: fewer, larger messages | Stage 1 test | Spec left out of handoff; withdrawn |
+| 09 | Oct 1 | Stage-1 test: fewer parts, full text kept | Stage 1 test | Stopped before a verdict |
+| 10 | Oct 1 | Run 4 | All four stages | Clean; stage 1 never accepted (6 rejections) |
+| 11 | Oct 1 | Run 4b | All four stages | Clean; stage 1 never accepted (10 rejections) |
+| 12 | Oct 2 | Stage-1 test: bounded Verifier | Stage 1 test | Stage 1 in 30 min, 1 rejection |
+| 13 | Oct 2 | Stage-1 test: graded findings | Stage 1 test | Stage 1 in 28 min; real faults let through |
+| 14 | Oct 2 | Stage-1 test: tightened grading | Stage 1 test | Stage 1 in 43 min, 1 rejection |
+| 15 | Oct 2 | Run 5 | All four stages | Clean; 4 stages in 11 h 20, 6 rejections |
+| 16 | Oct 2 | Stage-1 test: simpler set | Stage 1 test | Stage 1 in 53 min, 2 rejections |
+| 17 | Oct 2 | Run 6 | All four stages | Clean; 4 stages in 2 h 33, 2 rejections |
+| 18 | Oct 2 | Stage-1 test: final text on Pocketful | Stage 1 test | Stage 1 in 42 min, 1 rejection |
+| 19 | Oct 2 | Stage-1 test: final text on Tablekeeper | Stage 1 test, other track | Stage 1 in 33 min, 0 rejections |
+| 20 | Oct 2 | Run 7: the submitted run | All four stages | **Submitted.** Clean; 4 stages in 2 h 27, 4 rejections |
+| 21 | Oct 3 | Tablekeeper, all four stages | All four stages, other track | 4 stages in about 1 h 37, 3 rejections |
+| 22 | Oct 3 | Background-task test | All four stages | 4 stages in about 2 h, 1 rejection |
 
-Approved by Vibhor in BAND Team ef50a509-0237-4007-9097-678b2fffdf1b, responding to proposal bc609d55-de9b-4994-802c-f504c8486cb4. Archive key destination confirmed in owner post 92a59f08-1220-4488-9bb5-afe85f2a5b0c. Archived September 29, 2026 PDT.
+## How the factory changed, run by run
 
-R1 was imported on 2026-10-01 (UTC) from `nightshift-practice-r1` with its history unchanged (15 commits, tree 65e3806d6a90841767c0215e04d658edd241bbea), on Vibhor's go in BAND Bridge 5092000f-fbb0-468d-aef8-f25f2ccfb47f.
+### 01. Practice run R1 (Sep 28, stage 1 only, practice)
 
-## Runs on Claude Code seats, September 30 to October 1, 2026
+- **What changed from the previous run:** First attempt. A small band of agent seats was given Pocketful stage 1 with early practice instructions.
+- **Why:** To find out whether agent seats could build anything useful at all.
+- **Result:** Stage 1 was built, but only with several human corrections along the way. They are listed in `PRACTICE-LEARNINGS.md` in this run.
+- **Conclusion:** Seats can build the service, but this set-up needed a person to keep it on track.
+- **What we did next:** Started again on a fresh repository with stricter validation rules (R2).
+- **Seats:** Early practice seats (not recorded in the branch).
 
-Four result repositories from the Chicago VM, each pushed with its full history unchanged. Every commit is authored by a seat or by the human setup commit. Rooms are the BAND rooms the runs happened in.
+### 02. Practice run R2 (Sep 29, stage 1 only, practice)
 
-| Run | Dated branch | Exact archived HEAD | Commits | Classification |
-| --- | --- | --- | --- | --- |
-| Rehearsal 1 | nightshift-rehearsal-1-2026-09-30 | 1ecf73b130f84bb0e0e38a999dc8b728c42c949d | 12 | Rehearsal. Stage 1 only, accepted. One intervention (a seat restart) |
-| Run 2 | nightshift-run-2-2026-09-30 | 93c895aed67b92da60726a84c8eb896ccce7ce6c | 29 | Rehearsal. Four stages accepted. One intervention (a seat restart) |
-| Run 3 | nightshift-run-3-2026-09-30 | 62da9bc8e240f587d50601da13852eb7081c8910 | 27 | Rehearsal. Four stages accepted. One intervention: the Verifier was restarted after its verdict was lost and the run sat idle for about four and a half hours |
-| Run 4 | nightshift-run-4-2026-10-01 | 6ffea910a471fe152188cc07fc5811e22df343f0 | 13 | Clean run, no intervention, but nothing accepted. Stage 1 was blocked when the fix-round limit was reached after six rejections; later stages never started |
+- **What changed from the previous run:** A fresh repository, three seats on OpenCode, and stricter rules for money values and imported data.
+- **Why:** R1 showed the band could build, but let invalid data through and needed help.
+- **Result:** Stage 1 was built after fixes for failing checks, with outside help again.
+- **Conclusion:** Better results, but still not a run that worked on its own.
+- **What we did next:** A short preflight of the next set-up (R3).
+- **Seats:** Three seats on OpenCode, each on Claude Haiku.
 
-None of these is the submission. Run 3 completed but is not a no-steering run. Run 4 is a no-steering run but did not complete a stage.
+### 03. Practice run R3 (Sep 29, preflight, practice)
 
-Sources for the classifications: Run 3 and Run 4 from the room records (one human message each, the dispatch; the Run 4 final report). Rehearsal 1 and Run 2 from the run log `docs/handover-claude-2026-09-30.md` in the private `nightshift-factory` repository.
+- **What changed from the previous run:** A preflight of the next practice set-up.
+- **Why:** To check the set-up before committing to a longer run.
+- **Result:** Blocked early. One commit.
+- **Conclusion:** The practice set-up was not going to give a clean, unattended run.
+- **What we did next:** Moved to three Claude Code seats in Band, on a dedicated cloud server (Rehearsal 1).
+- **Seats:** Early practice seats (not recorded in the branch).
 
-Archived on 2026-10-01 (UTC) on Vibhor's go in BAND Bridge f12d772d-d1c3-4b6f-b4a3-fc7bd6f2cfd3 ("Go - all 4"). Before the push the complete history of all four was scanned for credentials, key files, real email addresses and network addresses, by Claude and independently by Instinct (BAND Bridge 8c4416b5-9010-4f33-a6e3-5a2c41f9b15a): none found. Run 2 and Run 3 contain `/home/ubuntu/...` workspace paths, which is acceptable in this private repository and should be reviewed before anything from them is made public.
+### 04. Rehearsal 1 (Oct 1, stage 1 only)
 
-Left out because they were never committed: an untracked `room.json` in the Rehearsal 1 workspace, and uncommitted edits to `stage-1/server.py` and its tests in the Run 4 workspace. Room exports are not in this repository.
+- **What changed from the previous run:** New platform: three Claude Code seats (Architect, Implementer, Verifier) talking in a Band room, with new seat instructions (mandates).
+- **Why:** Stronger models and a set-up we could control and repeat.
+- **Result:** Stage 1 accepted in 49 minutes, all 147 supplied checks passing. One restart: a background task failed and took the Verifier's verdict with it.
+- **Conclusion:** The three seats can deliver a stage on their own. Background tasks can silently lose a message.
+- **What we did next:** Added a written rule against background tasks, and told the Architect to wait for replies inside its turn (Run 2).
+- **Seats:** Three Claude Code seats: Architect and Verifier on Claude Opus, Implementer on Claude Sonnet.
 
-Apart from that draft folder, only the result histories listed above and this index are meant to be here. VM credentials, room exports, private team records and other runtime evidence are not included. When R2 and R3 were archived on September 29, their source workspaces were recorded as having no remotes; that has not been re-checked since. R1's source is the GitHub repository `nightshift-practice-r1`, now archived read-only.
+### 05. Run 2 (Oct 1, all four stages)
 
-## Every run, as of 2026-10-03
+- **What changed from the previous run:** All four stages for the first time. The mandates gained a rule against background tasks and an instruction for the Architect to wait for replies inside its turn.
+- **Why:** To fix Rehearsal 1's lost verdict and attempt the whole task.
+- **Result:** All four stages accepted in 4 h 08 min, but with one restart: while waiting inside its turn, the Architect could not see the Verifier's pass. Stage 1 was also accepted with a known small spec fault marked "advisory".
+- **Conclusion:** A seat only sees new messages between turns, so waiting inside a turn blinds it. Letting faults through as "advisory" weakens the check.
+- **What we did next:** Seats end their turn after every handoff; no waivers, any contradiction of the spec blocks; at most five fix rounds per stage; a self-check by the Implementer; an evidence header on every message (Run 3).
+- **Seats:** Three Claude Code seats: Architect and Verifier on Claude Opus, Implementer on Claude Sonnet.
 
-One branch per run, named `runs/NN-YYYY-MM-DD-name`: `NN` is the order the runs started in and the date is the UTC day of the dispatch, so the branch list reads in time order. Each branch starts its `README.md` and `FACTORY.md` with a note that says what the run tested compared with the run before, and gives the seats' harness and models, its date, room, mandate version, result, human input, and why it was not submitted. The run's own history and files are unchanged below that note. **Only Run 7 is the submitted run**; its public repository is `vibhortayal/nightshift-pocketful`.
+### 06. Run 3 (Oct 1, all four stages)
 
-| Run | Branch | Kind | When | Result | Status |
-|---|---|---|---|---|---|
-| Practice run R1 | `runs/01-2026-09-28-practice-r1` | Practice run, stage 1 only, before the Claude Code seats | 2026-09-28 to 09-29 | Stage 1 built. Classified in the archive index as intervened development evidence | Not submitted |
-| Practice run R2 | `runs/02-2026-09-29-practice-r2` | Practice run, stage 1 only, before the Claude Code seats | 2026-09-29 | Stage 1 built, with fixes after harness failures. Classified as intervened development evidence | Not submitted |
-| Practice run R3 | `runs/03-2026-09-29-practice-r3` | Practice preflight, stage 1, before the Claude Code seats | 2026-09-29 | One commit with a stage-1 implementation. Classified as blocked preflight evidence | Not submitted |
-| Rehearsal 1 | `runs/04-2026-10-01-rehearsal-1` | Rehearsal, stage 1 only, Claude Code seats | 2026-10-01, 00:55 to 01:51 UTC | Stage 1 accepted in 49 minutes. Supplied checks 147 of 147 | Not submitted |
-| Run 2 | `runs/05-2026-10-01-run-2` | Four-stage run, Claude Code seats | 2026-10-01, 02:08 to 06:17 UTC | All four stages accepted in 4 h 08 min. 4 rejections | Not submitted |
-| Run 3 | `runs/06-2026-10-01-run-3` | Four-stage run, Claude Code seats | 2026-10-01, 06:35 to 15:40 UTC | All four stages accepted. About 4.5 hours of work plus a 4 h 37 min stall. 4 rejections | Not submitted |
-| Stage-1 test on the Run 3 set | `runs/07-2026-10-01-stage1-test-run3-text` | Stage-1 test in a scratch room | 2026-10-01, 16:26 to 16:56 UTC | Stopped by the team after the first rejection, with stage 1 in fix round 1. Nothing accepted | Not submitted |
-| Stage-1 test of mandate candidate A | `runs/08-2026-10-01-stage1-test-candidate-a` | Stage-1 test in a scratch room | 2026-10-01, 17:32 to 17:57 UTC | Stopped after the first rejection. The Implementer read the new sentence as leave to drop the spec from its handoff, so the candidate was withdrawn | Not submitted |
-| Stage-1 test: fewer parts, full text kept | `runs/09-2026-10-01-stage1-test-full-text-parts` | Stage-1 test in a scratch room | 2026-10-01, 18:10 to 18:35 UTC | Stopped before a verdict. Run 4 went ahead on the Run 3 text instead | Not submitted |
-| Run 4 | `runs/10-2026-10-01-run-4` | Four-stage run, Claude Code seats | 2026-10-01, 19:05 to 20:42 UTC | Clean, but stage 1 was recorded BLOCKED after 6 rejections (five fix rounds used). Nothing accepted. 1 h 37 min | Not submitted |
-| Run 4b | `runs/11-2026-10-01-run-4b` | Four-stage run, Claude Code seats | 2026-10-01 21:14 to 2026-10-02 00:25 UTC | Clean, but stage 1 was recorded BLOCKED after 10 rejections. Nothing accepted. 3 h 11 min. The Verifier's findings moved from real faults to extreme inputs, which led to the bounded mandates | Not submitted |
-| Stage-1 test of PR #52 head 28df31b9 | `runs/12-2026-10-02-stage1-test-pr52-28df31b9` | Stage-1 test in a scratch room | 2026-10-02, 01:36 to 02:07 UTC | Stage 1 accepted in 30 minutes, 1 rejection | Not submitted |
-| Stage-1 test of PR #52 head 590afd18 | `runs/13-2026-10-02-stage1-test-pr52-590afd18` | Stage-1 test in a scratch room | 2026-10-02, 02:13 to 02:41 UTC | Stage 1 accepted in 28 minutes, 0 rejections. Real spec faults were graded as notes and passed, so the grading was hardened afterwards | Not submitted |
-| Stage-1 test of PR #52 head f6fc48a3 | `runs/14-2026-10-02-stage1-test-pr52-f6fc48a3` | Stage-1 test in a scratch room | 2026-10-02, 03:21 to 04:04 UTC | Stage 1 accepted in 43 minutes, 1 rejection | Not submitted |
-| Run 5 | `runs/15-2026-10-02-run-5` | Four-stage run, Claude Code seats | 2026-10-02, 04:11 to 15:31 UTC | Clean. All four stages accepted in 11 h 20 min, 6 rejections. The Verifier ran 900 to 1,900 checks of its own per stage | Not submitted |
-| Stage-1 test of PR #53 head 643e2307 | `runs/16-2026-10-02-stage1-test-pr53-643e2307` | Stage-1 test in a scratch room | 2026-10-02, 15:46 to 16:40 UTC | Stage 1 accepted in 53 minutes, 2 rejections | Not submitted |
-| Run 6 | `runs/17-2026-10-02-run-6` | Four-stage run, Claude Code seats | 2026-10-02, 16:47 to 19:20 UTC | Clean. All four stages accepted in 2 h 33 min, 2 rejections | Not submitted |
-| Stage-1 test of PR #54 on Pocketful | `runs/18-2026-10-02-stage1-test-pr54-pocketful` | Stage-1 test in a scratch room | 2026-10-02, 19:45 to 20:27 UTC | Stage 1 accepted in 42 minutes, 1 rejection. The Verifier's commits touched only `verification/` | Not submitted |
-| Stage-1 test of PR #54 on Tablekeeper | `runs/19-2026-10-02-stage1-test-pr54-tablekeeper` | Stage-1 test on the other track, in a scratch room | 2026-10-02, 20:27 to 21:00 UTC | Stage 1 of the Tablekeeper track accepted in 33 minutes, 0 rejections. Supplied checks 120 of 120 | Not submitted |
-| Run 7 | `runs/20-2026-10-02-run-7-submitted` | Four-stage run, Claude Code seats | 2026-10-02, 21:11 to 23:38 UTC | Clean. All four stages accepted in 2 h 27 min, 4 rejections | **Submitted run** |
-| Tablekeeper four-stage run | `runs/21-2026-10-03-tablekeeper-four-stages` | Four-stage run on the other track, in a scratch room | 2026-10-03, 10:23 to 12:00 UTC | All four Tablekeeper stages accepted in about 96 minutes, 3 rejections. Supplied checks 120, 25, 7 and 6, all passing | Not submitted |
-| Background-task test | `runs/22-2026-10-03-bgtasks-test` | Four-stage test run in a scratch room | 2026-10-03, 19:43 to 21:38 UTC | All four stages accepted in about 2 hours, 1 rejection. One background task ended in an error after its message had gone out; nothing was lost. A speed gain from background tasks is not shown | Not submitted |
+- **What changed from the previous run:** The Run 2 lessons above, all in the mandates.
+- **Why:** To get a clean four-stage run with a stricter check.
+- **Result:** All four stages accepted, but the Verifier's stage-3 pass was never posted: a background task failed, despite the written rule. The factory waited 4 h 37 min until the Verifier was restarted.
+- **Conclusion:** A written rule is not enforcement. The background-task failure had to be removed at the source.
+- **What we did next:** Switched background tasks off in the seats' settings, and tried shorter handoff messages on stage 1 first (runs 07 to 09).
+- **Seats:** Three Claude Code seats: Architect and Verifier on Claude Opus, Implementer on Claude Sonnet.
 
-Not archived, on purpose: "Run 4c" was staged on 2026-10-02 but never dispatched, so it contains no run.
+### 07. Stage-1 test on the Run 3 text (Oct 1, stage 1 test)
 
-Nothing else lives in a branch of its own. Run 5's Verifier check scripts are in that run's branch, in `verifier-check-scripts/`. The script used to compare the apps on the demo VM sits beside them, in `verifier-check-scripts/demo-compare/`.
+- **What changed from the previous run:** Nothing in the mandates. A short check on stage 1 after Run 3.
+- **Why:** To see the unchanged text on stage 1 before trying changes.
+- **Result:** Stopped by the team after the first rejection.
+- **Conclusion:** Not conclusive.
+- **What we did next:** Tested a change to handoff size (run 08).
+- **Seats:** Three Claude Code seats: Architect and Verifier on Claude Opus, Implementer on Claude Sonnet.
+
+### 08. Stage-1 test: fewer, larger messages (Oct 1, stage 1 test)
+
+- **What changed from the previous run:** One added sentence asking seats to send fewer, larger handoff messages.
+- **Why:** In Run 3 each handoff went out in 12 to 31 parts, and every part woke the other seat.
+- **Result:** The Implementer read the sentence as permission to leave the specification out of its handoff. Stopped after the first rejection.
+- **Conclusion:** One loose sentence can invite a shortcut. Withdrawn.
+- **What we did next:** Tried the same idea with the full text still required (run 09).
+- **Seats:** Three Claude Code seats: Architect and Verifier on Claude Opus, Implementer on Claude Sonnet.
+
+### 09. Stage-1 test: fewer parts, full text kept (Oct 1, stage 1 test)
+
+- **What changed from the previous run:** Fewer handoff parts, but each must still carry the full task and specification.
+- **Why:** To keep the benefit of run 08 without its failure.
+- **Result:** Stopped before a verdict.
+- **Conclusion:** Not enough evidence to risk it in the clean attempt.
+- **What we did next:** Ran the clean attempt on the unchanged Run 3 text, with background tasks off (Run 4).
+- **Seats:** Three Claude Code seats: Architect and Verifier on Claude Opus, Implementer on Claude Sonnet.
+
+### 10. Run 4 (Oct 1, all four stages)
+
+- **What changed from the previous run:** Same mandates as Run 3. Background tasks switched off in the seats' settings.
+- **Why:** To remove the failure that had cost Rehearsal 1 and Run 3 a message, and get a clean run.
+- **Result:** Clean, with no human help, but stage 1 was never accepted: 6 rejections in 1 h 37 min. Each round the Verifier found one or two new, ever more unusual problems.
+- **Conclusion:** The background fix held. But a Verifier with no limit on how deep it tests never finishes.
+- **What we did next:** Repeated the run unchanged to rule out chance (Run 4b).
+- **Seats:** Three Claude Code seats: Architect and Verifier on Claude Opus, Implementer on Claude Sonnet.
+
+### 11. Run 4b (Oct 1, all four stages)
+
+- **What changed from the previous run:** Nothing. Same mandates, same settings as Run 4.
+- **Why:** To see whether Run 4's block was bad luck.
+- **Result:** Clean, but stage 1 was never accepted: 10 rejections in 3 h 11 min. The findings moved to extreme inputs, such as a 60-million-digit number.
+- **Conclusion:** Not luck. The mandates had to say how far the Verifier tests.
+- **What we did next:** Bounded the Verifier and tried it on stage 1 (run 12).
+- **Seats:** Three Claude Code seats: Architect and Verifier on Claude Opus, Implementer on Claude Sonnet.
+
+### 12. Stage-1 test: bounded Verifier (Oct 2, stage 1 test)
+
+- **What changed from the previous run:** The Verifier tests at the sizes and loads the spec states and not beyond, writes its check list first, and reports every finding in one verdict. A fix round is one rejection, and a build under review cannot be withdrawn.
+- **Why:** Runs 4 and 4b never converged.
+- **Result:** Stage 1 accepted in 30 minutes, with one rejection that listed all four findings at once.
+- **Conclusion:** Bounding the Verifier works.
+- **What we did next:** Tried a more lenient check: graded findings plus a short window of free testing (run 13).
+- **Seats:** Three Claude Code seats: Architect and Verifier on Claude Opus, Implementer on Claude Sonnet.
+
+### 13. Stage-1 test: graded findings (Oct 2, stage 1 test)
+
+- **What changed from the previous run:** Findings graded on five levels, with only the top three blocking; 15 minutes of free testing on a stage's first build; later builds get a shorter fix check.
+- **Why:** To keep the factory moving on minor issues and still catch real ones.
+- **Result:** Stage 1 accepted in 28 minutes with no rejection, but real spec faults were graded as minor and let through.
+- **Conclusion:** Too lenient.
+- **What we did next:** Tightened the grading (run 14).
+- **Seats:** Three Claude Code seats: Architect and Verifier on Claude Opus, Implementer on Claude Sonnet.
+
+### 14. Stage-1 test: tightened grading (Oct 2, stage 1 test)
+
+- **What changed from the previous run:** Any server error or any case the spec names blocks; a minor finding must state the size it exceeded. The Verifier prepares its checks while the Implementer builds.
+- **Why:** Run 13 passed real faults.
+- **Result:** Stage 1 accepted in 43 minutes, one rejection, real faults blocked.
+- **Conclusion:** Ready for a full run.
+- **What we did next:** Added one rule (a value over a stated limit always blocks) and ran all four stages (Run 5).
+- **Seats:** Three Claude Code seats: Architect and Verifier on Claude Opus, Implementer on Claude Sonnet.
+
+### 15. Run 5 (Oct 2, all four stages)
+
+- **What changed from the previous run:** The bounded, graded mandates from runs 12 to 14.
+- **Why:** First full run since the Verifier was bounded.
+- **Result:** Clean. All four stages accepted in 11 h 20 min, 6 rejections, about $116 at list price. The app was the most thoroughly tested, but each stage was one large file, and the free testing and growing check lists made it slow.
+- **Conclusion:** Bounded verification finishes, but this version was far too slow and over-engineered.
+- **What we did next:** Simplified the mandates: no grading, no free testing, every check tied to a sentence of the spec (run 16).
+- **Seats:** Three Claude Code seats: Architect and Verifier on Claude Opus, Implementer on Claude Sonnet.
+
+Its branch also keeps the Verifier's own check scripts (`verifier-check-scripts/`), later used to compare the apps of several runs.
+
+### 16. Stage-1 test: simpler set (Oct 2, stage 1 test)
+
+- **What changed from the previous run:** Grading and free testing removed. A finding either blocks or is a note. Every check names the spec sentence it tests. Limits are tested at the last allowed and first refused value. A fix that did not fix the fault is rejected at once.
+- **Why:** Run 5 was too slow.
+- **Result:** Stage 1 accepted in 53 minutes, two rejections.
+- **Conclusion:** Works, with far less machinery.
+- **What we did next:** Added a request for maintainable code and ran all four stages (Run 6).
+- **Seats:** Three Claude Code seats: Architect and Verifier on Claude Opus, Implementer on Claude Sonnet.
+
+### 17. Run 6 (Oct 2, all four stages)
+
+- **What changed from the previous run:** The simpler set, plus one sentence asking the Implementer to split code into small modules.
+- **Why:** Speed, and code another developer could maintain.
+- **Result:** Clean. All four stages accepted in 2 h 33 min, 2 rejections, about $53. The code came out in small modules. A few edge cases slipped through, for example an amount like 1.00000000000000000001 read as 1.
+- **Conclusion:** Four times faster than Run 5 and easier to maintain. But the Verifier's evidence stayed outside the repository, and the wording still read as written for a web service.
+- **What we did next:** Neutral wording, the Verifier committing its evidence, and lighter fix handoffs, tried on stage 1 (run 18).
+- **Seats:** Three Claude Code seats: Architect and Verifier on Claude Opus, Implementer on Claude Sonnet.
+
+### 18. Stage-1 test: final text on Pocketful (Oct 2, stage 1 test)
+
+- **What changed from the previous run:** Neutral wording; the Verifier commits its check list and verdicts to the repository; commits that only touch records need no new verdict; fix handoffs do not repeat the whole spec.
+- **Why:** To put the evidence where judges can see it, and to make the factory clearly generic.
+- **Result:** Stage 1 accepted in 42 minutes, one rejection, with the Verifier's evidence in the repository.
+- **Conclusion:** Works.
+- **What we did next:** Ran the same text, unchanged, on the other track (run 19).
+- **Seats:** Three Claude Code seats: Architect and Verifier on Claude Opus, Implementer on Claude Sonnet.
+
+### 19. Stage-1 test: final text on Tablekeeper (Oct 2, stage 1 test, other track)
+
+- **What changed from the previous run:** Nothing in the mandates. Only the track changed, to Tablekeeper.
+- **Why:** To show the factory is generic, not tuned to Pocketful.
+- **Result:** Stage 1 accepted in 33 minutes with no rejection, all 120 supplied checks passing.
+- **Conclusion:** The same factory builds a different app.
+- **What we did next:** Ran all four Pocketful stages as the entry (Run 7).
+- **Seats:** Three Claude Code seats: Architect and Verifier on Claude Opus, Implementer on Claude Sonnet.
+
+### 20. Run 7: the submitted run (Oct 2, all four stages)
+
+- **What changed from the previous run:** Nothing. The text tested in runs 18 and 19.
+- **Why:** The entry: one dispatch, no human help.
+- **Result:** Clean. All four stages accepted in 2 h 27 min, 4 rejections, about $59.
+- **Conclusion:** This is the submitted run.
+- **What we did next:** Confirmed the factory on the other track at full length (run 21), and tested background tasks once more (run 22).
+- **Seats:** Three Claude Code seats: Architect and Verifier on Claude Opus, Implementer on Claude Sonnet.
+
+### 21. Tablekeeper, all four stages (Oct 3, all four stages, other track)
+
+- **What changed from the previous run:** Nothing in the mandates. All four stages of Tablekeeper.
+- **Why:** Run 19 covered stage 1 only.
+- **Result:** All four stages accepted in about 1 h 37 min, 3 rejections.
+- **Conclusion:** The factory carries a second, unseen app through every stage.
+- **What we did next:** Tested whether background tasks would make it faster (run 22).
+- **Seats:** Three Claude Code seats: Architect and Verifier on Claude Opus, Implementer on Claude Sonnet.
+
+### 22. Background-task test (Oct 3, all four stages)
+
+- **What changed from the previous run:** The rule against background tasks removed from the mandates, and background tasks allowed in the settings.
+- **Why:** To see whether background tasks make the factory faster.
+- **Result:** All four stages accepted in about 2 hours, one rejection. One background task ended in an error after its message had gone out, so nothing was lost this time.
+- **Conclusion:** No clear speed gain: most of the time saved came from fewer rejections. The failure that lost messages before is still possible.
+- **What we did next:** Kept background tasks off in the submitted factory.
+- **Seats:** Three Claude Code seats: Architect and Verifier on Claude Opus, Implementer on Claude Sonnet.
+
+## What the whole sequence shows
+
+- **Settings beat sentences.** Twice a written rule against background tasks was broken; switching them off in the settings fixed it for good (runs 04, 06, 10).
+- **A checker needs a stated limit.** With no limit on how deep it tests, the Verifier never finished (runs 10, 11). Tying every check to a sentence of the spec fixed that without letting faults through (runs 12, 16).
+- **Simpler was faster and no worse.** The graded, free-testing version took 11 h 20 min (run 15); the simpler set took 2 h 33 min and 2 h 27 min (runs 17, 20).
+- **The factory is generic.** The submitted mandates, unchanged, built the other track's app through all four stages (runs 19, 21).
+
+The `video-demo/` folder on this branch is an early draft for the video, not run evidence.
