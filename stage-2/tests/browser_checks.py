@@ -215,6 +215,33 @@ with sync_playwright() as p:
             check("X2 still signed in", page.query_selector(sel("current-user")) is not None)
         ctx.close()
 
+    # --- X3 variant: the replayed receipt is a stage-1 body (table_id only, no table_ids)
+    reset()
+    ctx, page = fresh()
+    login(page)
+    search(page, party=4)
+    page.click(sel("slot-t_2-19:00"))
+    page.wait_for_selector(sel("booking-form"))
+    seen = {"n": 0}
+
+    def old_receipt(route):
+        resp = route.fetch()
+        seen["n"] += 1
+        if seen["n"] == 1:
+            route.abort("connectionreset")
+        else:
+            body = resp.json()
+            body.pop("table_ids", None)
+            route.fulfill(status=resp.status, content_type="application/json", body=json.dumps(body))
+    page.route("**/reservations", lambda r: old_receipt(r) if r.request.method == "POST" else r.continue_())
+    page.click(sel("booking-submit"))
+    page.wait_for_selector(sel("booking-uncertain"))
+    page.click(sel("booking-submit"))
+    page.wait_for_selector(sel("confirmation"))
+    check("X3 stage-1 receipt (table_id only) renders", len(page.text_content(sel("confirmation-reference")).strip()) >= 6
+          and "2" in page.text_content(sel("confirmation-tables")) and page.query_selector(sel("booking-uncertain")) is None)
+    ctx.close()
+
     # --- layout at 375px on all routes, auth states, keyboard focus
     reset()
     ctx, page = fresh(375, 740)

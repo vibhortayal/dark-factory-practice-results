@@ -229,7 +229,7 @@
 
   function showConfirmation(rez, sel, feedback, confirmation) {
     feedback.textContent = ""; confirmation.textContent = "";
-    var rest = sel.rest, tables = TK.tablesText(rest, rez.table_ids);
+    var rest = sel.rest, tables = TK.tablesText(rest, TK.tableIds(rez));
     confirmation.appendChild(TK.el("section", { class: "confirmation", "data-testid": "confirmation", role: "status" },
       TK.el("h3", {}, "You're booked — see you soon!"),
       TK.el("span", { class: "reference", "data-testid": "confirmation-reference" }, rez.reference),

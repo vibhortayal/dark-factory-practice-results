@@ -92,6 +92,10 @@
     var names = ids.map(function (id) { return TK.tableName(rest, id); });
     return (names.length > 1 ? "Tables " : "Table ") + names.join(" + ");
   };
+  /* A reservation's table ids; tolerates a stage-1 era body that only has table_id. */
+  TK.tableIds = function (rez) {
+    return rez.table_ids || (rez.table_id ? [rez.table_id] : []);
+  };
   TK.seats = function (rest, ids) {
     return ids.reduce(function (sum, id) {
       var t = (rest.tables || []).filter(function (x) { return x.id === id; })[0];

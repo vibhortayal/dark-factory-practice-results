@@ -26,7 +26,7 @@
     row(dl, "Restaurant", rest.name);
     row(dl, "When", TK.whenText(rez.starts_at_local));
     dl.appendChild(TK.el("dt", {}, "Table"));
-    dl.appendChild(TK.el("dd", { "data-testid": "reservation-tables" }, TK.tablesText(rest, rez.table_ids)));
+    dl.appendChild(TK.el("dd", { "data-testid": "reservation-tables" }, TK.tablesText(rest, TK.tableIds(rez))));
     row(dl, "Party of", String(rez.party_size));
     var card = TK.el("section", { class: "card lookup-card", "data-testid": "reservation-detail" },
       TK.el("h2", {}, "Your booking ", status), dl);
