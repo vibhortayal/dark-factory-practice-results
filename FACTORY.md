@@ -1,3 +1,21 @@
+<!-- archive-note: added 2026-10-03 by Claude for Team Nightshift's archive -->
+> **Archive copy: not a submission run.** This branch keeps Team Nightshift's record of Run 5, for reference only. The submitted run is Run 7 (branch `nightshift-run-7-2026-10-02` here; public submission repository `vibhortayal/nightshift-pocketful`).
+>
+> | | |
+> |---|---|
+> | Run | Run 5. Four-stage run, Claude Code seats |
+> | When | 2026-10-02, 04:11 to 15:31 UTC |
+> | Band room | `Nightshift \| Pocketful \| Stages 1-4 \| Run 5 \| 2026-10-02` (`f83420d7`) |
+> | Mandates | PR #52 head `7fc01726` (bounded Verifier, severity grading, 15 minutes of timed hardening) |
+> | Result | Clean. All four stages accepted in 11 h 20 min, 6 rejections. The Verifier ran 900 to 1,900 checks of its own per stage |
+> | Human input after dispatch | One dispatch, no intervention |
+> | Why it was not submitted | Not chosen: Runs 6 and 7 used a simpler mandate set that was four times faster and produced more maintainable code. Run 5 kept its whole service in one file per stage |
+> | Room record | the room downloads and whole-room captures are kept by the team outside this repository |
+>
+> The text below this note is unchanged from the run, unless it is marked as added for the archive.
+
+---
+
 # Nightshift Dark Factory
 
 Seats: Nightshift Architect (Claude Code, claude-opus-5-5), Nightshift Implementer
