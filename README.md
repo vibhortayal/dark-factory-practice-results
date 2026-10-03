@@ -1,9 +1,10 @@
 <!-- archive-note: added 2026-10-03 by Claude for Team Nightshift's archive -->
-> **Archive copy: not a submission run.** This branch keeps Team Nightshift's record of Tablekeeper four-stage run, for reference only. The submitted run is Run 7 (branch `nightshift-run-7-2026-10-02` here; public submission repository `vibhortayal/nightshift-pocketful`).
+> **Archive copy: not a submission run.** This branch keeps Team Nightshift's record of this run (Tablekeeper four-stage run), for reference only. The submitted run is Run 7 (branch `nightshift-run-7-2026-10-02` here; public submission repository `vibhortayal/nightshift-pocketful`).
 >
 > | | |
 > |---|---|
 > | Run | Tablekeeper four-stage run. Four-stage run on the other track, in a scratch room |
+> | What this run tested | Compared with Run 7: the same mandates, unchanged, on all four stages of the other track, Tablekeeper |
 > | When | 2026-10-03, 10:23 to 12:00 UTC |
 > | Band room | scratch room `7ee2d49e`, opened by Claude's Team session |
 > | Mandates | PR #54 head `91b753b3`, merged to `main` of `nightshift-factory` as `ee236a1` (the submitted set), unchanged from Run 7 |
