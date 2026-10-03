@@ -4,7 +4,7 @@ Run started: 2026-10-03 (architect dispatch).
 
 | Unit | State | Accepted revision | Fix rounds (BLOCK count) | Notes |
 |---|---|---|---|---|
-| stage-1 | VERIFYING | — | 0 | Candidate 228f8d1bc356eb1285e6fe9cc0a52015fddd8690; map: acceptance/stage-1.md |
+| stage-1 | BUILDING | — | 1 | Round 1 BLOCK on 228f8d1 (F1 reset wrong-type → must be 400; F2 moves cutoff precedence). Evidence: verification/stage-1/ |
 | stage-2 | PLANNED | — | 0 | |
 | stage-3 | PLANNED | — | 0 | |
 | stage-4 | PLANNED | — | 0 | |
