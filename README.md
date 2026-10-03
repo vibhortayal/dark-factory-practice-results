@@ -1,9 +1,10 @@
 <!-- archive-note: added 2026-10-03 by Claude for Team Nightshift's archive -->
-> **Archive copy: not a submission run.** This branch keeps Team Nightshift's record of Stage-1 test of PR #54 on Pocketful, for reference only. The submitted run is Run 7 (branch `nightshift-run-7-2026-10-02` here; public submission repository `vibhortayal/nightshift-pocketful`).
+> **Archive copy: not a submission run.** This branch keeps Team Nightshift's record of this run (Stage-1 test of PR #54 on Pocketful), for reference only. The submitted run is Run 7 (branch `nightshift-run-7-2026-10-02` here; public submission repository `vibhortayal/nightshift-pocketful`).
 >
 > | | |
 > |---|---|
 > | Run | Stage-1 test of PR #54 on Pocketful. Stage-1 test in a scratch room |
+> | What this run tested | Compared with Run 6's text: neutral wording (no web-service terms), the Verifier committing its check list and verdicts under `verification/`, commits that only touch records needing no new verdict, and fix handoffs that do not repeat the whole spec |
 > | When | 2026-10-02, 19:45 to 20:27 UTC |
 > | Band room | scratch room `127d2fcc`, opened by Claude's Team session |
 > | Mandates | PR #54 head `91b753b3`, merged to `main` of `nightshift-factory` as `ee236a1` (the submitted set) |
