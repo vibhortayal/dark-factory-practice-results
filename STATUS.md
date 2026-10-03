@@ -4,12 +4,12 @@ Run started: 2026-10-03T19:42Z. Track: pocketful.
 
 | Unit | State | Accepted revision | BLOCK rounds | Elapsed | Notes |
 |---|---|---|---|---|---|
-| stage-1 | DONE | 172a3180c731a310e00e403ea1c4990a4a78b5d4 | 0 | 19:43Z–20:02Z (19 min) | Verifier PASS, verdict commit 7a52d057; map `acceptance/stage-1.md` |
-| stage-2 | DONE | c59be33b9aaed102d1728cf7f6d9df7a2e0f571f | 1 | 20:05Z–20:47Z (42 min) | BLOCK #1 on 60a459ae (verdict commit 0c88a232, collapsed Requests/Holds layout, rows Q1/Q3/Q4); PASS on c59be33b (verdict commit 65ec9d11); map `acceptance/stage-2.md` |
-| stage-3 | DONE | 9dcc200f61001f800d2aa8248df03da636f36c0f | 0 | 20:50Z–21:37Z (47 min) | PASS on 3a39ddfe (verdict commit f17eadc9) superseded after the Architect amended map rows AA4/AB4 (snapshots must survive export/import); PASS on 9dcc200f (verdict commit 3d12cdd2); map `acceptance/stage-3.md` |
-| stage-4 | DONE | 2c6b40aa628740f4762aedf73b2a820eccc6f5c1 | 0 | 21:38Z–21:43Z handoff to PASS (see commit times) | PASS on 2c6b40aa (verdict commit c5bfb0ad); map `acceptance/stage-4.md` |
+| stage-1 | DONE | 172a3180c731a310e00e403ea1c4990a4a78b5d4 | 0 | 19:44Z–20:01Z (17 min) | Verifier PASS, verdict commit 7a52d057; map `acceptance/stage-1.md` |
+| stage-2 | DONE | c59be33b9aaed102d1728cf7f6d9df7a2e0f571f | 1 | 20:03Z–20:46Z (43 min) | BLOCK #1 on 60a459ae (verdict commit 0c88a232, collapsed Requests/Holds layout, rows Q1/Q3/Q4); PASS on c59be33b (verdict commit 65ec9d11); map `acceptance/stage-2.md` |
+| stage-3 | DONE | 9dcc200f61001f800d2aa8248df03da636f36c0f | 0 | 20:47Z–21:21Z (34 min) | PASS on 3a39ddfe (verdict commit f17eadc9) superseded after the Architect amended map rows AA4/AB4 (snapshots must survive export/import); PASS on 9dcc200f (verdict commit 3d12cdd2); map `acceptance/stage-3.md` |
+| stage-4 | DONE | 2c6b40aa628740f4762aedf73b2a820eccc6f5c1 | 0 | 21:21Z–21:38Z (17 min) | PASS on 2c6b40aa (verdict commit c5bfb0ad); map `acceptance/stage-4.md` |
 
-Run finished 2026-10-03T21:43Z (about 2 h 1 min after the 19:42Z dispatch). Nothing blocked. Final check by the
+Run finished 2026-10-03T21:43Z (about 2 h after the 19:42Z dispatch; times are commit times). Nothing blocked. Final check by the
 Architect: `harness run --track pocketful --repo ../band-work/result --all --mode isolated --out
 ../band-work/checks/architect-final-all-isolated` → every folder claims its stage, highest contiguous stage 4.
 
