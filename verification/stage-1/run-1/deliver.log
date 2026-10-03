@@ -1,0 +1,80 @@
+$ docker rm -f nsv-stage1-default nsv-stage1-port nsv-stage1-none nsv-stage1-a nsv-stage1-b 2>/dev/null; docker network rm nsv-stage1-int 2>/dev/null
+[PASS] A1-files (§2; rows A1) Dockerfile and RUN.md present in the stage folder
+$ docker build --no-cache -t nsv-stage1 /home/ubuntu/nightshift-claude-bg-test/band-work/result/stage-1
+ ---> Removed intermediate container 78dda04310e5
+ ---> b13f0dd1c7b4
+Step 3/7 : WORKDIR /srv
+ ---> Running in c202ef39b553
+ ---> Removed intermediate container c202ef39b553
+ ---> bcbc4be189ad
+Step 4/7 : COPY app ./app
+ ---> f29b41fc82c5
+Step 5/7 : EXPOSE 8080
+ ---> Running in a565b8a91267
+ ---> Removed intermediate container a565b8a91267
+ ---> 87c7b2d58bd9
+Step 6/7 : USER nobody
+ ---> Running in 34c006af06d3
+ ---> Removed intermediate container 34c006af06d3
+ ---> 27522487be71
+Step 7/7 : CMD ["python", "-m", "app"]
+ ---> Running in 7fcd8f3baf76
+ ---> Removed intermediate container 7fcd8f3baf76
+ ---> dd6423e5fe67
+Successfully built dd6423e5fe67
+Successfully tagged nsv-stage1:latest
+DEPRECATED: The legacy builder is deprecated and will be removed in a future release.
+            Install the buildx component to build images with BuildKit:
+            https://docs.docker.com/go/buildx/
+[PASS] A1-clean-build (§2; rows A1) docker build --no-cache from the stage folder
+$ docker run -d --name nsv-stage1-default --cpus 2 --memory 2g -p 127.0.0.1:49693:8080 nsv-stage1
+ae7a3c7d979f22c7bf18b874d502a71924e3cfbc59aaf70fc26358662dcdfa09
+[PASS] A2-default-port (§3.1, §3.2; rows A2,A4) no PORT set: healthy on mapped 8080 after 0.42 s (limit 60 s)
+$ docker run -d --name nsv-stage1-port --cpus 2 --memory 2g -e PORT=9123 -p 127.0.0.1:56897:9123 nsv-stage1
+77af128266e5ddf6ca9b3f23647f58077e5e1259f42b9e7601a856580b910da5
+[PASS] A2-port-env (§2, §3.1; rows A2,A4) -e PORT=9123 with mapping: healthy after 0.4 s
+[PASS] A2-port-sanity (§3.1; rows A2) an unmapped port does not answer (probe sanity)
+$ docker rm -f nsv-stage1-default nsv-stage1-port
+nsv-stage1-default
+nsv-stage1-port
+$ docker run -d --name nsv-stage1-none --network none --cpus 2 --memory 2g nsv-stage1
+1eeab59bf0a21638f054dc09efadab1d8ce493ad7e691b8b2ef11c29da9b5dac
+$ docker inspect -f '{{.State.Running}} {{.State.ExitCode}} {{.State.OOMKilled}}' nsv-stage1-none
+true 0 false
+$ docker logs --tail 20 nsv-stage1-none
+[PASS] A3-network-none (§2; rows A3) container still running after 8 s with --network none (state: true 0 false)
+$ docker rm -f nsv-stage1-none
+nsv-stage1-none
+$ docker network create --internal nsv-stage1-int
+a9105af2a3b21f1d7fc15e2bc6ba33b7708e2f314a6569ec5008551e5db06842
+$ docker run -d --name nsv-stage1-a --network nsv-stage1-int --cpus 2 --memory 2g nsv-stage1
+16e0afb890afda5616762d8630a67f56281da431ce3c5d9271674d33995a0c75
+$ docker run -d --name nsv-stage1-b --network nsv-stage1-int --cpus 2 --memory 2g -e PORT=9200 nsv-stage1
+7c909a166c20a7673c4b9426a0509b8222ceb9543c6ac13b2a498f4ae24e4442
+$ docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' nsv-stage1-a
+172.25.0.2
+$ docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' nsv-stage1-b
+172.25.0.3
+[PASS] A4-timed-start (§2, §3.2; rows A4) healthy after 0.2026966119883582 s and 0.2017778060398996 s under --cpus 2 --memory 2g (limit 60 s); isolated network: True
+$ docker exec nsv-stage1-a sh -c 'wget -T 3 -q -O- http://1.1.1.1 || curl -m 3 -s http://1.1.1.1' ; echo rc=$?
+rc=127
+sh: 1: wget: not found
+sh: 1: curl: not found
+outbound probe from inside the container (informative): rc=127
+$ /usr/bin/python3 /home/ubuntu/nightshift-claude-bg-test/band-work/verifier/stage-1/checks.py --base http://172.25.0.2:8080 --base2 http://172.25.0.3:9200 --kill-cmd 'docker kill nsv-stage1-a' --json /home/ubuntu/nightshift-claude-bg-test/band-work/verifier/stage-1/out-r1/checks.json > /home/ubuntu/nightshift-claude-bg-test/band-work/verifier/stage-1/out-r1/checks.log 2>&1
+TOTAL 58 checks: 58 passed, 0 failed; 2883 HTTP requests
+[PASS] HTTP-check-list (all; rows A5-J6) checks.py exit code 0; isolated network: True; see checks.log
+$ docker inspect -f '{{.State.Running}} {{.State.OOMKilled}} {{.RestartCount}}' nsv-stage1-b
+true false 0
+[PASS] A5-no-oom (§2 resource limits; rows A5) second container state after the run (running oomkilled restarts): true false 0
+$ docker inspect -f '{{.State.OOMKilled}} {{.RestartCount}}' nsv-stage1-a
+false 0
+[PASS] A5-no-oom-src (§2 resource limits; rows A5) first container (killed by the cross-container check) oomkilled/restarts: false 0
+$ docker stats --no-stream --format '{{.Name}} {{.MemUsage}} {{.CPUPerc}}' nsv-stage1-b
+nsv-stage1-b 20.59MiB / 2GiB 0.01%
+$ docker rm -f nsv-stage1-default nsv-stage1-port nsv-stage1-none nsv-stage1-a nsv-stage1-b 2>/dev/null; docker network rm nsv-stage1-int 2>/dev/null
+nsv-stage1-a
+nsv-stage1-b
+nsv-stage1-int
+
+DELIVERY TOTAL 10 checks: 10 passed, 0 failed []
