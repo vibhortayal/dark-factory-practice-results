@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{title}} · Tablekeeper</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/assets/app.css">
+</head>
+<body data-page="{{page}}">
+<a class="skip" href="#main">Skip to content</a>
+<header class="site-header">
+  <div class="bar">
+    <a class="brand" href="/" aria-label="Tablekeeper home"><span class="brand-mark" aria-hidden="true">&#9832;</span> Tablekeeper</a>
+    <nav class="nav" aria-label="Main">
+      <a href="/" data-nav="index">Find a table</a>
+      <a href="/lookup" data-nav="lookup">My booking</a>
+    </nav>
+    <div class="account" id="account"><a href="/login">Log in</a> <a class="btn btn-small" href="/signup">Sign up</a></div>
+  </div>
+</header>
+<main id="main" class="page">
+{{body}}
+</main>
+<footer class="site-footer">Tablekeeper &middot; reservations at the restaurants you love</footer>
+<script src="/assets/common.js"></script>
+<script src="/assets/{{script}}.js"></script>
+</body>
+</html>

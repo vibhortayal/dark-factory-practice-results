@@ -1,0 +1,24 @@
+<section class="hero">
+  <h1>Find your table</h1>
+  <p class="lede">Choose a restaurant, a day and your party size. Green seats are free &mdash; tap one to book.</p>
+</section>
+<form id="search-form" class="card search-card" novalidate>
+  <div class="field">
+    <label for="restaurant-select">Restaurant</label>
+    <select id="restaurant-select" data-testid="restaurant-select"></select>
+  </div>
+  <div class="field">
+    <label for="date-input">Date</label>
+    <input id="date-input" data-testid="date-input" type="date" required>
+  </div>
+  <div class="field field-narrow">
+    <label for="party-size-input">Party size</label>
+    <input id="party-size-input" data-testid="party-size-input" type="number" min="1" step="1" value="2" inputmode="numeric" required>
+  </div>
+  <button type="submit" class="btn btn-primary" id="search-button" data-testid="search-button">Search tables</button>
+</form>
+<p id="search-error" class="notice notice-refused" role="alert" hidden></p>
+<div id="results" aria-live="polite">
+  <div class="empty-state" id="results-empty"><p class="empty-title">Where shall we seat you?</p><p>Pick a date and party size to see which tables are free.</p></div>
+</div>
+<div id="booking-area"></div>
