@@ -1,10 +1,11 @@
 <!-- archive-note: added 2026-10-03 by Claude for Team Nightshift's archive -->
-> **Archive copy: not a submission run.** This branch keeps Team Nightshift's record of this run (Practice run R2), for reference only. The submitted run is Run 7 (branch `nightshift-run-7-2026-10-02` here; public submission repository `vibhortayal/nightshift-pocketful`).
+> **Archive copy: not a submission run.** This branch keeps Team Nightshift's record of this run (Practice run R2), for reference only. The submitted run is Run 7 (branch `runs/20-2026-10-02-run-7-submitted` here; public submission repository `vibhortayal/nightshift-pocketful`).
 >
 > | | |
 > |---|---|
 > | Run | Practice run R2. Practice run, stage 1 only, before the Claude Code seats |
 > | What this run tested | A second practice run on a fresh repository, after R1's lessons (R1's `PRACTICE-LEARNINGS.md`). It tested stricter monetary and import validation in the practice set-up |
+> | Seats | Three seats on OpenCode, each using `anthropic/claude-haiku-4-5` (from `mandates/`) |
 > | When | 2026-09-29 |
 > | Band room | not a Band run room on the Claude Code seats |
 > | Mandates | the practice mandates in `mandates/` of this branch |
