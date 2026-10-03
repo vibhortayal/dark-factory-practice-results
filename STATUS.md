@@ -6,8 +6,8 @@ Run started: 2026-10-03 (architect dispatch).
 |---|---|---|---|---|
 | stage-1 | DONE | a8301bb9379977851db1c64ff468cbddc30011ff | 2 | Verifier PASS round 3 (verdict commit 9b3c5b8). Harness stage 1: 120 passed host + isolated; stage-2 suite fails on stage-1 (required); 392/392 verifier probes. Started 10:24 UTC, accepted 10:54 UTC (~30 min) |
 | stage-2 | DONE | 0d321ce2763bcfb4f0732d0131fea33c3c4814a6 | 1 | Verifier PASS round 2 (verdict commit cbd829e). Suite 1 120 + suite 2 25 passed host + isolated; stage-3 suite fails on stage-2 (required); 392 + 98 API probes, 97 browser probes. Started 10:57 UTC, accepted 11:18 UTC (~21 min) |
-| stage-3 | DONE | fcdb0a2b3d4257c041607cdad6e77c91e2187e76 | 0 | Verifier PASS round 1 (verdict commit 56e3be9). Suites 1/2/3 = 120/25/7 passed host + isolated; stage-4 suite fails on stage-3 (required); 392 + 98 + 174 API probes, 108 browser probes. Started 11:24 UTC, accepted ~11:58 UTC |
-| stage-4 | BUILDING | — | 0 | Map: acceptance/stage-4.md. Started ~12:00 UTC |
+| stage-3 | DONE | fcdb0a2b3d4257c041607cdad6e77c91e2187e76 | 0 | Verifier PASS round 1 (verdict commit 56e3be9). Suites 1/2/3 = 120/25/7 passed host + isolated; stage-4 suite fails on stage-3 (required); 392 + 98 + 174 API probes, 108 browser probes. Started 11:24 UTC, accepted 11:36 UTC (~12 min) |
+| stage-4 | BUILDING | — | 0 | Map: acceptance/stage-4.md. Started 11:37 UTC |
 
 ## Verifier notes
 
