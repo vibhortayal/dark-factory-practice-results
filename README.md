@@ -68,4 +68,4 @@ One branch per run, named `runs/NN-YYYY-MM-DD-name`: `NN` is the order the runs 
 
 Not archived, on purpose: "Run 4c" was staged on 2026-10-02 but never dispatched, so it contains no run.
 
-Nothing else lives in a branch of its own. Run 5's Verifier check scripts are in that run's branch, in `verifier-check-scripts/`. The script used to compare the apps on the demo VM is in `tools/demo-compare/` on `main`.
+Nothing else lives in a branch of its own. Run 5's Verifier check scripts are in that run's branch, in `verifier-check-scripts/`. The script used to compare the apps on the demo VM sits beside them, in `verifier-check-scripts/demo-compare/`.
