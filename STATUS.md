@@ -5,7 +5,7 @@ Run started: 2026-10-03T19:42Z. Track: pocketful.
 | Unit | State | Accepted revision | BLOCK rounds | Elapsed | Notes |
 |---|---|---|---|---|---|
 | stage-1 | DONE | 172a3180c731a310e00e403ea1c4990a4a78b5d4 | 0 | 19:43Z–20:02Z (19 min) | Verifier PASS, verdict commit 7a52d057; map `acceptance/stage-1.md` |
-| stage-2 | BUILDING | — | 0 | started 20:05Z | map `acceptance/stage-2.md` |
+| stage-2 | BUILDING (fix round 1) | — | 1 | started 20:05Z | map `acceptance/stage-2.md`; BLOCK #1 on 60a459ae (verdict commit 0c88a232): Requests/Holds screens laid out in a collapsed column (rows Q1, Q3, Q4); all other checks passed |
 | stage-3 | PLANNED | — | 0 | — | |
 | stage-4 | PLANNED | — | 0 | — | |
 
