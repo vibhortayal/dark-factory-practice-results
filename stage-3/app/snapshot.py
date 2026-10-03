@@ -25,6 +25,7 @@ def export_document(state: State) -> dict:
             "authorization_ttl_seconds": state.ttl,
             "authorizations": list(state.authorizations.values()),
             "opening": dict(state.opening),
+            "statement_snapshots": list(state.snapshots.values()),
         },
     }
 
@@ -125,6 +126,18 @@ def _build(raw: dict) -> State:
         state.authorizations[d["authorization_id"]] = {
             "seq": rec["seq"], "ts": rec["ts"], "expires_ts": rec["expires_ts"], "data": d,
             "hold": _hold(state, rec, d)}
+    for frozen in raw.get("statement_snapshots", []):   # absent in earlier stages' exports
+        _check(isinstance(frozen, dict) and isinstance(frozen["token"], str)
+               and frozen["uid"] in state.users and _is_int(frozen["opening_balance"])
+               and _is_int(frozen["closing_balance"]) and frozen["token"] not in state.snapshots
+               and (frozen["known_at"] is None or isinstance(frozen["known_at"], str))
+               and isinstance(frozen["entries"], list), "statement snapshot")
+        for row in frozen["entries"]:
+            _check(isinstance(row, list) and len(row) == 7 and row[0] in state.payment_index
+                   and all(_is_int(row[i]) for i in (1, 2, 3, 4))
+                   and isinstance(row[5], str) and isinstance(row[6], str), "statement snapshot entry")
+        state.snapshots[frozen["token"]] = {k: frozen[k] for k in (
+            "token", "uid", "opening_balance", "closing_balance", "entries", "known_at")}
     operators = raw["operators"]
     _check(isinstance(operators, list) and all(isinstance(o, str) for o in operators))
     state.operators = set(operators)

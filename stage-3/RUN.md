@@ -87,6 +87,9 @@ Both start the service in-process on a free port and talk to it over HTTP.
   (total - held) is negative at any past boundary of either party; same-instant events are combined.
   `insufficient_funds` (current `available`) is checked first. Order: field validation, linked payment
   (settlement member / capture), stale revision, insufficient funds, historical overdraft.
-- `now()` is strictly increasing and carries microseconds, so timestamps are exact instants; statement
-  snapshots are frozen results held in memory until reset (bounded by count and total entries).
+- `now()` is strictly increasing and carries microseconds, so timestamps are exact instants. Statement
+  snapshots are frozen results (compact rows) held in memory until reset and are part of the exported
+  state: a token issued before `GET /_test/export` pages the same result after `POST /_test/import`;
+  tokens absent from the imported state are 404. Memory/export bounds (50 000 snapshots, 600 000
+  rows) only drop the oldest tokens far beyond ordinary use; 400 000 rows export in under 1 s.
 - A raw `+` in an `as_of`/`known_at` query value (decoded to a space) is repaired to `+`.

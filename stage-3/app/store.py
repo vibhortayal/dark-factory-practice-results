@@ -28,7 +28,7 @@ class State:
         self.opening = {}        # user id -> balance before any payment moved
         self.payment_index = {}  # payment id -> record
         self.pay_by_user = {}    # user id -> payment records they sent or received
-        self.snapshots = {}      # statement snapshot token -> frozen statement (not exported)
+        self.snapshots = {}      # statement snapshot token -> frozen statement
         self.ttl = 600           # authorization lifetime in seconds
         self.authorizations = {} # authorization id -> record
         self.seq = 0

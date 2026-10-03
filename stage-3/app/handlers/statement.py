@@ -6,8 +6,10 @@ from .. import clock, history
 from ..errors import invalid, not_found
 from ..validation import parse_page
 
-MAX_SNAPSHOTS = 5000          # oldest snapshots are dropped beyond these bounds
-MAX_SNAPSHOT_ENTRIES = 300_000
+# Tokens last until reset. These bounds only protect memory and the 10 s export limit; an ordinary
+# test run never reaches them (the oldest snapshots would be dropped beyond them).
+MAX_SNAPSHOTS = 50_000
+MAX_SNAPSHOT_ENTRIES = 600_000
 
 
 def _instant(query, name):
@@ -21,12 +23,13 @@ def _instant(query, name):
 
 def _page(state, frozen, limit, offset):
     entries = []
-    for e in frozen["entries"][offset:offset + limit]:
-        payment = dict(state.payment_index[e["payment_id"]]["data"])
-        payment["amount"] = e["amount"]
-        entries.append({"payment": payment, "delta": e["delta"], "balance_after": e["balance_after"],
-                        "revision": e["revision"], "effective_at": e["effective_at"],
-                        "recorded_at": e["recorded_at"]})
+    for pid, amount, delta, balance_after, revision, effective_at, recorded_at in \
+            frozen["entries"][offset:offset + limit]:
+        payment = dict(state.payment_index[pid]["data"])
+        payment["amount"] = amount
+        entries.append({"payment": payment, "delta": delta, "balance_after": balance_after,
+                        "revision": revision, "effective_at": effective_at,
+                        "recorded_at": recorded_at})
     body = {"opening_balance": frozen["opening_balance"], "entries": entries,
             "closing_balance": frozen["closing_balance"],
             "has_more": offset + limit < len(frozen["entries"]), "snapshot": frozen["token"]}
@@ -53,7 +56,13 @@ def get_statement(ctx):
     built = history.build_statement(state, uid, None if start is None else start.ts, to_ts,
                                     now_ts if known is None else known.ts)
     token = "snap_" + secrets.token_urlsafe(18)
-    frozen = dict(built, token=token, uid=uid, known_at=None if known is None else known.text)
+    # entries are stored as compact rows: [payment id, amount, delta, balance after, revision,
+    # effective_at, recorded_at]
+    rows = [[e["payment_id"], e["amount"], e["delta"], e["balance_after"], e["revision"],
+             e["effective_at"], e["recorded_at"]] for e in built["entries"]]
+    frozen = {"token": token, "uid": uid, "opening_balance": built["opening_balance"],
+              "closing_balance": built["closing_balance"], "entries": rows,
+              "known_at": None if known is None else known.text}
     state.snapshots[token] = frozen
     kept = sum(len(f["entries"]) for f in state.snapshots.values())
     while len(state.snapshots) > 1 and (len(state.snapshots) > MAX_SNAPSHOTS or kept > MAX_SNAPSHOT_ENTRIES):

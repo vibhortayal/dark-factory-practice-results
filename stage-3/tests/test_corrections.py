@@ -372,3 +372,82 @@ class ImportAcrossStagesTests(HistoryBase):
             self.assertEqual(other.call("POST", "/_test/import", bad)[0], 422)
         finally:
             other.close()
+
+
+class SnapshotImportTests(HistoryBase):
+    """Row AB4: statement snapshots are part of the exported state."""
+
+    def page(self, api, token, who="bob", **q):
+        qs = "&".join("%s=%s" % kv for kv in dict(q, snapshot=token).items())
+        return api.call("GET", "/statement?" + qs, token=self.tok[who])
+
+    def test_token_survives_export_import(self):
+        _, first = self.stmt("bob")
+        token = first["snapshot"]
+        _, other_first = self.stmt("ada")
+        self.call("POST", "/payments", {"to_handle": "bob", "amount": 7}, who="ada", key="later")
+        self.correct("p1", 1, 100, P1)
+        late = self.stmt("bob")[1]["snapshot"]           # taken after the export below? no: before it
+        doc = self.api.call("GET", "/_test/export")[1]
+        after_export = self.stmt("bob")[1]["snapshot"]   # issued after the export was taken
+        self.assertTrue(any(s["token"] == token for s in doc["state"]["statement_snapshots"]))
+        other = Api()
+        try:
+            self.assertEqual(other.call("POST", "/_test/import", doc)[0], 204)
+            for _ in range(2):                           # repeat import: still the same
+                s, got, _ = self.page(other, token, limit=2, offset=0)
+                self.assertEqual(s, 200)
+                self.assertEqual(got["entries"], first["entries"][:2])
+                self.assertEqual((got["opening_balance"], got["closing_balance"], got["has_more"]),
+                                 (first["opening_balance"], first["closing_balance"], True))
+                s, tail, _ = self.page(other, token, limit=2, offset=2)
+                self.assertEqual((tail["entries"], tail["has_more"]), (first["entries"][2:], False))
+                self.assertEqual(other.call("POST", "/_test/import", doc)[0], 204)
+            self.assertEqual(self.page(other, late)[0], 200)
+            self.assertEqual(self.page(other, token, who="ada")[0], 404)         # another user's token
+            self.assertEqual(self.page(other, after_export)[0], 404)             # not in the imported state
+            self.assertEqual(self.page(other, token, **{"from": enc(P1)})[0], 422)
+            # a second hop keeps them too
+            doc2 = other.call("GET", "/_test/export")[1]
+            third = Api()
+            try:
+                self.assertEqual(third.call("POST", "/_test/import", doc2)[0], 204)
+                self.assertEqual(self.page(third, token)[1]["entries"], first["entries"])
+            finally:
+                third.close()
+        finally:
+            other.close()
+
+    def test_destination_tokens_do_not_survive_import_and_reset_clears(self):
+        _, first = self.stmt("bob")
+        doc = self.api.call("GET", "/_test/export")[1]
+        other = Api()
+        try:
+            other.reset(seeded())
+            other.tok = {h: other.login(h + "@example.com") for h in ("ada", "bob", "cy")}
+            mine = other.call("GET", "/statement", token=other.tok["bob"])[1]["snapshot"]
+            self.assertEqual(other.call("POST", "/_test/import", doc)[0], 204)
+            self.assertEqual(other.call("GET", "/statement?snapshot=" + mine, token=self.tok["bob"])[0], 404)
+            self.assertEqual(other.call("GET", "/statement?snapshot=" + first["snapshot"], token=self.tok["bob"])[0], 200)
+            other.reset(seeded())
+            self.assertEqual(other.call("GET", "/statement?snapshot=" + first["snapshot"], token=other.login("bob@example.com"))[0], 404)
+        finally:
+            other.close()
+
+    def test_invalid_snapshot_data_rejected(self):
+        self.stmt("bob")
+        doc = self.api.call("GET", "/_test/export")[1]
+        for mutate in (lambda s: s.update(uid="u_nobody"), lambda s: s["entries"].append([1, 2]),
+                       lambda s: s.update(opening_balance="x"), lambda s: s["entries"][0].__setitem__(0, "no_such_payment")):
+            bad = json.loads(json.dumps(doc))
+            mutate(bad["state"]["statement_snapshots"][0])
+            before = self.balance("ada")
+            self.assertEqual(self.api.call("POST", "/_test/import", bad)[0], 422)
+            self.assertEqual(self.balance("ada"), before)
+
+    def test_many_snapshots_are_all_kept(self):
+        tokens = [self.stmt("bob")[1]["snapshot"] for _ in range(300)]
+        doc = self.api.call("GET", "/_test/export")[1]
+        self.assertEqual(len(doc["state"]["statement_snapshots"]), 300)
+        for token in (tokens[0], tokens[150], tokens[-1]):
+            self.assertEqual(self.page(self.api, token)[0], 200)
