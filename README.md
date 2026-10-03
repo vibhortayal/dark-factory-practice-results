@@ -1,10 +1,11 @@
 <!-- archive-note: added 2026-10-03 by Claude for Team Nightshift's archive -->
-> **Archive copy: not a submission run.** This branch keeps Team Nightshift's record of this run (Rehearsal 1), for reference only. The submitted run is Run 7 (branch `nightshift-run-7-2026-10-02` here; public submission repository `vibhortayal/nightshift-pocketful`).
+> **Archive copy: not a submission run.** This branch keeps Team Nightshift's record of this run (Rehearsal 1), for reference only. The submitted run is Run 7 (branch `runs/20-2026-10-02-run-7-submitted` here; public submission repository `vibhortayal/nightshift-pocketful`).
 >
 > | | |
 > |---|---|
 > | Run | Rehearsal 1. Rehearsal, stage 1 only, Claude Code seats |
 > | What this run tested | Compared with the practice runs: the first run on three Claude Code seats in Band (Architect, Implementer, Verifier) on the Chicago VM, with new seat mandates. It tested whether those seats could take stage 1 from one dispatch to an accepted build |
+> | Seats | Three Band seats on Claude Code: Architect `claude-opus-5-5`, Implementer `claude-sonnet-5-5`, Verifier `claude-opus-5-5`, running on the team's Chicago VM (from `mandates/`) |
 > | When | 2026-10-01, 00:55 to 01:51 UTC |
 > | Band room | `Nightshift \| Pocketful \| Stage-1 \| Rehearsal 1 \| 2026-09-30` (`7699b589`) |
 > | Mandates | the first Claude Code seat mandates (in `mandates/` of this branch) |
