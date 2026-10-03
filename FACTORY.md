@@ -1,9 +1,10 @@
 <!-- archive-note: added 2026-10-03 by Claude for Team Nightshift's archive -->
-> **Archive copy: not a submission run.** This branch keeps Team Nightshift's record of Run 4b, for reference only. The submitted run is Run 7 (branch `nightshift-run-7-2026-10-02` here; public submission repository `vibhortayal/nightshift-pocketful`).
+> **Archive copy: not a submission run.** This branch keeps Team Nightshift's record of this run (Run 4b), for reference only. The submitted run is Run 7 (branch `nightshift-run-7-2026-10-02` here; public submission repository `vibhortayal/nightshift-pocketful`).
 >
 > | | |
 > |---|---|
 > | Run | Run 4b. Four-stage run, Claude Code seats |
+> | What this run tested | Compared with Run 4: nothing changed. Same text, same settings. It repeated Run 4 to see whether Run 4's block at stage 1 was chance |
 > | When | 2026-10-01 21:14 to 2026-10-02 00:25 UTC |
 > | Band room | `Nightshift \| Pocketful \| Stages 1-4 \| Run 4b \| 2026-10-01` (`afb80351`) |
 > | Mandates | the Run 3 set (team repo `nightshift-factory`, commit `f3cbc34`), unchanged from Run 4 |
