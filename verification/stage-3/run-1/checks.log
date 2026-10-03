@@ -1,0 +1,101 @@
+[PASS] A4-health (§3.2; rows A4) 0.0s
+[PASS] A8-unknown-fields (§3.4; rows A8) 0.1s
+[PASS] A9-ids (§3.4; rows A9) 0.1s
+[PASS] A10-out-of-scope (§1, §4; rows A10) 0.1s
+[PASS] B2-overspend (§1 inv 1,2; rows B1,B2) 0.4s
+[PASS] B3-pay-once (§1 inv 3, §8 pay; rows B3) 0.3s
+[PASS] B3-race-terminal (§1 inv 3, §4 requests; rows B3) 0.6s
+[PASS] B4-exact-2p53 (§4 arithmetic range; rows B4) 0.0s
+[PASS] C1-reset-replaces (§3.3; rows C1,C7) 0.2s
+[PASS] C2-seeded-users (§4 fixture, §8 /me; rows C2,C3,G1) 0.2s
+[PASS] C4-seeded-records (§4 fixture, feed contract; rows C4) 0.1s
+[PASS] C5-negative-balance (§4 fixture; rows C5) 0.1s
+[PASS] C6-currencies (§4 model, fixture; rows C6) 0.2s
+[PASS] C8-reset-malformed (§3.3, §5; rows C8) 0.1s
+[PASS] D1-error-shape (§5; rows D1) 0.1s
+[PASS] D2-malformed (§5; rows D2) 0.1s
+    note: POST /settlements {"transfers": [{"from_handle": 5, "to_handle": "bob", "amount": 1}]}: got (422, 'validation_failed') (open choice; first reading (400, 'malformed_request'))
+[PASS] D3-field-rules (§5 bullet 1, §8, §11; rows D3,D5,D6) 0.2s
+[PASS] D4-integral-forms (§4 model; rows D4) 0.1s
+[PASS] D5-amount-bounds (§4 arithmetic range, §8, §11; rows D5) 0.1s
+[PASS] D6-note (§8 payments note; rows D6) 0.1s
+[PASS] D7-missing-fields (§5; rows D7) 0.1s
+[PASS] D8-query-digits (§5 bullet 2; rows D8) 0.1s
+[PASS] D9-limit-offset (§5 shared ranges, §8 GET /requests, GET /activity; rows D9,G12,G16) 0.1s
+[PASS] D10-idem-key-header (§5 shared ranges, §7; rows D10) 0.5s
+[PASS] D11-unauthenticated (§5, §6, §11; rows D11,E9,F10,I1) 0.2s
+[PASS] E1-signup (§6, §4 users; rows E1,B1) 0.2s
+[PASS] E2-handle-derivation (§4 users and handles; rows E2,E8) 0.2s
+[PASS] E3-signup-conflicts (§6 table, §4; rows E3) 0.2s
+[PASS] E4-signup-validation (§6 table; rows E4) 0.1s
+[PASS] E5-login (§6; rows E5,E6) 0.1s
+[PASS] F1-replay (§7 table; rows F1,F3,F9) 0.7s
+[PASS] F2-same-body (§7; rows F2) 0.1s
+[PASS] F4-key-scope (§7; rows F4,F5) 0.1s
+[PASS] F6-failed-key-reusable (§7 table; rows F6) 0.1s
+[PASS] F7-concurrent-identical (§7; rows F7,B1) 0.7s
+[PASS] F8-replay-after-change (§7; rows F8,G9) 0.1s
+[PASS] F10-order (§7 last paragraph, §5; rows F10) 0.1s
+[PASS] G2-payment (§8 POST /payments; rows G2,G3,G4) 0.1s
+[PASS] G5-request (§8 POST /requests, §4 requests; rows G5,G6) 0.1s
+[PASS] G7-pay (§8 pay, §4 requests; rows G7,G8,G17) 0.2s
+[PASS] G10-decline-cancel (§8 decline, cancel; §4 requests; rows G10,G11) 0.1s
+[PASS] G12-list-requests (§8 GET /requests, §4 feed contract; rows G12,G17) 3.5s
+[PASS] G13-split (§8 POST /splits; rows G13,G14,G15,G17) 0.1s
+[PASS] G16-activity (§4 feed contract, §8 GET /activity; rows G16,G17) 4.5s
+[PASS] H1-rounding (§9; rows H1,H2) 0.1s
+    note: paying a zero-amount split request returns 201 {"payment_id":"p_76bb71f4ac9c6633","from_user_id":"u_bob","from_handle":"bob","to_user_id":"u_ada","to_handle":"ada","amount":0,"currency":"EUR","note":"zero"," (specification is silent)
+[PASS] H3-splits-paid (§9 last paragraph; rows H3,B1) 0.1s
+[PASS] I1-settlement-auth (§11; rows I1,I2) 0.1s
+[PASS] I3-settlement-shape (§11; rows I3,I4,D3) 0.1s
+[PASS] I4-settlement-errors (§11; rows I4,I6) 0.1s
+[PASS] I5-net-affordability (§11; rows I5,B1,B2) 0.2s
+[PASS] I7-settlement-response (§11; rows I7,I8) 0.1s
+[PASS] A5-load-50 (§2 resource limits, §5 last line, §1 invariants; rows A5,A6,B1) 1.4s
+    note: load: slowest mixed request 0.036s; slowest of 50 concurrent logins 0.392s
+    note: reset of a 60-user fixture took 0.587s
+[PASS] J1-export-import (§10; rows J1,J2,J3,J4,E7) 0.3s
+[PASS] J5-import-invalid (§10, §5; rows J5) 0.1s
+    note: import non-object body []: got (422, 'validation_failed') (open choice; first reading (400, 'malformed_request'))
+    note: import non-object body "x": got (422, 'validation_failed') (open choice; first reading (400, 'malformed_request'))
+    note: import non-object body 7: got (422, 'validation_failed') (open choice; first reading (400, 'malformed_request'))
+[PASS] T1-me-fields (stage-2 API GET /me; existing API changes; rows T1,S7) 0.2s
+[PASS] S6-ttl-fixture (stage-2 Model; rows S6) 0.4s
+[PASS] S7-seeded-auths (stage-2 Model, GET /authorizations; rows S7,T12,T4) 0.2s
+[PASS] S8-seeded-holds-vs-balance (stage-2 Model; rows S8) 0.3s
+[PASS] S9-expiry-by-clock (stage-2 Model (expiry), capture table; rows S9,T9,T11) 3.7s
+[PASS] T2-authorize (stage-2 POST /authorizations; invariants 1,2; rows T2,T3,T4,T14,S2) 0.2s
+[PASS] T5-capture-final (stage-2 POST /authorizations/{id}/capture; rows T5,T6,T7,S4) 0.1s
+[PASS] T8-capture-extended (stage-2 Extended capture mode; rows T8,T9,T11) 0.1s
+[PASS] T9-capture-void-permissions (stage-2 capture and void tables; rows T9,T10) 0.1s
+[PASS] T12-list-authorizations (stage-2 GET /authorizations; rows T12) 3.5s
+[PASS] T13-idempotency-new-paths (stage-2 'seven idempotent write paths'; stage-1 §7; rows T13,T7) 0.1s
+[PASS] S3-concurrent (stage-2 invariants 1-3; Concurrent operations; rows S1,S2,S3,S5,T13,K5) 0.6s
+    note: stage-2 load: slowest request 0.036s
+[PASS] L2-content-negotiation (stage-2 intro (shared routes); rows L1,L2) 0.1s
+[PASS] R5-export-import-holds (stage-1 §10 applied to stage 2; stage-2 seven idempotent paths; rows R5) 0.2s
+[PASS] R1-upgrade-import (stage-2 Existing clients after an upgrade; stage-1 §10; rows R1,R3,R4) 0.2s
+[PASS] W1-payment-timestamps (stage-3 Payment timestamps; rows W1,W2,W3,W4,W5) 0.3s
+[PASS] X1-me-as-of (stage-3 GET /me as of an instant; rows X1,X2,X3,X4,X5,X7,Z11) 0.1s
+    note: as_of with an unencoded '+' (decodes to a space): got 200
+[PASS] Y1-statement (stage-3 GET /statement; rows Y1,Y2,Y3,Y4,Y5,Y8,Y10,W1) 0.2s
+[PASS] Y6-statement-paging (stage-3 GET /statement requirement 4; Stable statement pagination; rows Y6,AA1,AA2,AA3,AA4,AA5,AC6) 0.3s
+[PASS] Z1-revisions (stage-3 Effective time, recorded time, and corrections; rows Z1,Z13) 0.1s
+[PASS] Z2-correction-rules (stage-3 corrections (request rules); rows Z2,Z3,Z10,Z14) 0.3s
+[PASS] Z4-correction-effects (stage-3 corrections (effects), known_at; rows Z4,Z6,Z7,Z12,Z15,X6,Y7,W5,Z11) 1.4s
+[PASS] Z8-correction-refusals (stage-3 corrections (insufficient_funds, historical_overdraft); rows Z8,Z9,Z10,Z5) 0.4s
+[PASS] AC1-historical-holds (stage-3 Historical holds; rows AC1,AC2,AC3,AC4,X7,Y9) 5.4s
+[PASS] AC5-overdraft-with-holds (stage-3 Historical holds (corrections); rows AC5,Z8,Z9) 0.7s
+[PASS] AB1-import-earlier-stages (stage-3 Settlement history (exports of stage 1 and stage 2); rows AB1) 0.4s
+[PASS] AB2-export-import-history (stage-1 §10 applied to stage 3; rows AB2,AA4) 1.0s
+[PASS] V2-load-history (stage-1 §2 limits and §5 (no 5xx) with stage-3 endpoints; rows V2) 0.3s
+    note: stage-3 load: slowest request 0.037s
+[PASS] J6-cross-container (§10; rows J3,J6) 0.4s
+    note: source container stopped with: docker kill nsv-stage3-a
+[PASS] A6-no-5xx (§5 last line; rows A6) 0.0s
+    note: 5048 requests audited
+[PASS] A7-content-type (§3.4; rows A7) 0.0s
+[PASS] A5-latency (§2 resource limits; rows A5) 0.0s
+    note: slowest request: POST /_test/reset 0.587s
+
+TOTAL 86 checks: 86 passed, 0 failed; 5048 HTTP requests
