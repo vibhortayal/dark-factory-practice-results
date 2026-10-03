@@ -28,6 +28,22 @@ class Basics(ServiceCase):
         self.assertErr(self.call("POST", "/_test/reset", raw="{nope"), 400, "malformed_request")
         self.assertErr(self.call("POST", "/_test/reset", raw="[]"), 400, "malformed_request")
 
+    def test_reset_type_vs_range_errors(self):
+        r = restaurant()
+        cases = [({"users": "x"}, 400), ({"restaurants": {}}, 400), ({"reservations": 5}, 400),
+                 ({"users": ["x"]}, 400), ({"users": [{"id": "u", "email": 5, "password": "password1"}]}, 400),
+                 ({"restaurants": [dict(r, slot_minutes="30")]}, 400),
+                 ({"restaurants": [dict(r, id=7)]}, 400),
+                 ({"restaurants": [dict(r, tables=[{"id": "t", "capacity": "2"}])]}, 400),
+                 ({"restaurants": [r], "reservations": [{"reference": "ABCDEF", "restaurant_id": [], "table_id": "t1"}]}, 400),
+                 ({"restaurants": [dict(r, slot_minutes=0)]}, 422),
+                 ({"restaurants": [dict(r, id="x" * 65)]}, 422),
+                 ({"restaurants": [dict(r, slot_minutes=1.5)]}, 422)]
+        for body, status in cases:
+            s, b, _ = self.call("POST", "/_test/reset", body)
+            self.assertEqual(s, status, body)
+            self.assertEqual(b["error"]["code"], "malformed_request" if status == 400 else "validation_failed")
+
     def test_auth_rules(self):
         self.reset()
         c = self.call
@@ -170,6 +186,14 @@ class Booking(ServiceCase):
             res = list(ex.map(lambda i: self.book(a, f"race{i}"), range(50)))
         self.assertEqual(sorted(r[0] for r in res), [201] + [409] * 49)
 
+    def test_patch_order_cancelled_cutoff_then_fields(self):
+        past = self.book(self.a, "kp", at="2020-05-01T19:00", table="t3")[1]["reference"]
+        self.assertErr(self.call("PATCH", f"/reservations/{past}", {"party_size": 0}, token=self.a), 409, "cutoff_passed")
+        self.assertErr(self.call("PATCH", f"/reservations/{past}", {"party_size": 0}, token=self.b), 404, "not_found")
+        self.assertErr(self.call("PATCH", f"/reservations/{past}", raw="[", token=self.a), 400, "malformed_request")
+        ok = self.book(self.a, "kf")[1]["reference"]
+        self.assertErr(self.call("PATCH", f"/reservations/{ok}", {"party_size": 0}, token=self.a), 422, "validation_failed")
+
     def test_list_get_cancel_patch(self):
         s, r1, _ = self.book(self.a, "k1", at="2030-05-01T19:00")
         s, r2, _ = self.book(self.a, "k2", at="2030-05-02T19:00")
@@ -246,6 +270,14 @@ class Moves(ServiceCase):
         self.assertEqual(self.call("GET", "/reservations", token=self.a)[1], before)
         # key not burned: a valid move with same key now works
         self.assertEqual(self.mv([{"reference": self.r1["reference"], "party_size": 1}], key="m1")[0], 201)
+
+    def test_cutoff_precedes_later_field_errors(self):
+        past = self.book(self.a, "kp", at="2020-05-01T19:00", table="t3")[1]["reference"]
+        for moves in ([{"reference": past, "party_size": 0}],
+                      [{"reference": past}, {"reference": self.r2["reference"], "party_size": 0}],
+                      [{"reference": past, "starts_at_local": "2030-05-01T19:00:00"}]):
+            self.assertErr(self.mv(moves, key="mq"), 409, "cutoff_passed")
+        self.assertErr(self.mv([{"reference": self.r2["reference"], "party_size": 0}], key="mr"), 422, "validation_failed")
 
     def test_two_into_one_table_conflict(self):
         self.assertErr(self.mv([{"reference": self.r1["reference"], "table_id": "t2"},

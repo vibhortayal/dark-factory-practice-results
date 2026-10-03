@@ -1,13 +1,15 @@
 """Test-control endpoints: reset, export, import (spec §3.3, §10). Unauthenticated."""
 from . import snapshot
-from .errors import invalid
-from .state import STORE
+from .errors import ApiError, invalid
+from .state import LOCK, STORE
 
 TRACK, FORMAT_VERSION = "tablekeeper", 1
 
 
 def reset(req):
-    STORE.data = snapshot.from_fixture(req.json_object())
+    data = snapshot.from_fixture(req.json_object())  # hashing happens outside the lock
+    with LOCK:
+        STORE.data = data
     return 204, None
 
 
@@ -23,7 +25,7 @@ def import_(req):
         raise invalid("expected track 'tablekeeper', format_version 1 and a state")
     try:
         data = snapshot.from_state(body["state"])
-    except (KeyError, TypeError, ValueError, AttributeError):
+    except (ApiError, KeyError, TypeError, ValueError, AttributeError):
         raise invalid("state is not a valid export")
     STORE.data = data
     return 204, None

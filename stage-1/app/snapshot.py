@@ -1,10 +1,11 @@
 """Building Data from a reset fixture (§4) and from an export (§10), and exporting."""
 import re
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfoNotFoundError
 
 from . import auth, timeutil
-from .errors import invalid
+from .errors import invalid, malformed
 from .jsonutil import clone
 from .state import Data
 from .validate import MAX_ID, is_int
@@ -15,29 +16,34 @@ STATUSES = ("confirmed", "cancelled")
 
 def _obj(value, what):
     if not isinstance(value, dict):
-        raise invalid(f"{what} must be an object")
+        raise malformed(f"{what} must be an object")
     return value
 
 
 def _list(value, what):
     if not isinstance(value, list):
-        raise invalid(f"{what} must be an array")
+        raise malformed(f"{what} must be an array")
     return value
 
 
 def _id(value, what):
-    if not isinstance(value, str) or not value or len(value) > MAX_ID:
-        raise invalid(f"{what} must be a non-empty string of at most {MAX_ID} characters")
+    if not isinstance(value, str):
+        raise malformed(f"{what} must be a string")
+    if not value or len(value) > MAX_ID:
+        raise invalid(f"{what} must be 1 to {MAX_ID} characters")
     return value
 
 
 def _str(value, what):
     if not isinstance(value, str):
-        raise invalid(f"{what} must be a string")
+        raise malformed(f"{what} must be a string")
     return value
 
 
 def _posint(value, what, minimum=1):
+    """Wrong JSON type -> 400; a number that is not an integer or is too small -> 422."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise malformed(f"{what} must be an integer")
     if not is_int(value) or value < minimum:
         raise invalid(f"{what} must be an integer >= {minimum}")
     return value
@@ -54,7 +60,7 @@ def normalize_restaurant(raw):
     hours = []
     for entry in _list(raw.get("opening_hours", []), "opening_hours"):
         entry = _obj(entry, "opening hours entry")
-        if entry.get("weekday") not in timeutil.WEEKDAYS:
+        if _str(entry.get("weekday"), "weekday") not in timeutil.WEEKDAYS:
             raise invalid("weekday must be one of mon..sun")
         opens = timeutil.parse_hhmm(_str(entry.get("opens"), "opens"))
         closes = timeutil.parse_hhmm(_str(entry.get("closes"), "closes"))
@@ -102,8 +108,8 @@ def _seed_reservation(data, raw, now_iso):
         raise invalid("reference must be 6 to 12 characters of A-Z0-9")
     if ref in data.reservations:
         raise invalid("duplicate reference")
-    rest = data.restaurants.get(raw.get("restaurant_id"))
-    if rest is None or raw.get("table_id") not in {t["id"] for t in rest["tables"]}:
+    rest = data.restaurants.get(_id(raw.get("restaurant_id"), "restaurant_id"))
+    if rest is None or _id(raw.get("table_id"), "table_id") not in {t["id"] for t in rest["tables"]}:
         raise invalid("reservation names an unknown restaurant or table")
     naive = timeutil.parse_local(_str(raw.get("starts_at_local"), "starts_at_local"))
     if naive is None:
@@ -136,12 +142,16 @@ def from_fixture(body):
     """Validate a reset fixture and return fresh Data (never touches live state)."""
     body = _obj(body, "fixture")
     data = Data()
+    users = []
     for u in _list(body.get("users", []), "users"):
         u = _obj(u, "user")
-        password = _str(u.get("password"), "password")
-        _add_user(data, _id(u.get("id"), "user id"), _str(u.get("email"), "email"),
-                  _str(u.get("display_name", ""), "display_name"),
-                  auth.hash_password(password))
+        users.append((_id(u.get("id"), "user id"), _str(u.get("email"), "email"),
+                      _str(u.get("display_name", ""), "display_name"),
+                      _str(u.get("password"), "password")))
+    with ThreadPoolExecutor(max_workers=4) as pool:  # scrypt releases the GIL
+        hashes = list(pool.map(lambda u: auth.hash_password(u[3]), users))
+    for (uid, email, name, _), hashed in zip(users, hashes):
+        _add_user(data, uid, email, name, hashed)
     for r in _list(body.get("restaurants", []), "restaurants"):
         rest = normalize_restaurant(r)
         if rest["id"] in data.restaurants:

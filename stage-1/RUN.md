@@ -35,8 +35,13 @@ Check: `curl localhost:8080/health` -> `{"status": "ok"}`.
 - Emails are case-insensitive for signup uniqueness and login.
 - Booking error precedence: body shape (400/422) -> unknown restaurant/table (404) ->
   `invalid_local_time` -> `not_on_slot_grid` -> `outside_opening_hours` ->
-  `party_exceeds_capacity` -> `table_unavailable` (409). Amend/moves put
-  `reservation_cancelled` and `cutoff_passed` before the semantic checks.
+  `party_exceeds_capacity` -> `table_unavailable` (409). PATCH order: unparseable body (400) ->
+  404 (not the caller's) -> `reservation_cancelled` -> `cutoff_passed` -> field validation ->
+  semantic checks -> occupancy. `POST /reservation-moves`: batch shape (422) -> 404 / mixed
+  restaurants (422) -> per booking in input order (cancelled, cutoff, field validation,
+  semantic checks) -> occupancy over the whole batch.
+- Reset fixtures: wrong JSON type of a field -> 400 `malformed_request`; right type but invalid
+  value -> 422; import state problems are always 422.
 - Closing time and durations are compared on absolute instants.
 
 ## Tests

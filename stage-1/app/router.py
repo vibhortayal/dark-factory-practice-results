@@ -29,7 +29,7 @@ def _ref(pattern):
 # (method, path regex, handler, needs_auth, take_global_lock)
 ROUTES = [
     ("GET", _ref("/health"), lambda req: (200, {"status": "ok"}), False, False),
-    ("POST", _ref("/_test/reset"), admin.reset, False, True),
+    ("POST", _ref("/_test/reset"), admin.reset, False, False),
     ("GET", _ref("/_test/export"), admin.export, False, True),
     ("POST", _ref("/_test/import"), admin.import_, False, True),
     ("POST", _ref("/auth/signup"), accounts.signup, False, False),

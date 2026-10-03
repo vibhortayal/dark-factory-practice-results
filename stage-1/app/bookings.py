@@ -6,7 +6,9 @@ writes form one atomic step: a failed request changes nothing.
 Booking error precedence (documented choice): body shape (400/422) -> unknown
 restaurant/table (404) -> invalid_local_time -> not_on_slot_grid ->
 outside_opening_hours -> party_exceeds_capacity -> table_unavailable (409).
-Amend/move add, before the semantic checks: reservation_cancelled, cutoff_passed.
+Amend/move: 404 (not the caller's) -> reservation_cancelled -> cutoff_passed -> field
+validation -> semantic checks above; moves apply this per booking in input order, then
+occupancy.
 """
 from datetime import timedelta
 
@@ -149,10 +151,11 @@ def _commit(rec, rest, table, start, end, naive, party):
 def amend(req, reference):
     data = STORE.data
     rec = _own(data, req.user_id, reference)
-    changes = _parse_changes(req.json_object())
+    body = req.json_object()
     if rec["status"] == "cancelled":
         raise ApiError(409, "reservation_cancelled", "the reservation is cancelled")
     _check_cutoff(rec, data.restaurants[rec["restaurant_id"]])
+    changes = _parse_changes(body)
     table, start, end, naive, party = _resolve(data, rec, changes)
     if not scheduling.table_free(data, rec["restaurant_id"], table["id"], start, end,
                                  ignore={rec["reference"]}):
@@ -181,16 +184,16 @@ def _parse_moves(body):
 def _moves(user_id):
     def produce(data, body):
         moves = _parse_moves(body)
-        parsed = [(item["reference"], _parse_changes(item)) for item in moves]
-        recs = [_own(data, user_id, ref) for ref, _ in parsed]
+        recs = [_own(data, user_id, item["reference"]) for item in moves]
         if len({r["restaurant_id"] for r in recs}) != 1:
             raise invalid("all bookings must belong to the same restaurant")
         rest = data.restaurants[recs[0]["restaurant_id"]]
         results = []
-        for rec, (_, changes) in zip(recs, parsed):
+        for rec, item in zip(recs, moves):
             if rec["status"] == "cancelled":
                 raise ApiError(409, "reservation_cancelled", "the reservation is cancelled")
             _check_cutoff(rec, rest)
+            changes = _parse_changes(item)  # after this booking's cutoff, before the next booking
             results.append(_resolve(data, rec, changes))
         listed = {r["reference"] for r in recs}
         for i, (table, start, end, _, _) in enumerate(results):

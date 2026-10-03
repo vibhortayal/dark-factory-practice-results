@@ -19,6 +19,7 @@ class Data:
         self.idem = {}           # (user_id, path, key) -> {body, status, response}
         self.next_user = 1
         self.next_res = 1
+        self._res_ids = None     # lazily built set of reservation ids in use
 
     # -- id generators; loop past anything already used (seeded or imported) --
     def new_user_id(self):
@@ -29,11 +30,13 @@ class Data:
                 return uid
 
     def new_reservation_id(self):
-        used = {r["reservation_id"] for r in self.reservations.values()}
+        if self._res_ids is None:
+            self._res_ids = {r["reservation_id"] for r in self.reservations.values()}
         while True:
             rid = f"res_{self.next_res}"
             self.next_res += 1
-            if rid not in used:
+            if rid not in self._res_ids:
+                self._res_ids.add(rid)
                 return rid
 
     def new_reference(self):
