@@ -1,0 +1,125 @@
+$ docker rm -f nsv-stage2-default nsv-stage2-port nsv-stage2-none nsv-stage2-a nsv-stage2-b nsv-stage2-ui nsv-stage2-s1 2>/dev/null; docker network rm nsv-stage2-int 2>/dev/null
+$ git -C /home/ubuntu/nightshift-claude-bg-test/band-work/result diff --stat 172a3180c731a310e00e403ea1c4990a4a78b5d4 -- stage-1 | wc -l
+0
+[PASS] K3-stage1-unchanged (task (one folder per stage); rows K3) git diff 172a3180 -- stage-1 is empty
+[PASS] A1-files (§2; rows K2,A1) stage-2 has its own Dockerfile and RUN.md
+$ docker build --no-cache -t nsv-stage2 /home/ubuntu/nightshift-claude-bg-test/band-work/result/stage-2
+ ---> Removed intermediate container 13020f49999b
+ ---> a7970ee1e8df
+Step 3/7 : WORKDIR /srv
+ ---> Running in 29a7f337fc46
+ ---> Removed intermediate container 29a7f337fc46
+ ---> 569347e09b09
+Step 4/7 : COPY app ./app
+ ---> 5e5ba1bb977f
+Step 5/7 : EXPOSE 8080
+ ---> Running in 08806b47a2fb
+ ---> Removed intermediate container 08806b47a2fb
+ ---> 279615ae62a8
+Step 6/7 : USER nobody
+ ---> Running in 5e6bace31477
+ ---> Removed intermediate container 5e6bace31477
+ ---> 39c506936393
+Step 7/7 : CMD ["python", "-m", "app"]
+ ---> Running in a8fc889bb073
+ ---> Removed intermediate container a8fc889bb073
+ ---> 9c0aef53b7ee
+Successfully built 9c0aef53b7ee
+Successfully tagged nsv-stage2:latest
+DEPRECATED: The legacy builder is deprecated and will be removed in a future release.
+            Install the buildx component to build images with BuildKit:
+            https://docs.docker.com/go/buildx/
+[PASS] A1-clean-build (§2; rows K2,A1) docker build --no-cache of stage-2
+$ docker build -t nsv-stage2-s1 /home/ubuntu/nightshift-claude-bg-test/band-work/result/stage-1
+Step 2/7 : ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 PORT=8080
+ ---> Using cache
+ ---> a7970ee1e8df
+Step 3/7 : WORKDIR /srv
+ ---> Using cache
+ ---> 569347e09b09
+Step 4/7 : COPY app ./app
+ ---> 26cb36cc7247
+Step 5/7 : EXPOSE 8080
+ ---> Running in 579dd03f454f
+ ---> Removed intermediate container 579dd03f454f
+ ---> f0e033401933
+Step 6/7 : USER nobody
+ ---> Running in 9f01ca3e619b
+ ---> Removed intermediate container 9f01ca3e619b
+ ---> b51cea7af6c3
+Step 7/7 : CMD ["python", "-m", "app"]
+ ---> Running in aad51a084ee7
+ ---> Removed intermediate container aad51a084ee7
+ ---> f4dd28ce8c9b
+Successfully built f4dd28ce8c9b
+Successfully tagged nsv-stage2-s1:latest
+DEPRECATED: The legacy builder is deprecated and will be removed in a future release.
+            Install the buildx component to build images with BuildKit:
+            https://docs.docker.com/go/buildx/
+[PASS] S1-build (upgrade; rows R1) docker build of stage-1 (source of the upgrade export)
+$ docker run -d --name nsv-stage2-default --cpus 2 --memory 2g -p 127.0.0.1:40021:8080 nsv-stage2
+a5aea13923bc011ed8639aba9ff0b0aba5cdba5ee17d8ded7a14715fda8bce70
+[PASS] A2-default-port (§3.1, §3.2; rows K1,A2,A4) no PORT set: healthy on mapped 8080 after 0.42724398197606206 s
+$ docker run -d --name nsv-stage2-port --cpus 2 --memory 2g -e PORT=9123 -p 127.0.0.1:60449:9123 nsv-stage2
+b4118f001f50675b9dc2ebd40ae3f417da5266635d88193034bc3960141072b6
+[PASS] A2-port-env (§2, §3.1; rows K1,A2,A4) -e PORT=9123 with mapping: healthy after 0.4030986689031124 s
+$ docker rm -f nsv-stage2-default nsv-stage2-port
+nsv-stage2-default
+nsv-stage2-port
+$ docker run -d --name nsv-stage2-none --network none --cpus 2 --memory 2g nsv-stage2
+32f965c952b9e5012edf613d347d7a7a74a57877ac9ef9d8636118f320f80307
+$ docker inspect -f '{{.State.Running}} {{.State.ExitCode}} {{.State.OOMKilled}}' nsv-stage2-none
+true 0 false
+[PASS] A3-network-none (§2; rows K2,A3) container running after 8 s with --network none (true 0 false)
+$ docker rm -f nsv-stage2-none
+nsv-stage2-none
+$ docker network create --internal nsv-stage2-int
+103ca511cac0db94926f043eda827360286a66edd97d96ad1e9c2753f417dee7
+$ docker run -d --name nsv-stage2-a --network nsv-stage2-int --cpus 2 --memory 2g nsv-stage2
+bf54537468544c4d3a0cbe1fae237d6b7812c10413c84963bb1a5eef504f05b7
+$ docker run -d --name nsv-stage2-b --network nsv-stage2-int --cpus 2 --memory 2g -e PORT=9200 nsv-stage2
+e67a3aa2a1b2980e6e78175372a26c1a8874c889ff6b7213d6be97fe008c42b9
+$ docker run -d --name nsv-stage2-ui --network nsv-stage2-int --cpus 2 --memory 2g nsv-stage2
+7fd424c9ccfdb4804b2909d4c734aa0979ee1015a8e08cb0bb2ffef10501edb5
+$ docker run -d --name nsv-stage2-s1 --network nsv-stage2-int --cpus 2 --memory 2g nsv-stage2-s1
+f3804f4e12969d961ae0519aabc20ebc6c878ab3893645e9ab314f5fe0278fea
+$ docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' nsv-stage2-a
+172.25.0.2
+$ docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' nsv-stage2-b
+172.25.0.3
+$ docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' nsv-stage2-ui
+172.25.0.4
+$ docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' nsv-stage2-s1
+172.25.0.5
+[PASS] A4-timed-start (§2, §3.2; rows K5,A4) healthy after [0.001370821031741798, 0.0011709420941770077, 0.0010606440482661128, 0.4020664180861786] s under --cpus 2 --memory 2g on an internal network
+$ cd /home/ubuntu/nightshift-claude-bg-test/band-work/verifier/stage-2 && S1BASE=http://172.25.0.5:8080 /usr/bin/python3 checks2.py --base http://172.25.0.2:8080 --base2 http://172.25.0.3:9200 --kill-cmd 'docker kill nsv-stage2-a' --json /home/ubuntu/nightshift-claude-bg-test/band-work/verifier/stage-2/out-r1/checks.json > /home/ubuntu/nightshift-claude-bg-test/band-work/verifier/stage-2/out-r1/checks.log 2>&1
+TOTAL 73 checks: 73 passed, 0 failed; 3907 HTTP requests
+[PASS] API-check-list (stage-1 + stage-2; rows K1,L2,R1,R5,S,T) checks2.py exit code 0; see checks.log
+$ cd /home/ubuntu/nightshift-claude-bg-test/band-work/verifier/stage-2 && /home/ubuntu/nightshift-claude-bg-test/dark-factory-wearedevs/.venv/bin/python ui.py --base http://172.25.0.4:8080 --s1base http://172.25.0.5:8080 --out /home/ubuntu/nightshift-claude-bg-test/band-work/verifier/stage-2/out-r1/ui > /home/ubuntu/nightshift-claude-bg-test/band-work/verifier/stage-2/out-r1/ui.log 2>&1
+[FAIL] Q2-labels-focus @375 (stage-2 Product and visual direction; rows Q1,Q2,Q3,Q4) 7.5s
+    FAIL: /: text below WCAG AA contrast (4.5:1, large 3:1): ['80.00 EUR 1.09', '100.00 EUR 1.09', '20.00 EUR 1.15', 'Held money is reserved f 1.04']
+    FAIL: /requests: text below WCAG AA contrast (4.5:1, large 3:1): ['80.00 EUR 1.09', '100.00 EUR 1.09', '20.00 EUR 1.15', 'Held money is reserved f 1.04']
+    FAIL: /authorizations: text below WCAG AA contrast (4.5:1, large 3:1): ['80.00 EUR 1.09', '100.00 EUR 1.09', '20.00 EUR 1.15', 'Held money is reserved f 1.04']
+[FAIL] Q2-labels-focus @1280 (stage-2 Product and visual direction; rows Q1,Q2,Q3,Q4) 7.6s
+    FAIL: /: text below WCAG AA contrast (4.5:1, large 3:1): ['80.00 EUR 1.09', '100.00 EUR 1.09', '20.00 EUR 1.15', 'Held money is reserved f 1.04']
+    FAIL: /requests: text below WCAG AA contrast (4.5:1, large 3:1): ['80.00 EUR 1.09', '100.00 EUR 1.09', '20.00 EUR 1.15', 'Held money is reserved f 1.04']
+    FAIL: /authorizations: text below WCAG AA contrast (4.5:1, large 3:1): ['80.00 EUR 1.09', '100.00 EUR 1.09', '20.00 EUR 1.15', 'Held money is reserved f 1.04']
+UI TOTAL 30 checks: 28 passed, 2 failed; side-channel 5xx/transport errors: 0
+[FAIL] UI-check-list (stage-2 UI; rows L-R,U) ui.py exit code 1; see ui.log
+$ docker inspect -f '{{.State.Running}} {{.State.OOMKilled}} {{.RestartCount}}' nsv-stage2-b
+true false 0
+[PASS] A5-no-oom--b (§2 resource limits; rows K5,A5) nsv-stage2-b after the run (running oomkilled restarts): true false 0
+$ docker inspect -f '{{.State.Running}} {{.State.OOMKilled}} {{.RestartCount}}' nsv-stage2-ui
+true false 0
+[PASS] A5-no-oom-ui (§2 resource limits; rows K5,A5) nsv-stage2-ui after the run (running oomkilled restarts): true false 0
+$ docker stats --no-stream --format '{{.Name}} {{.MemUsage}}' nsv-stage2-b nsv-stage2-ui
+nsv-stage2-b 20.75MiB / 2GiB
+nsv-stage2-ui 145.2MiB / 2GiB
+$ docker rm -f nsv-stage2-default nsv-stage2-port nsv-stage2-none nsv-stage2-a nsv-stage2-b nsv-stage2-ui nsv-stage2-s1 2>/dev/null; docker network rm nsv-stage2-int 2>/dev/null
+nsv-stage2-a
+nsv-stage2-b
+nsv-stage2-ui
+nsv-stage2-s1
+nsv-stage2-int
+
+DELIVERY TOTAL 12 checks: 11 passed, 1 failed ['UI-check-list']

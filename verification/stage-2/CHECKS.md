@@ -1,0 +1,130 @@
+# Verifier check list — Pocketful stage 2
+
+Derived from `pocketful/spec/stage-2.md` (and `stage-1.md`, still in force) before any stage-2
+revision existed and without reading the Implementer's work. Scripts: `deliver2.py` (build, start,
+limits; runs the two below), `checks2.py` (API; includes the whole stage-1 list `checks1.py`
+unchanged), `ui.py` (browser, Playwright/Chromium, every check at 375x740 and 1280x800).
+
+Firm assertions fail a check; `note`/probe lines record behaviour the specification leaves open
+(capture with no body, `final` of a non-boolean type 400 vs 422, error code for a seeded
+past-expiry capture, handles typed with spaces in the split form, links between screens,
+signed-out visit to `/`). Label, focus and contrast checks are heuristics: a failure is confirmed by
+eye on the saved screenshots and the CSS before it is reported.
+
+Sizes: fixtures of 2-60 users, at most 50 requests in flight, ttl of 1-2 s for expiry checks.
+
+## Delivery and runtime (deliver2.py)
+
+| Check | Spec | Map rows | What it checks |
+|---|---|---|---|
+| K3-stage1-unchanged | task | K3 | `git diff 172a3180 -- stage-1` is empty |
+| A1-files, A1-clean-build | stage-1 §2 | K2,A1 | stage-2 has its own Dockerfile and RUN.md; `docker build --no-cache` succeeds |
+| A1-runmd (manual) | stage-1 §2 | K2,A1 | RUN.md command followed verbatim builds and starts the service |
+| A2-default-port, A2-port-env | stage-1 §3.1 | K1,A2,A4 | Port 8080 by default and `-e PORT` with a mapping |
+| A3-network-none | stage-1 §2 | K2,A3 | Starts and stays up with `--network none` |
+| A4-timed-start | stage-1 §2, §3.2 | K5,A4 | Healthy within 60 s under 2 vCPU / 2 GiB |
+| API-check-list | both | K1,L2,R1,R5,S,T | checks2.py against limited containers on an internal network; stage-1 export taken from a stage-1 container |
+| UI-check-list | stage-2 UI | L-R,U | ui.py against a limited container on the internal network |
+| A5-no-oom | stage-1 §2 | K5,A5 | Containers not OOM-killed or restarted |
+| Supplied (manual) | task | all | Harness `--stage 2` normal and `--mode isolated`; Implementer's tests |
+| K4 scope (manual) | task | K4 | No stage-3 feature implemented early |
+| Q3/Q4 read (manual) | Product and visual direction | Q3,Q4 | Screenshots of every route/state at both widths read for coherence, hierarchy, states, people-first formatting |
+| Maintainability (manual, note only) | — | — | One read of the code |
+
+## API (checks2.py) — stage-1 list first (K1), then stage 2
+
+| Check | Spec | Map rows | What it checks |
+|---|---|---|---|
+| A4-health | §3.2 | A4 | GET /health -> 200 {"status":"ok"}; unknown query parameter ignored; no auth needed |
+| A8-unknown-fields | §3.4 | A8 | Unknown body fields and unknown query parameters are ignored on every endpoint |
+| A9-ids | §3.4 | A9 | Generated IDs are strings of at most 64 characters; seeded IDs are kept as given |
+| A10-out-of-scope | §1, §4 | A10 | Deposits, top-ups, withdrawals and an admin balance endpoint are out of scope: no such route changes a balance |
+| B2-overspend | §1 inv 1,2 | B1,B2 | 20 parallel payments of 100 from a wallet holding 500: exactly 5 succeed, 15 are 409 insufficient_funds, balance never negative, sum preserved |
+| B3-pay-once | §1 inv 3, §8 pay | B3 | 10 parallel pays of one request with different keys: exactly one 201, the rest 409 request_not_pending, money moves once |
+| B3-race-terminal | §1 inv 3, §4 requests | B3 | Concurrent pay / decline / cancel of one request leave exactly one terminal state, consistent with the money moved |
+| B4-exact-2p53 | §4 arithmetic range | B4 | Balances up to 2^53 stay exact: seed near 2^53, move 1 unit at a time, compare exactly |
+| C1-reset-replaces | §3.3 | C1,C7 | Reset returns 204 without auth and replaces all state: users, tokens, payments, requests, idempotency records, operators; repeated resets work |
+| C2-seeded-users | §4 fixture, §8 /me | C2,C3,G1 | Seeded users log in at once; /me shows seeded id, display_name, handle, balance (not replayed), currency, minor_units |
+| C4-seeded-records | §4 fixture, feed contract | C4 | Seeded payments appear in /activity under the feed rule with the full payment shape; seeded requests appear in /requests with their status |
+| C5-negative-balance | §4 fixture | C5 | Fixture balance below zero -> 422 validation_failed and nothing changes; balance 0 is accepted |
+| C6-currencies | §4 model, fixture | C6 | minor_units 0, 2, 3 (JPY, EUR, BHD); currency echoed on /me, payments, requests, splits |
+| C8-reset-malformed | §3.3, §5 | C8 | Unparseable reset body -> 400 malformed_request; state unchanged |
+| D1-error-shape | §5 | D1 | Every 4xx body is {error:{code,message}}, including unknown routes and wrong methods |
+| D2-malformed | §5 | D2 | Unparseable body, or a field of the wrong JSON type (other than amount/note/visibility) -> 400 malformed_request |
+| D3-field-rules | §5 bullet 1, §8, §11 | D3,D5,D6 | Invalid amount (string, boolean, null, fractional, <1, >1e9, array, object), non-string note incl. null, note of 201 chars, and any visibility other than public/private -> 422 validation_failed on every endpoint taking them; nothing moves |
+| D4-integral-forms | §4 model | D4 | JSON 1000, 1000.0 and 1e3 are the same valid amount; 1000.5 is 422 |
+| D5-amount-bounds | §4 arithmetic range, §8, §11 | D5 | amount 0 -> 422, 1 ok, 1000000000 ok, 1000000001 -> 422 on payments, requests, splits and settlement entries |
+| D6-note | §8 payments note | D6 | note of 200 characters ok, 201 -> 422 (characters, not bytes); stored and returned verbatim (no trimming, escaping or normalisation) on payments, requests, splits, settlements, feed and replay |
+| D7-missing-fields | §5 | D7 | A missing required field -> 422 validation_failed |
+| D8-query-digits | §5 bullet 2 | D8 | Integer query parameters must be plain decimal digits: 1e1, 4.0, +4, -1, abc -> 422 on /requests and /activity |
+| D9-limit-offset | §5 shared ranges, §8 GET /requests, GET /activity | D9,G12,G16 | limit 1..200 (0, 201 -> 422; 1, 200 ok), default 50; offset >= 0, default 0; has_more true iff items exist beyond the last returned |
+| D10-idem-key-header | §5 shared ranges, §7 | D10 | Idempotency-Key absent or empty -> 400 missing_idempotency_key; 255 chars ok; 256 -> 422 validation_failed; on all five paths |
+| D11-unauthenticated | §5, §6, §11 | D11,E9,F10,I1 | Missing, malformed or unknown bearer token -> 401 unauthenticated on every protected endpoint, before body and key checks; health, reset, export, signup, login need no token |
+| E1-signup | §6, §4 users | E1,B1 | Signup -> 201 {user_id, display_name, token}; balance 0; can be paid and asked for money immediately |
+| E2-handle-derivation | §4 users and handles | E2,E8 | Handle derived from the email: local part, lowercased, characters outside [a-z0-9_] -> _, truncated to 20 |
+| E3-signup-conflicts | §6 table, §4 | E3 | Email already registered -> 409 email_taken; derived handle taken (seeded or signed-up, incl. by truncation) -> 409 handle_taken and no account is created |
+| E4-signup-validation | §6 table | E4 | Password shorter than 8 characters -> 422 (7 fails, 8 ok); email not of the form local@domain -> 422 |
+| E5-login | §6 | E5,E6 | Login -> 200 {user_id, display_name, token}; wrong password or unknown email -> 401; tokens do not expire on new login; several tokens valid at once |
+| F1-replay | §7 table | F1,F3,F9 | On each of the five paths: first use 201; replay 200 with the identical JSON body and no further effect; same key with a different body 409 idempotency_key_reuse, also when the new body is invalid |
+| F2-same-body | §7 | F2 | Same body means the same JSON value: key order and whitespace do not matter; {} and {"visibility":"public"} differ |
+| F4-key-scope | §7 | F4,F5 | Key is scoped to the authenticated user; the same key and body on a different path is a new request and succeeds |
+| F6-failed-key-reusable | §7 table | F6 | A key whose original request failed with 4xx is treated as a first use afterwards, with the same or a different body |
+| F7-concurrent-identical | §7 | F7,B1 | 20 concurrent identical requests with an unused key on each of the five paths: exactly one 201, the others 200 with the same body, one effect |
+| F8-replay-after-change | §7 | F8,G9 | A successful replay returns the original response even after the resource changed or was cancelled, or the balance no longer covers it; no further state change |
+| F10-order | §7 last paragraph, §5 | F10 | Order of checks: 401 first; a claimed key is resolved before field validation and current-resource checks |
+| G2-payment | §8 POST /payments | G2,G3,G4 | Payment 201 body, defaults, atomic debit+credit; errors insufficient_funds (balance == amount ok), self_payment, not_found; a failed payment leaves no trace |
+| G5-request | §8 POST /requests, §4 requests | G5,G6 | Request 201 body; caller is requester; payer balance not checked; errors self_request, not_found |
+| G7-pay | §8 pay, §4 requests | G7,G8,G17 | Pay: payer only; 201 payment with request_id; request becomes paid with payment_id; visibility is the payer's; errors 404, 403, 409 request_not_pending, 409 insufficient_funds (changes nothing, payable later) |
+| G10-decline-cancel | §8 decline, cancel; §4 requests | G10,G11 | Decline: payer only, 200 declined, repeat 200, paid/cancelled 409, non-payer 403, unknown 404. Cancel: requester only, 200 cancelled, repeat 200, paid/declined 409, non-requester 403, unknown 404. No idempotency key needed; no money moves |
+| G12-list-requests | §8 GET /requests, §4 feed contract | G12,G17 | GET /requests: only the caller's (requester or payer); newest first; direction and status filters; unknown values 422; shape {requests, has_more} |
+| G13-split | §8 POST /splits | G13,G14,G15,G17 | Split 201 body; shares cover all participants in the given order; requests for every participant except the caller, caller as requester; caller included or omitted; errors; caller-only split valid; no balance check; not a feed item |
+| G16-activity | §4 feed contract, §8 GET /activity | G16,G17 | Activity: payments only; visible iff public or the caller is sender or receiver; one visibility value seen by both parties; newest first; shape {payments, has_more} |
+| H1-rounding | §9 | H1,H2 | Equal-split table: 1000/3 -> 334,333,333; 1/3 -> 1,0,0; 10/3 -> 4,3,3; 999/3 -> 333 x3; 5/5 -> 1 x5; order moves the extra unit; a share of 0 still produces a request |
+| H3-splits-paid | §9 last paragraph | H3,B1 | Shares are independent across splits; after several splits are paid in full the balances still sum to the seeded total |
+| I1-settlement-auth | §11 | I1,I2 | Settlements: no token 401; non-operator 403 forbidden; operator may move money between wallets it is not party to; the permission grants no access to others' requests or private activity |
+| I3-settlement-shape | §11 | I3,I4,D3 | transfers holds 1..32 objects (0 and 33 -> 422; 1 and 32 ok); malformed batch shape -> 422; entry rules and defaults as for payments; unknown fields ignored |
+| I4-settlement-errors | §11 | I4,I6 | Unknown handle 404; self-transfer 422 self_payment; entry errors take precedence in input order and before insufficient funds; a failed settlement claims no key and creates no payment |
+| I5-net-affordability | §11 | I5,B1,B2 | Affordability is net over the whole batch: a wallet may pass on money it receives in the same batch, in any input order; otherwise 409 insufficient_funds and nothing moves |
+| I7-settlement-response | §11 | I7,I8 | 201 {settlement_id, committed_at, payments in input order}; members are ordinary payments with settlement_id set, request_id null and created_at == committed_at; non-members show settlement_id null; replay 200 with the complete original response |
+| A5-load-50 | §2 resource limits, §5 last line, §1 invariants | A5,A6,B1 | 50 requests in flight (mixed reads, payments, requests, logins): no 5xx, each under 5 s, sum of balances preserved; reset of a 60-user fixture under 10 s |
+| J1-export-import | §10 | J1,J2,J3,J4,E7 | Export shape; import of an unchanged export -> 204, replaces (not merges) all state; accounts, password login, tokens, balances, payments, requests, operators, settlement membership, ids, timestamps and idempotency records survive; failed keys stay reusable; repeat import duplicates nothing; reset clears imported state |
+| J5-import-invalid | §10, §5 | J5 | Import: invalid JSON -> 400 malformed_request; missing fields, wrong track, wrong format_version or invalid state -> 422 validation_failed; destination unchanged |
+| T1-me-fields | stage-2 API GET /me; existing API changes | T1,S7 | /me adds total, available, held; balance == total; without holds all agree and held is 0; with a seeded open hold available = total - held |
+| S6-ttl-fixture | stage-2 Model | S6 | authorization_ttl_seconds defaults to 600; if supplied must be a positive integer, else reset is 422 and changes nothing; expires_at = created_at + ttl |
+| S7-seeded-auths | stage-2 Model, GET /authorizations | S7,T12,T4 | Seeded authorizations keep id, parties, amount, note, visibility, status and expires_at; only unexpired open ones hold funds; a seeded open hold past expires_at reads expired; visible only to their two parties; never in /activity; fixtures without the array work |
+| S8-seeded-holds-vs-balance | stage-2 Model | S8 | Seeded unexpired open holds above the user's balance -> reset 422, nothing changes; equal to the balance is accepted (available 0); expired or closed holds do not count |
+| S9-expiry-by-clock | stage-2 Model (expiry), capture table | S9,T9,T11 | An authorization at or past expires_at is expired with no intervening request: /me available restored, GET /authorizations status expired (matches expired, never open), capture 409 authorization_expired, void 409; a partially captured one releases only the remainder and keeps its capture records |
+| T2-authorize | stage-2 POST /authorizations; invariants 1,2 | T2,T3,T4,T14,S2 | Authorize: 201 body, defaults, a hold moves no money and is not a feed item; errors insufficient_funds against available (equal ok), validation, self_payment, not_found; held funds cannot fund payments, request pays, new authorizations or settlement net debits; POST /payments leaves no hold |
+| T5-capture-final | stage-2 POST /authorizations/{id}/capture | T5,T6,T7,S4 | Capture: receiver only; 201 payment in the POST /payments shape with authorization_id; default is final: status captured, remainder released at once; amount defaults to the remainder; captures spend reserved money even when available is 0; second capture 409 authorization_not_open |
+| T8-capture-extended | stage-2 Extended capture mode | T8,T9,T11 | final:false keeps the remainder held and the authorization open; captures up to the remainder; capturing the whole remainder closes it; a final capture releases the remainder; captured_amount cumulative, payment_id latest, payment_ids in order, remaining_amount; capture_exceeds_authorization compares with the remainder |
+| T9-capture-void-permissions | stage-2 capture and void tables | T9,T10 | Capture: 404 unknown, 403 for the payer and for a third party. Void: payer only, no key; 200 voided and hold released; repeat 200; captured 409; receiver or third party 403; unknown 404 |
+| T12-list-authorizations | stage-2 GET /authorizations | T12 | Only the caller's; newest first; direction and status filters; unknown values 422; limit/offset/has_more as GET /requests; shape {authorizations, has_more} |
+| T13-idempotency-new-paths | stage-2 'seven idempotent write paths'; stage-1 §7 | T13,T7 | POST /authorizations and capture follow §7 independently: missing/empty key 400, 255 ok, 256 422, replay 200 same body, other body 409 (also when invalid), {} vs {amount:N} differ, per-user scope, failed key reusable, replay after the resource changed |
+| S3-concurrent | stage-2 invariants 1-3; Concurrent operations | S1,S2,S3,S5,T13,K5 | Concurrent authorize/pay/capture behave as some serial order: available never negative, captures never exceed the authorization, identical keyed requests take effect once, sum of totals constant, no 5xx, under 5 s |
+| L2-content-negotiation | stage-2 intro (shared routes) | L1,L2 | /requests and /authorizations return the UI for Accept: text/html and JSON otherwise (401 JSON without a token); /, /split, /signup, /login return HTML |
+| R5-export-import-holds | stage-1 §10 applied to stage 2; stage-2 seven idempotent paths | R5 | Stage-2 export/import round-trips authorizations, holds, partial captures, the ttl and the idempotency records of the two new paths; replays return the originals; the open hold stays capturable |
+| R1-upgrade-import | stage-2 Existing clients after an upgrade; stage-1 §10 | R1,R3,R4 | A stage-2 service accepts an export produced by this team's stage-1 service: tokens, password login, balances, payments, requests, operators and idempotency records survive; a lost-response payment is retryable with the same key and body; pending requests stay payable; there are no holds and the ttl is 600 |
+| J6-cross-container | §10 | J3,J6 | Export from one container, import into a second, fresh container, with the source container stopped before verification: everything is preserved with no dependency on the source process, files, port or address |
+| A6-no-5xx | §5 last line | A6 | Across every request sent by this run: no 5xx response and no transport error |
+| A7-content-type | §3.4 | A7 | Across every response with a body: Content-Type is application/json; charset=utf-8 |
+| A5-latency | §2 resource limits | A5 | Across every request sent by this run: under 5 s (10 s for /_test/* control calls) |
+
+## Browser (ui.py)
+
+| Check | Spec | Map rows | What it checks (each at 375 px and 1280 px) |
+|---|---|---|---|
+| M1-signup-login | stage-2 Signup and login | M1,M2,M3,M4,L1,L3 | Signup and login forms work; auth-error present only on error; current-user contains the display name and current-handle is exactly the handle on every screen; logout-button signs out; screens reachable by URL and through navigation |
+| N1-format | stage-2 Balance and pay (formatted amount); UI table for holds | N1,N2,N3,N4,U4 | wallet-balance / wallet-available text is exactly the formatted amount with data-amount, for EUR, JPY and BHD; wallet-held absent when zero and shown with a seeded hold; available is the headline number |
+| N5-pay | stage-2 Balance and pay; Activity feed | N5,N7,N8,N10,N11 | Pay form works; values kept after success; an unchanged resubmission sends no second payment; a changed field makes a new payment; feed item shows parties, formatted amount, exact note and visibility; pay-error on refusals only |
+| N6-decimals | stage-2 Balance and pay (decimal input) | N6 | Decimal input: exact conversion to minor units without float error; nonnumeric input or more than minor_units decimals shows the form's error element and sends no request; holds for 0, 2 and 3 minor units |
+| N9-request-form | stage-2 Balance and pay (request form) | N9,N11 | Request form creates a request with the typed amount and note; request-error when refused |
+| N10-feed | stage-2 Activity feed | N10,Q1 | activity-list children are newest first; one item per visible payment and none for hidden ones; long notes do not cause horizontal scroll |
+| N12-refresh | stage-2 Competing clients and uncertain outcomes | N12,N13,N14,U4 | wallet-refresh updates balance, available, held and feed without clearing the pay form; latest refresh wins when responses arrive out of order; a payment refused because another client spent the money shows pay-error, refreshes the numbers and keeps the inputs |
+| N15-lost-response | stage-2 Competing clients and uncertain outcomes | N15 | A lost POST /payments response (before or after commit) shows pay-uncertain with text, not pay-error; the unchanged form retries with the same key and body; a successful retry clears both elements, refreshes balance and feed, and money moves exactly once |
+| O1-requests | stage-2 Requests screen; Competing clients | O1,O2,O3,O4,N11,R3 | Incoming and outgoing lists; items carry data-status and the formatted amount; pay/decline only on pending incoming, cancel only on pending outgoing; each works and the list updates; request-error on refusal; a request cancelled elsewhere shows request-error and loses its stale pay button; empty-requests when both lists are empty |
+| P1-split | stage-2 Split; stage-1 §9 | P1,P2,P3 | Split form; split-preview shows one split-share-{handle} per participant with the formatted share before anything is posted; preview and submitted split are identical; split-error when refused |
+| U1-authorize-form | stage-2 UI table (authorise form, wallet numbers) | U1,U4,N6 | Authorize form with the pay form's input rules creates a hold; available falls and held appears; authorize-error on refusal including insufficient available funds and bad decimals (no request sent) |
+| U2-authorizations-screen | stage-2 UI table (/authorizations) | U2,U3,U4 | authorization-list newest first; items with data-status, formatted amount, RFC 3339 expires_at, captured amount only when captured; capture input (pre-filled with the remainder) and button only on incoming open, void only on outgoing open; capture and void work and refresh the list; authorization-error on refusal; empty-authorizations |
+| R2-upgrade-browser | stage-2 Existing clients after an upgrade | R2,R3,R4 | With import completing between browser requests: the browser stays signed in, a payment whose response was lost before the export is retried with the same key and body and recovers the original payment, the imported balance is shown, and pending requests stay payable on the request screen - without a page reload |
+| Q2-labels-focus | stage-2 Product and visual direction | Q1,Q2,Q3,Q4 | Every input has a visible label; keyboard focus is apparent; text contrast is sufficient; no horizontal page scroll on any required route; screenshots of every route and state are saved for the product-quality read |
+| K2-no-external-requests | stage-1 §2 (no outbound network; runtime assets in the image) | K2 | Across every page load of this run the browser requested nothing from another host, and no page raised a script error |

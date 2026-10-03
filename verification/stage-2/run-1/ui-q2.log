@@ -1,0 +1,6 @@
+[PASS] Q2-labels-focus @375 (stage-2 Product and visual direction; rows Q1,Q2,Q3,Q4) 7.7s
+[PASS] K2-no-external-requests @375 (stage-1 §2 (no outbound network; runtime assets in the image); rows K2) 0.0s
+[PASS] Q2-labels-focus @1280 (stage-2 Product and visual direction; rows Q1,Q2,Q3,Q4) 7.7s
+[PASS] K2-no-external-requests @1280 (stage-1 §2 (no outbound network; runtime assets in the image); rows K2) 0.0s
+
+UI TOTAL 4 checks: 4 passed, 0 failed; side-channel 5xx/transport errors: 0
