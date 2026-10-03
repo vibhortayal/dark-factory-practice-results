@@ -1,10 +1,11 @@
 <!-- archive-note: added 2026-10-03 by Claude for Team Nightshift's archive -->
-> **Archive copy: not a submission run.** This branch keeps Team Nightshift's record of this run (Practice run R3), for reference only. The submitted run is Run 7 (branch `nightshift-run-7-2026-10-02` here; public submission repository `vibhortayal/nightshift-pocketful`).
+> **Archive copy: not a submission run.** This branch keeps Team Nightshift's record of this run (Practice run R3), for reference only. The submitted run is Run 7 (branch `runs/20-2026-10-02-run-7-submitted` here; public submission repository `vibhortayal/nightshift-pocketful`).
 >
 > | | |
 > |---|---|
 > | Run | Practice run R3. Practice preflight, stage 1, before the Claude Code seats |
 > | What this run tested | A preflight of the next practice set-up, after R2. It was blocked, and the team moved to Claude Code seats in Band |
+> | Seats | Not recorded in this branch. These practice seats predate the Claude Code seats |
 > | When | 2026-09-29 |
 > | Band room | not a Band run room on the Claude Code seats |
 > | Mandates | practice mandates (not kept in this branch) |
