@@ -1,0 +1,17 @@
+
+=== s_extra ===
+PASS P3.PO8j [PO8 Policies] a policy whose opening_hours omit Monday closes Mondays from its effective date: slots [] and booking -> 422 outside_opening_hours; the Tuesday stays open
+PASS P3.SE5f [SE5 Recurring reservations] an occurrence falling on a day closed by its date's policy (index 2, 10-04) rejects the adoption with 422 outside_opening_hours; nothing created
+PASS P3.SE3g [SE3/CC3 Recurring reservations] 10 concurrent adoptions of one anchor with different keys: exactly one 201, nine 409 already_in_series; one generated occurrence
+PASS P3.EX3c [EX3 Availability explanations] a pair booking makes no_overlap false on both member tables (t_1 also fails capacity for party 3)
+PASS P3.HI8e [HI8/MO2 Combined-table history] a move from a pair to a single records table_ids with complete before/after lists
+NOTE P3.SE12 internal restaurant revision in the export state (review) :: {'restaurant_revisions': {'r_m': 5}}
+
+=== final audits ===
+PASS E8.1 [E8 §5] no 5xx response in any probe request
+PASS E1.1 [E1 §5] every 4xx/5xx body is {error: {code, message}}
+PASS C4.1 [C4 §3.4] every response body is application/json; charset=utf-8
+PASS C5.1 [C5 §3.4] every starts_at/ends_at/created_at is RFC 3339 with explicit offset
+PASS D3.2 [D3 §2] every request within 5 s (reset/export/import within 10 s)
+
+TOTAL 10 checks: 10 passed, 0 failed, 1 notes

@@ -1,0 +1,119 @@
+
+=== s_model ===
+PASS P2.M1a [M1 stage-2] reset with combinable -> 204
+PASS P2.M5 [M5 stage-2] GET /restaurants/{id} returns combinable in the fixture's shape
+NOTE P2.M5n combinable of a restaurant whose fixture had none :: <absent>
+PASS P2.M1b [M1 Model/§5] reset: combinable a string -> 400 malformed_request
+PASS P2.M1c [M1 Model/§5] reset: combinable entry a string -> 400 malformed_request
+PASS P2.M1d [M1 Model/§5] reset: combinable id a number -> 400 malformed_request
+PASS P2.M1e [M1 Model/§5] reset: entry of three ids -> 422 validation_failed
+PASS P2.M1f [M1 Model/§5] reset: entry of one id -> 422 validation_failed
+PASS P2.M1g [M1 Model/§5] reset: unknown table id -> 422 validation_failed
+PASS P2.M1h [M1 Model/§5] reset: same id twice -> 422 validation_failed
+PASS P2.M1i [M1 Model] reset: empty combinable list -> 204
+
+=== s_availability ===
+PASS P2.AV1a [AV1/AV2/M3 API/availability] party 2: available_options (singles in fixture order, pairs in combinable order, summed capacity) and available_table_ids
+PASS P2.AV1b [AV1/AV2/M3 API/availability] party 3: available_options (singles in fixture order, pairs in combinable order, summed capacity) and available_table_ids
+PASS P2.AV1c [AV1/AV2/M3 API/availability] party 6: available_options (singles in fixture order, pairs in combinable order, summed capacity) and available_table_ids
+PASS P2.AV1d [AV1/AV2/M3 API/availability] party 7: available_options (singles in fixture order, pairs in combinable order, summed capacity) and available_table_ids
+PASS P2.AV1e [AV1/AV2/M3 API/availability] party 8: available_options (singles in fixture order, pairs in combinable order, summed capacity) and available_table_ids
+PASS P2.AV1f [AV1/AV2/M3 API/availability] party 9: available_options (singles in fixture order, pairs in combinable order, summed capacity) and available_table_ids
+PASS P2.AV1g [AV1 API/availability] every slot carries available_options
+PASS P2.AV1h [AV1 API/availability] restaurant without combinable: options are the singles only
+PASS P2.AV3a [AV1/BK5 API/availability] single booking on t_2 19:30 removes t_2 and both pairs from 18:30..20:30 only
+PASS P2.AV3b [AV1/BK5 API/availability] pair booking t_1+t_2 removes both singles and every pair sharing a member
+
+=== s_create ===
+PASS P2.BK1a [BK1/BK2/BK6 API/POST] pair with party = summed capacity -> 201, table_ids, no table_id, all stage-1 fields
+PASS P2.BK2a [BK2 API/POST] GET of a pair booking carries table_ids and omits table_id
+PASS P2.BK2b [BK2 API/POST] list of a pair booking carries table_ids and omits table_id
+PASS P2.BK5a [BK5 API/POST] single on a member of the pair, overlapping (t_1 19:30) -> 409 table_unavailable
+PASS P2.BK5b [BK5 API/POST] single via table_id on the other member (t_2 18:00) -> 409 table_unavailable
+PASS P2.BK5c [BK5 API/POST] other pair sharing t_2, overlapping -> 409 table_unavailable
+PASS P2.BK5d [BK5/BK6 API/POST] other pair at the adjacent slot 20:30, party 8 = capacity -> 201
+PASS P2.BK1b [BK1/BK2 API/POST] table_id still accepted -> 201 with table_id and table_ids of one
+PASS P2.BK1c [BK1/BK2 API/POST] table_ids of one -> 201 with table_id and table_ids
+PASS P2.BK1d [BK1 API/POST] both table_id and table_ids -> 422 validation_failed
+PASS P2.BK1e [BK1 stage-1 §5] neither table_id nor table_ids -> 422 validation_failed
+PASS P2.BK3a [BK3/M2 API/POST] undeclared pair t_1+t_4 -> 422 combination_not_allowed
+PASS P2.BK3b [BK3/M2 Model] transitive pair t_1+t_3 not bookable -> 422 combination_not_allowed
+PASS P2.BK4 [BK4 API/POST] three tables -> 422 combination_not_allowed
+PASS P2.BK6 [BK6/M3 API/POST] party 7 on t_1+t_2 (capacity 6) -> 422 party_exceeds_capacity
+PASS P2.BK7a [BK7 API/POST] duplicate table id -> 422 validation_failed
+PASS P2.BK7b [BK7 stage-1 §5] empty table_ids -> 422 validation_failed
+PASS P2.BK7c [BK7 stage-1 §5] table_ids a string -> 400 malformed_request
+PASS P2.BK7d [BK7 stage-1 §5] table_ids member a number -> 400 malformed_request
+PASS P2.BK7e [BK7 stage-1 §8] unknown table in the set -> 404 not_found
+PASS P2.BK7f [BK7 stage-1 §8] table of another restaurant in the set -> 404 not_found
+PASS P2.BK3c [BK3 Model (unordered pair)] declared pair given in reverse order -> 201
+PASS P2.BK0 [BK1 stage-1 §1] rejected requests created nothing (ada has exactly 2 reservations)
+PASS P2.ID1 [BK2 stage-1 §7] pair booking: first 201, replay 200 identical; different body (reversed ids) 409 idempotency_key_reuse
+PASS P2.PA2 [PA2/BK2 API/POST] cancel of a pair -> 200 cancelled with table_ids; both tables free again (t_4 still booked)
+PASS P2.PA2b [PA2 API/POST] both freed tables bookable separately
+
+=== s_patch_moves ===
+PASS P2.PA1a [PA1 API/PATCH] single -> pair (own table kept) -> 200, table_ids pair, table_id omitted, identity kept
+PASS P2.PA1b [PA1 API/PATCH] pair -> pair sharing t_2 -> 200; t_1 released
+PASS P2.PA1c [PA1 API/PATCH] PATCH with both table_id and table_ids -> 422 validation_failed
+PASS P2.PA1d [PA1 API/PATCH] PATCH to an undeclared pair -> 422 combination_not_allowed
+PASS P2.PA1e [PA1 API/PATCH] PATCH to three tables -> 422 combination_not_allowed
+PASS P2.PA1f [PA1 API/PATCH] PATCH to a pair whose member is taken by another booking -> 409 table_unavailable
+PASS P2.PA1g [PA1 API/PATCH] PATCH party above the summed capacity (9 > 8) -> 422 party_exceeds_capacity
+PASS P2.PA1h [PA1 API/PATCH] PATCH pair -> single t_3 with party 6 > 4 -> 422 party_exceeds_capacity
+PASS P2.PA1i [PA1 API/PATCH] PATCH duplicate ids -> 422 validation_failed
+PASS P2.PA1j [PA1 API/PATCH] PATCH table_ids of wrong type -> 400 malformed_request
+PASS P2.PA1k [PA1 stage-1 §8] every failed PATCH left the booking and availability unchanged
+PASS P2.PA1l [PA1/BK2 API/PATCH] pair -> single via table_id -> 200 with table_id and table_ids of one; t_2 released
+PASS P2.PA1m [PA1/BK2 API/PATCH] PATCH of another field keeps the table set and still returns table_ids
+PASS P2.MV1a [MV1 UI (moves paragraph)] moves: A takes t_3+t_2 while unchanged B keeps t_1+t_2 (t_2 in two overlapping results) -> 409 table_unavailable
+PASS P2.MV1b [MV1 API/POST] moves item with both table_id and table_ids -> 422 validation_failed
+PASS P2.MV1c [MV1 API/POST] moves item with an undeclared pair -> 422 combination_not_allowed
+PASS P2.MV1d [MV1 stage-1 §11] nothing changed after refused moves
+PASS P2.MV1e [MV1/BK2 UI (moves paragraph)] moves: pair booking and single booking exchange tables atomically -> 201, input order, table_ids in each
+PASS P2.MV1f [MV1 stage-1 §7] moves replay -> 200 identical
+PASS P2.MV1g [MV1 UI (moves paragraph)] moves: pair t_1+t_2 -> t_3+t_2 while the single moves t_3 -> t_1 -> 201
+PASS P2.MV1h [MV1 UI (moves paragraph)] no table belongs to overlapping resulting bookings
+
+=== s_seeded ===
+PASS P2.M4a [M4 Model] seeded pair reservation: confirmed, table_ids, no table_id
+PASS P2.M4b [M4 Model] seeded single reservation: table_id and table_ids of one
+PASS P2.M4c [M4 Model] seeded reservation with status cancelled is cancelled
+PASS P2.M4d [M4 Model] seeded pair and single occupy their tables; the cancelled one does not
+PASS P2.M4e [M4/PA2 Model] seeded pair can be cancelled; both tables freed
+
+=== s_export_import ===
+PASS P2.X4a [X4 stage-1 §10] export -> 200 track tablekeeper, format_version 1
+PASS P2.X4b [X4 stage-1 §10] import restores the exported state incl. pair bookings, cancelled status, combinable, availability
+PASS P2.X4c [X4 stage-1 §10] replay of the pair booking after import -> 200 original
+PASS P2.X4d [X4 stage-1 §10] import into a second stage-2 container shows the same state
+
+=== s_upgrade ===
+PASS P2.X1a [X1 upgrade] stage-1 state built and exported
+PASS P2.X1b [X1 upgrade] stage-2 import of the unchanged stage-1 export -> 204
+PASS P2.X1c [X1 stage-1 §10] import removed the destination's previous credentials -> 401 unauthenticated
+PASS P2.X1d [X1/BK2 upgrade] stage-1 tokens valid; every reservation keeps all stage-1 fields (ids, references, statuses, timestamps) and gains table_ids of one
+PASS P2.X1e [X1 stage-1 §10] password login of seeded and signed-up stage-1 accounts
+PASS P2.X1f [X1/BK2 upgrade] replay of the stage-1 create receipt -> 200 with the original body unchanged
+PASS P2.X1g [X1 upgrade] replay of the stage-1 moves receipt -> 200 with the original body unchanged
+PASS P2.X1h [X1 stage-1 §10] used stage-1 key with a different body -> 409 idempotency_key_reuse
+PASS P2.X1i [X1/AV1 upgrade] imported restaurant (no combinable): availability reflects imported bookings and has available_options
+PASS P2.X1j [X1 upgrade] imported restaurant configuration preserved
+PASS P2.X1k [X1 stage-1 §10] key that failed on stage 1 is a first use on stage 2 (201) and the response carries table_ids
+PASS P2.X1l [X1 stage-1 §10] new bookings after the upgrade do not collide with imported references/ids
+PASS P2.X1m [X1/X4 stage-1 §10] stage-2 re-export and re-import keeps the stage-1 receipt (still the original body)
+
+=== s_concurrency ===
+PASS P2.CC1a [CC1 Concurrent bookings] 50 concurrent pair/single bookings sharing tables at one slot: only 201/409, no table in two confirmed bookings, confirmed count = 201 count
+PASS P2.CC1b [CC1 Concurrent bookings] availability after the race is consistent with the confirmed bookings
+PASS P2.CC1c [CC1 Concurrent bookings] 4 rounds x 50 in-flight create/PATCH/cancel with pairs (614 requests): only 200/201/409; no table in overlapping confirmed bookings (11 confirmed)
+PASS P2.CC1d [CC1 Concurrent bookings] after load, availability of every slot agrees with the confirmed bookings
+
+=== final audits ===
+PASS E8.1 [E8 §5] no 5xx response in any probe request
+PASS E1.1 [E1 §5] every 4xx/5xx body is {error: {code, message}}
+PASS C4.1 [C4 §3.4] every response body is application/json; charset=utf-8
+PASS C5.1 [C5 §3.4] every starts_at/ends_at/created_at is RFC 3339 with explicit offset
+PASS D3.2 [D3 §2] every request within 5 s (reset/export/import within 10 s)
+
+TOTAL 98 checks: 98 passed, 0 failed, 1 notes

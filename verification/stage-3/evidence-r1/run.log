@@ -1,0 +1,52 @@
+== export of fcdb0a2b3d4257c041607cdad6e77c91e2187e76
+.
+..
+.dockerignore
+.gitignore
+Dockerfile
+RUN.md
+app
+requirements.txt
+tests
+== earlier folders unchanged: stage-1 vs a8301bb: 0 lines; stage-2 vs 0d321ce: 0 lines
+== nested .git/__pycache__: 0
+== external URLs in shipped files:
+== stage-4 words in source:
+/tmp/tk-verify-s3-FHCENX/stage-3/app/snapshot.py:199:restaurant_revision
+/tmp/tk-verify-s3-FHCENX/stage-3/app/snapshot.py:282:restaurant_revision
+/tmp/tk-verify-s3-FHCENX/stage-3/app/snapshot.py:282:restaurant_revision
+== docker build --no-cache
+BUILD OK
+healthy after .340843572 s
+healthy after .333197507 s
+healthy after .333286424 s
+healthy after .333471243 s
+no outbound: [Errno 101] Network is unreachable
+== S0a stage-1 list on the stage-3 image (revision ignored in equality checks)
+probe1 exit: 1
+TOTAL 392 checks: 385 passed, 7 failed, 6 notes
+  FAIL X1.1a [X1 §8] cancel -> 200, status cancelled, all other fields unchanged :: POST /reservations/Z1OC9KE2/cancel -> 200 {"reservation_id": "res_1", "reference": "Z1OC9KE2", "restaurant_id": "r_anker", "party_size": 2, "status": "cancelled", "starts_at_local": "2027-09-23T19:00", "starts_at": "2027-09-23T19:00:00+02:00", "ends_at": "2027-09-23T20:30:00+02:00"
+  FAIL X2.1 [X2 §8] cancel twice -> 200 with current (cancelled) state :: POST /reservations/Z1OC9KE2/cancel -> 200 {"reservation_id": "res_1", "reference": "Z1OC9KE2", "restaurant_id": "r_anker", "party_size": 2, "status": "cancelled", "starts_at_local": "2027-09-23T19:00", "starts_at": "2027-09-23T19:00:00+02:00", "ends_at": "2027-09-23T20:30:00+02:00"
+  FAIL G1.1d [G1 §8] GET cancelled reservation -> 200 status cancelled :: GET /reservations/Z1OC9KE2 -> 200 {"reservation_id": "res_1", "reference": "Z1OC9KE2", "restaurant_id": "r_anker", "party_size": 2, "status": "cancelled", "starts_at_local": "2027-09-23T19:00", "starts_at": "2027-09-23T19:00:00+02:00", "ends_at": "2027-09-23T20:30:00+02:00"
+  FAIL P1.1a [P1 §8] PATCH party_size only (unknown field ignored) -> 200, other fields unchanged :: PATCH /reservations/D2E4WS4K -> 200 {"reservation_id": "res_1", "reference": "D2E4WS4K", "restaurant_id": "r_anker", "party_size": 3, "status": "confirmed", "starts_at_local": "2027-09-23T19:00", "starts_at": "2027-09-23T19:00:00+02:00", "ends_at": "2027-09-23T20:30:00+02:00"
+  FAIL P1.1b [P1 §8] PATCH table_id only -> 200 :: PATCH /reservations/D2E4WS4K -> 200 {"reservation_id": "res_1", "reference": "D2E4WS4K", "restaurant_id": "r_anker", "party_size": 2, "status": "confirmed", "starts_at_local": "2027-09-23T19:00", "starts_at": "2027-09-23T19:00:00+02:00", "ends_at": "2027-09-23T20:30:00+02:00"
+  FAIL MV6.1a [MV6/MV7 §11] swap tables of two listed bookings -> 201 {reservations} in input order :: POST /reservation-moves -> 201 {"reservations": [{"reservation_id": "res_1", "reference": "RKIBZZRY", "restaurant_id": "r_anker", "party_size": 2, "status": "confirmed", "starts_at_local": "2027-09-23T19:00", "starts_at": "2027-09-23T19:00:00+02:00", "ends_at": "2027-09-
+  FAIL P2.3e [P4 §8] PATCH unknown reference with unparseable body: 404 first (map amendment 1) -> 404 not_found :: PATCH /reservations/ZZZZZZ99 -> 400 {"error": {"code": "malformed_request", "message": "body is not valid JSON"}}
+== S0b stage-2 API list on the stage-3 image (upgrade source: stage-1 container)
+probe2 exit: 0
+TOTAL 98 checks: 98 passed, 0 failed, 1 notes
+== P3 stage-3 list
+probe3 exit: 0
+TOTAL 169 checks: 169 passed, 0 failed, 0 notes
+== UI browser list (upgrade source: stage-1 container)
+ui exit: 0
+TOTAL 97 checks: 97 passed, 0 failed, 2 notes
+== UI upgrade section again with the stage-2 container as the source
+ui upgrade s2 exit: 0
+TOTAL 11 checks: 11 passed, 0 failed, 1 notes
+== container state
+/tkv3-a running=true oom=false
+/tkv3-b running=true oom=false
+tkv3-a mem=163.5MiB / 2GiB
+tkv3-b mem=26.69MiB / 2GiB
+stderr lines container A: 0

@@ -1,0 +1,42 @@
+DEPRECATED: The legacy builder is deprecated and will be removed in a future release.
+            Install the buildx component to build images with BuildKit:
+            https://docs.docker.com/go/buildx/
+
+Sending build context to Docker daemon  149.5kB
+Step 1/8 : FROM python:3.12-slim
+ ---> f77ac9e44ae9
+Step 2/8 : ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 PORT=8080
+ ---> Running in cde0459db775
+ ---> Removed intermediate container cde0459db775
+ ---> 3c34d98229fc
+Step 3/8 : WORKDIR /srv
+ ---> Running in 567b27d0c1ec
+ ---> Removed intermediate container 567b27d0c1ec
+ ---> 0f5419875b0a
+Step 4/8 : COPY requirements.txt .
+ ---> 4d7f0f02bc64
+Step 5/8 : RUN pip install --no-cache-dir -r requirements.txt
+ ---> Running in 66588045db41
+Collecting tzdata==2025.2 (from -r requirements.txt (line 1))
+  Downloading tzdata-2025.2-py2.py3-none-any.whl.metadata (1.4 kB)
+Downloading tzdata-2025.2-py2.py3-none-any.whl (347 kB)
+Installing collected packages: tzdata
+Successfully installed tzdata-2025.2
+[91mWARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager, possibly rendering your system unusable. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv. Use the --root-user-action option if you know what you are doing and want to suppress this warning.
+[0m[91m
+[notice] A new release of pip is available: 25.0.1 -> 26.2.1
+[notice] To update, run: pip install --upgrade pip
+[0m ---> Removed intermediate container 66588045db41
+ ---> 3f54eb61ec7b
+Step 6/8 : COPY app ./app
+ ---> 774650259348
+Step 7/8 : EXPOSE 8080
+ ---> Running in 29959a8da025
+ ---> Removed intermediate container 29959a8da025
+ ---> a7ade2b814db
+Step 8/8 : CMD ["python", "-m", "app"]
+ ---> Running in 3f9575f5931b
+ ---> Removed intermediate container 3f9575f5931b
+ ---> 35060f463c00
+Successfully built 35060f463c00
+Successfully tagged tablekeeper-stage-3:latest

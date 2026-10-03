@@ -1,0 +1,195 @@
+
+=== s_explain ===
+PASS P3.EX1a [EX1 Availability explanations] explain='false' -> 422 validation_failed
+PASS P3.EX1b [EX1 Availability explanations] explain='1' -> 422 validation_failed
+PASS P3.EX1c [EX1 Availability explanations] explain='' -> 422 validation_failed
+PASS P3.EX1d [EX1 Availability explanations] explain='TRUE' -> 422 validation_failed
+PASS P3.EX1e [EX1 Availability explanations] explain='yes' -> 422 validation_failed
+PASS P3.EX1f [EX1 Availability explanations] explain='0' -> 422 validation_failed
+PASS P3.EX2 [EX2 Availability explanations] without explain no slot has an explain field
+PASS P3.EX3a [EX3 Availability explanations] explain=true: every table once in fixture order, policy_version, available, both rules in order (capacity-only and overlap-only exclusions)
+PASS P3.EX3b [EX3 Availability explanations] a table excluded by both rules reports both false (party 5, booked t_2)
+PASS P3.EX4 [EX4 Availability explanations] in every slot the available table_ids of explain equal available_table_ids in order; every slot explains all 3 tables
+PASS P3.EX5a [EX5 Availability explanations] party larger than every table: all 8 slots still appear, each with full explain, nothing available
+PASS P3.EX5b [EX5 Availability explanations] closed day with explain -> slots []
+PASS P3.EX7 [EX3 stage-2 API] available_options still present alongside explain
+PASS P3.EX1g [EX1 stage-1 §8] explain=true but party_size missing -> 422 validation_failed
+
+=== s_history ===
+PASS P3.TE1a [TE1 Policies and accepted terms] create response carries revision 1 and accepted_terms of policy 0 built from the fixture
+PASS P3.HI1a [HI1/HI3 Reservation history] owner reads history: {reference, entries}; one created entry naming table_id, starts_at_local, party_size with from null
+PASS P3.HI7a [HI7 Policies and accepted terms] the created entry carries revision 1 and the complete accepted_terms
+PASS P3.HI1b [HI1/DE1/PO10 Reservation history] history/decision by another user -> 404 not_found
+PASS P3.HI1c [HI1/DE1/PO10 Reservation history] history/decision by the restaurant's manager -> 404 not_found
+PASS P3.HI1d [HI1/DE1/PO10 Reservation history] history/decision by no token -> 404 not_found
+PASS P3.HI1e [HI1/DE1/PO10 Reservation history] history/decision by unknown reference, no token -> 404 not_found
+PASS P3.HI1f [HI1/DE1/PO10 Reservation history] history/decision by unknown reference, owner token -> 404 not_found
+PASS P3.DE1b [HI1/DE1/PO10 Reservation history] history/decision by decision: another user -> 404 not_found
+PASS P3.DE1c [HI1/DE1/PO10 Reservation history] history/decision by decision: manager -> 404 not_found
+PASS P3.DE1d [HI1/DE1/PO10 Reservation history] history/decision by decision: no token -> 404 not_found
+PASS P3.PO10a [HI1/DE1/PO10 Reservation history] history/decision by manager reads a diner's reservation -> 404 not_found
+PASS P3.DE1a [DE1 Policies and accepted terms] decision -> {reference, revision 1, accepted_terms}
+PASS P3.HI4a [HI4 Reservation history] changed entries list only the changed fields, in the order table_id, starts_at_local, party_size, with from/to
+PASS P3.HI4b [HI4/TE5 Reservation history] PATCH with the current values and PATCH {} succeed, record no entry and keep the revision
+PASS P3.HI2 [HI2/HI7 Reservation history] seq 1..n consecutive, at non-decreasing with offset, entry revisions 1..4; PATCH responses carry revisions 2, 3, 4
+PASS P3.HI6 [HI6/TE2 Reservation history] replay of the create key -> 200 with the original body (revision 1, original terms) and no new history entry
+PASS P3.HI5 [HI5/TE3 Reservation history] cancel adds a cancelled entry with changes [] and revision +1; repeated cancel adds nothing and keeps the revision
+PASS P3.DE1e [DE1 Policies and accepted terms] decision after cancellation: current revision 5 and terms
+PASS P3.TE5a [TE5 Policies and accepted terms] no-op PATCH on a cancelled booking -> 409 reservation_cancelled
+PASS P3.TE1b [TE1 Policies and accepted terms] list and GET carry revision and accepted_terms
+PASS P3.HI8a [HI8 Combined-table history] pair created (sent reversed): created entry uses table_ids null -> pair in declared order, no table_id change
+PASS P3.HI8b [HI8 Combined-table history] PATCH with the same pair reversed is not an amendment: 200, no entry, revision 1
+PASS P3.HI8c [HI8 Combined-table history] pair -> single and single -> pair use table_ids with complete before/after lists; single -> single uses table_id
+PASS P3.TE1c [TE1 Combined-table history] PATCH response of a pair carries revision and accepted_terms
+PASS P3.TE2a [TE2 Policies and accepted terms] seeded booking: revision 1 under policy 0
+PASS P3.TE2b [TE2 map decision 4] seeded booking history: one created entry, seq 1, revision 1
+
+=== s_policies ===
+PASS P3.PO2a [PO2 Policies] publish without token -> 401 unauthenticated
+PASS P3.PO2b [PO2 Policies] publish to an unknown restaurant (manager token) -> 404 not_found
+PASS P3.PO2c [PO2 Policies] publish by an authenticated non-manager -> 403 forbidden
+PASS P3.PO2d [PO2 Policies] publish to a restaurant with no managers (default []) -> 403 forbidden
+PASS P3.PO2e [PO2 stage-1 §7] publish without Idempotency-Key -> 400 missing_idempotency_key
+PASS P3.PO5a [PO5 Policies] GET policies is public; empty before any publication (policy 0 omitted)
+PASS P3.PO5b [PO5 Policies] GET policies of an unknown restaurant -> 404 not_found
+PASS P3.PO4a [PO4 Policies] 201 returns the supplied policy plus policy_version 1 (unknown fields ignored)
+PASS P3.PO2f [PO2 stage-1 §7] replay -> 200 identical body, no new version
+PASS P3.PO2g [PO2 stage-1 §7] same key, different policy body -> 409 idempotency_key_reuse
+PASS P3.PO6 [PO6 Policies] restaurant detail still returns the original fixture configuration
+PASS P3.PO9a [PO9 Policies] publication changed no existing booking (body, ends_at, terms, revision) nor its history
+PASS P3.PO8a [PO8 Policies] availability uses the selected policy's grid/hours/duration (17:00..21:00 hourly, 120 min) and each booking's own stored interval (t_2 19:00-20:30, t_3 19:30-21:00)
+PASS P3.PO7a [PO7 Policies] a date before effective_from keeps policy 0 (half-hour grid 18:00..21:30)
+PASS P3.PO8b [PO8/EX6 Policies] capacities come from the selected policy: options t_1=4, pair=8; explain policy_version 1 and capacity rule holds for t_1 with party 3
+PASS P3.EX6 [EX6 Policies] explain on a policy-0 date reports policy_version 0 and the fixture capacity
+PASS P3.PO8c [PO8/TE1 Policies] booking under policy 1: capacity 8 accepted, ends_at = start + 120 min, accepted_terms = whole policy without effective_from, revision 1
+PASS P3.PO8d [PO8 Policies] 18:30 is off the policy's hourly grid -> 422 not_on_slot_grid
+PASS P3.PO8e [PO8 Policies] 22:00 + 120 min ends after closes -> 422 outside_opening_hours
+PASS P3.PO8f [PO8 Policies] party 4 on t_1 allowed by the policy capacity (fixture says 2) -> 201
+PASS P3.PO8g [PO8 Policies] party 3 on t_1 on a policy-0 date -> 422 party_exceeds_capacity
+PASS P3.PO8h [PO8 Combined-table history] pair party 9 > summed policy capacity 8 -> 422 party_exceeds_capacity
+PASS P3.PO8i [PO8 Combined-table history] pair party 8 = summed policy capacity -> 201 with policy-1 terms
+PASS P3.TE5b [TE5 Policies and accepted terms] no-op amendment of a policy-0 booking keeps terms, ends_at and revision (even though 19:30 is off the new grid)
+PASS P3.TE6 [TE4/TE6 Policies and accepted terms] real amendment validates all resulting fields against the resulting date's policy: unchanged 19:30 start is off policy 1's grid -> 422 not_on_slot_grid, nothing changed
+PASS P3.TE4a [TE4 Policies and accepted terms] real amendment (party) of a policy-0 booking: terms replaced by policy 1, ends_at now start + 120 min, revision 2
+PASS P3.HI7b [HI7 Policies and accepted terms] history: entry 1 keeps policy-0 terms, entry 2 carries policy-1 terms and revision 2
+PASS P3.TE4b [TE4/PO7 Policies and accepted terms] amendment moving the booking to a policy-0 date adopts policy 0 (terms, 90 min end), revision 3
+PASS P3.PO7b [PO7/PO4 Policies] versions 2,3,4; selection = greatest effective_from <= date, tie on 10-04 -> greatest version (2), later-published earlier-dated policy 4 applies from 09-27
+PASS P3.PO9b [PO9 Policies] the booking accepted under policy 1 is unchanged by the superseding same-date policy
+PASS P3.PO7c [PO7/PO9 Policies] effective date in the past allowed (version 5): now selected for 09-23; the booking already on that date keeps its terms and revision
+PASS P3.PO5c [PO5/PO4 Policies] GET policies: publication order, versions 1..5, each equal to its 201 body
+
+=== s_policy_validation ===
+PASS P3.PO3a [PO3 Policies] 40 invalid policies each -> 422 validation_failed
+PASS P3.PO3b [PO3 Policies] no version or state change after the rejected policies
+PASS P3.PO2h [PO2/PO4 stage-1 §7] key of a failed publication is a first use; the first valid policy gets version 1
+PASS P3.PO3c [PO3/PO4 Policies] boundary values accepted (1/1440, 1/1440, 0/10080, capacity 1/100); versions continue 2..8
+PASS P3.PO2i [PO2 stage-1 §7] 20 concurrent identical publications: one 201, nineteen 200, identical body
+PASS P3.PO4b [PO4/CC3 Policies] 20 concurrent distinct publications: all 201, versions distinct; all versions 1..29 gap-free in publication order
+PASS P3.PO1a [PO1 stage-1 §5] reset: manager_user_ids a string -> 400 malformed_request
+PASS P3.PO1b [PO1 stage-1 §5] reset: manager_user_ids member a number -> 400 malformed_request
+PASS P3.PO1c [PO1 Policies] reset: manager_user_ids empty list -> 204
+
+=== s_cutoff_terms ===
+PASS P3.TE3a [TE3 Policies and accepted terms] setup: bookings ~1 h ahead accepted with cutoff 30, then a cutoff-600 policy published for today
+PASS P3.TE4c [TE4 Policies and accepted terms] real amendment checks the OLD accepted cutoff (30 min) -> 200, then adopts the new policy's terms (cutoff 600)
+PASS P3.TE4d [TE4/TE3 Policies and accepted terms] after that amendment the newly accepted cutoff (600) locks the booking: cancel -> 409 cutoff_passed
+PASS P3.TE5c [TE5 Policies and accepted terms] no-op amendment still requires an editable booking -> 409 cutoff_passed
+PASS P3.TE3b [TE3 Policies and accepted terms] cancel checks the accepted cutoff (30), not the current policy's (600) -> 200, revision 2
+PASS P3.TE3c [TE3 Policies and accepted terms] booking accepted under cutoff 600 stays locked after a cutoff-0 policy: cancel -> 409 cutoff_passed
+PASS P3.TE7a [TE7 Policies and accepted terms] expected_revision 0, -1, '1', true, 1.5, null -> 422 validation_failed
+PASS P3.TE7b [TE7 Policies and accepted terms] expected_revision differing from the current revision -> 409 stale_revision
+PASS P3.TE7c [TE7 Policies and accepted terms] stale expected_revision comes before validation (invalid party_size) -> 409 stale_revision
+PASS P3.TE7d [TE7 Policies and accepted terms] stale expected_revision comes before the cutoff check (past booking) -> 409 stale_revision
+PASS P3.TE7e [TE7 Policies and accepted terms] matching expected_revision on a past booking -> cutoff -> 409 cutoff_passed
+PASS P3.TE7f [TE6 Policies and accepted terms] refused PATCHes changed nothing
+PASS P3.TE7g [TE7 Policies and accepted terms] matching expected_revision (unknown field ignored) -> 200, revision 2
+PASS P3.TE7h [TE7/TE5 Policies and accepted terms] matching expected_revision with a no-op -> 200, revision stays 2
+PASS P3.TE8 [TE8 Policies and accepted terms] 24 concurrent real amendments with one expected_revision: exactly one 200, the rest 409 stale_revision; revision 3, one new history entry
+
+=== s_series ===
+PASS P3.SE1a [SE1 Recurring reservations] POST /series without token -> 401 unauthenticated
+PASS P3.SE1b [SE1 stage-1 §7] POST /series without Idempotency-Key -> 400 missing_idempotency_key
+PASS P3.SE2a [SE2 Recurring reservations] invalid count / interval_weeks (incl. booleans, strings, floats, missing) -> 422 validation_failed
+PASS P3.SE3a [SE3 Recurring reservations] unknown anchor -> 404 not_found
+PASS P3.SE3b [SE3 Recurring reservations] another owner's anchor -> 404 not_found
+PASS P3.SE3c [SE3 Recurring reservations] cancelled anchor -> 409 reservation_cancelled
+PASS P3.SE3d [SE3 Recurring reservations] anchor past its accepted cutoff -> 409 cutoff_passed
+PASS P3.SE7a [SE7/SE2 Recurring reservations] 201 {series_id, revision 1, interval_weeks 1, occurrences} with 12 occurrences (count 12, unknown field ignored), indices 0..11, distinct references, exception false
+PASS P3.SE4a [SE4 Recurring reservations] occurrence 0 is the anchor, unchanged: same body, history and create replay
+PASS P3.SE4b [SE4 Recurring reservations] occurrence i starts on anchor date + 7*i days at 19:00 local, with the anchor's party size and table; offsets follow DST (+02:00 until 10-25, +01:00 from 11-01)
+PASS P3.SE5a [SE5 Recurring reservations] each generated occurrence selects its own date's policy: before 11-01 policy 0 (ends 20:30), from 11-01 policy 1 (ends 20:00, terms version 1); all revision 1
+PASS P3.SE7b [SE7 Recurring reservations] generated occurrences appear in the reservation list, have a created history (seq 1, revision 1) and occupy their table
+PASS P3.SE8a [SE8 Recurring reservations] GET /series/{id} by the owner returns the same shape and current state
+PASS P3.SE8b [SE8/PO10 Recurring reservations] GET /series by another user -> 404 not_found
+PASS P3.SE8c [SE8/PO10 Recurring reservations] GET /series by no token -> 404 not_found
+PASS P3.SE8d [SE8/PO10 Recurring reservations] GET /series by unknown id -> 404 not_found
+PASS P3.PO10b [SE8/PO10 Recurring reservations] GET /series by the restaurant's manager -> 404 not_found
+PASS P3.SE1c [SE1 stage-1 §7] replay -> 200 identical
+PASS P3.SE1d [SE1 stage-1 §7] same key, different body -> 409 idempotency_key_reuse
+PASS P3.SE3e [SE3 Recurring reservations] anchor already adopted -> 409 already_in_series
+PASS P3.SE3f [SE3 Recurring reservations] a generated occurrence used as anchor -> 409 already_in_series
+PASS P3.SE9a [SE9 Recurring reservations] real PATCH of occurrence 3: exception true, series revision 2, current reservation state shown, reference and index unchanged; others untouched
+PASS P3.SE9b [SE9 Recurring reservations] no-op PATCH (200) and failed PATCH (422) of occurrence 4 change neither the exception flag nor the series revision
+PASS P3.SE9c [SE9 Recurring reservations] second real PATCH (table and time): series revision 3, still an exception, same reference/index
+PASS P3.SE10a [SE10 Recurring reservations] cancel of occurrence 5: series revision 4, occurrence retained as cancelled, not an exception; repeated cancel changes nothing
+PASS P3.SE10b [SE10 Recurring reservations] cancelling the anchor: series revision 5, siblings stay confirmed
+PASS P3.SE11 [SE11 Recurring reservations] replay after later changes -> 200 with the original series response; no counter changed
+PASS P3.SE4c [SE4/SE2 Recurring reservations] count 2, interval_weeks 4 with a pair anchor: occurrence 1 on anchor date + 28 days, same pair and party; interval_weeks echoed
+PASS P3.HI8d [HI8 Combined-table history] generated pair occurrence: created entry uses table_ids
+
+=== s_series_failures ===
+PASS P3.SE5b [SE5 Recurring reservations] first failing occurrence in index order decides: index 2 overlaps (409 table_unavailable) although index 3 would exceed capacity
+PASS P3.SE6a [SE6 Recurring reservations] failed adoption left nothing: no new reservations, index-1 slot still free, anchor unchanged and not in a series
+PASS P3.SE5c [SE5/SE6 Recurring reservations] same key and body after the blocker is gone: evaluated again as a first use, now index 3 fails on its date's policy capacity (422 party_exceeds_capacity)
+PASS P3.SE6b [SE6 Recurring reservations] the key of the failed adoptions is reusable: count 3 -> 201 (anchor not marked adopted by the failures)
+PASS P3.SE5d [SE5 Recurring reservations] occurrence 1 would fall on the nonexistent 2027-03-28 02:30: whole adoption 422 invalid_local_time, nothing created
+PASS P3.SE5e [SE5 Recurring reservations] occurrence on the repeated hour (2027-10-31 02:30) resolves to the first occurrence (+02:00), 90 real minutes
+
+=== s_moves ===
+PASS P3.MO1a [MO1 Collective moves] per-move expected_revision mismatch -> 409 stale_revision
+PASS P3.MO1b [MO1 Collective moves] per-move expected_revision invalid (boolean) -> 422 validation_failed
+PASS P3.MO1c [MO1 Collective moves] per-move expected_revision 0 -> 422 validation_failed
+PASS P3.MO2a [MO2/MO3 Collective moves] failed batch (second item exceeds capacity) and refused revisions changed no booking, revision, history, series revision or exception flag
+PASS P3.MO2b [MO2/TE1 Collective moves] batch with three real changes and one no-op: changed bookings revision 2 with one changed history entry each, the no-op keeps revision 1 and its history; responses carry revision and terms
+PASS P3.MO3a [MO3 Collective moves] two occurrences of one series changed in one batch: series revision +1 once (1 -> 2), both become exceptions, the unchanged anchor does not
+PASS P3.MO3b [MO3 Collective moves] replay of the batch -> 200 original; no revision, history or series change
+PASS P3.MO1d [MO1 Collective moves] a move to another date adopts that date's policy (terms version 1, 60-minute end), revision 3
+PASS P3.Nreplans [N3a task (no stage-4 features)] POST /restaurants/r_m/replans does not exist (404/405)
+PASS P3.Namend [N3a task (no stage-4 features)] POST /series/ser_1/amend does not exist (404/405)
+PASS P3.Nclosures [N3a task (no stage-4 features)] POST /restaurants/r_m/closures does not exist (404/405)
+
+=== s_export_import ===
+PASS P3.UP2a [UP2 stage-1 §10] setup and export ok (format_version 1)
+PASS P3.UP2b [UP2 stage-1 §10] import restores policies, reservations with terms and revisions, histories, decisions, series (revision, exception flags), availability
+PASS P3.UP2c [UP2 stage-1 §10] receipts of all four idempotent paths replay 200 with the original bodies after import; nothing changed
+PASS P3.UP2d [UP2 stage-1 §10] import into a second stage-3 container shows the same state
+PASS P3.UP2e [UP2 stage-1 §10] counters continue after import: next policy version 2, next history seq 3 / revision 3, series revision 5
+
+=== s_upgrade ===
+PASS P3.UP1s1a [UP1 Recurring reservations (upgrade paragraph)] stage-3 import of the unchanged s1 export -> 204
+PASS P3.UP1s1b [UP1 upgrade / map decision 4] session token valid; imported reservations keep every earlier field and show revision 1 with policy-0 terms
+PASS P3.UP1s1c [UP1 map decision 4] imported reservations have a history starting with a created entry (seq 1); decision readable
+PASS P3.UP1s1d [UP1 upgrade] original booking and moves retries replay 200 with the original bodies unchanged
+PASS P3.UP1s1e [UP1 Recurring reservations (upgrade paragraph)] password login works; adoption works on an imported reservation (201, occurrence 0 = the imported booking, 2 generated on following Thursdays)
+PASS P3.UP1s1f [UP1 upgrade] an imported seeded booking can be cancelled: revision 2, history ends with cancelled
+PASS P3.UP1s2a [UP1 Recurring reservations (upgrade paragraph)] stage-3 import of the unchanged s2 export -> 204
+PASS P3.UP1s2b [UP1 upgrade / map decision 4] session token valid; imported reservations keep every earlier field and show revision 1 with policy-0 terms
+PASS P3.UP1s2c [UP1 map decision 4] imported reservations have a history starting with a created entry (seq 1); decision readable
+PASS P3.UP1s2d [UP1 upgrade] original booking and moves retries replay 200 with the original bodies unchanged
+PASS P3.UP1s2e [UP1 Recurring reservations (upgrade paragraph)] password login works; adoption works on an imported reservation (201, occurrence 0 = the imported booking, 2 generated on following Thursdays)
+PASS P3.UP1s2f [UP1 upgrade] an imported seeded booking can be cancelled: revision 2, history ends with cancelled
+
+=== s_concurrency ===
+PASS P3.CC3a [CC3 stage-2 Concurrent bookings] 4 rounds x 50 in flight (book, PATCH, series, cancel, publish; 449 requests): only 200/201/409; no table in overlapping confirmed bookings (36 confirmed)
+PASS P3.CC3b [CC3/PO4 Policies] policy versions gap-free 1..20 after concurrent publications
+PASS P3.CC3c [CC3/HI2 Reservation history] after load every sampled reservation has history seq 1..k, entry revisions 1..k and current revision k
+PASS P3.N3leak [N3a task (no stage-4 features)] no response of any probe contained restaurant_revision
+
+=== final audits ===
+PASS E8.1 [E8 §5] no 5xx response in any probe request
+PASS E1.1 [E1 §5] every 4xx/5xx body is {error: {code, message}}
+PASS C4.1 [C4 §3.4] every response body is application/json; charset=utf-8
+PASS C5.1 [C5 §3.4] every starts_at/ends_at/created_at is RFC 3339 with explicit offset
+PASS D3.2 [D3 §2] every request within 5 s (reset/export/import within 10 s)
+
+TOTAL 169 checks: 169 passed, 0 failed, 0 notes
