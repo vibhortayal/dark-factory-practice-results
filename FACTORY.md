@@ -1,10 +1,11 @@
 <!-- archive-note: added 2026-10-03 by Claude for Team Nightshift's archive -->
-> **Archive copy: not a submission run.** This branch keeps Team Nightshift's record of this run (Stage-1 test of PR #52 head f6fc48a3), for reference only. The submitted run is Run 7 (branch `nightshift-run-7-2026-10-02` here; public submission repository `vibhortayal/nightshift-pocketful`).
+> **Archive copy: not a submission run.** This branch keeps Team Nightshift's record of this run (Stage-1 test of PR #52 head f6fc48a3), for reference only. The submitted run is Run 7 (branch `runs/20-2026-10-02-run-7-submitted` here; public submission repository `vibhortayal/nightshift-pocketful`).
 >
 > | | |
 > |---|---|
 > | Run | Stage-1 test of PR #52 head f6fc48a3. Stage-1 test in a scratch room |
 > | What this run tested | Compared with `590afd18`, which let real spec faults pass as notes: hardened grading (any server error or named case blocks; a note must state the size it exceeded), notes fixed during fix rounds, and the Verifier preparing its checks while the Implementer builds |
+> | Seats | Three Band seats on Claude Code: Architect `claude-opus-5-5`, Implementer `claude-sonnet-5-5`, Verifier `claude-opus-5-5`, running on the team's Chicago VM (from `mandates/`) |
 > | When | 2026-10-02, 03:21 to 04:04 UTC |
 > | Band room | scratch room `590851bd`, opened by Claude's Team session |
 > | Mandates | PR #52 head `f6fc48a3` (hardened grading, Verifier prepares in parallel) |
