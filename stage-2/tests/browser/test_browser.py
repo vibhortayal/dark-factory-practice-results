@@ -120,6 +120,26 @@ class LayoutTests(BrowserCase):
                 self.assertLessEqual(self.page.evaluate("document.documentElement.scrollWidth - document.documentElement.clientWidth"), 0)
                 self.page.screenshot(path="%s/%s-%d.png" % (SHOTS, route.strip("/"), width))
 
+    def test_cards_use_their_column(self):
+        soon = (datetime.now(timezone.utc) + timedelta(hours=3)).isoformat()
+        self.api.reset(fixture(
+            requests=[{"id": "r1", "requester_id": "u_bob", "payer_id": "u_ada", "amount": 99, "note": "taxi", "status": "pending"}],
+            authorizations=[{"id": "a1", "from_user_id": "u_ada", "to_user_id": "u_bob", "amount": 2000,
+                             "visibility": "public", "status": "open", "expires_at": soon}]))
+        self.login()
+        for width in (375, 768, 1280, 1920):
+            self.page.set_viewport_size({"width": width, "height": 900})
+            for route, item in (("/requests", "request-item-r1"), ("/authorizations", "authorization-item-a1")):
+                self.page.goto(route)
+                self.page.wait_for_selector(sel(item))
+                box = self.page.eval_on_selector(sel(item), "e => e.getBoundingClientRect().width")
+                content = self.page.eval_on_selector("main", "e => e.getBoundingClientRect().width")
+                summary = self.page.eval_on_selector(sel("wallet-available"), "e => e.getBoundingClientRect().top")
+                top = self.page.eval_on_selector(sel(item), "e => e.getBoundingClientRect().top")
+                self.assertGreater(box, 0.3 * content if width >= 900 else 0.8 * content, (route, width, box, content))
+                self.assertLess(summary, top + 400, (route, width))   # summary beside or above the list
+                self.page.screenshot(path="%s/cards-%s-%d.png" % (SHOTS, route.strip("/"), width), full_page=True)
+
     def test_labels_and_focus(self):
         self.login()
         self.page.goto("/")
