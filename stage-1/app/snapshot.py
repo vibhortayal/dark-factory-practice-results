@@ -8,7 +8,7 @@ from . import auth, timeutil
 from .errors import invalid, malformed
 from .jsonutil import clone
 from .state import Data
-from .validate import MAX_ID, is_int
+from .validate import MAX_ID, is_int, party_size
 
 REFERENCE_RE = re.compile(r"^[A-Z0-9]{6,12}$")
 STATUSES = ("confirmed", "cancelled")
@@ -128,7 +128,7 @@ def _seed_reservation(data, raw, now_iso):
         "reference": ref,
         "restaurant_id": rest["id"],
         "table_id": raw["table_id"],
-        "party_size": _posint(raw.get("party_size"), "party_size"),
+        "party_size": party_size(raw.get("party_size")),  # §5: any bad party_size is 422
         "status": status,
         "starts_at_local": timeutil.local_text(naive),
         "starts_at": timeutil.iso(start.astimezone(tz)),
@@ -148,10 +148,6 @@ def from_fixture(body):
         users.append((_id(u.get("id"), "user id"), _str(u.get("email"), "email"),
                       _str(u.get("display_name", ""), "display_name"),
                       _str(u.get("password"), "password")))
-    with ThreadPoolExecutor(max_workers=4) as pool:  # scrypt releases the GIL
-        hashes = list(pool.map(lambda u: auth.hash_password(u[3]), users))
-    for (uid, email, name, _), hashed in zip(users, hashes):
-        _add_user(data, uid, email, name, hashed)
     for r in _list(body.get("restaurants", []), "restaurants"):
         rest = normalize_restaurant(r)
         if rest["id"] in data.restaurants:
@@ -165,6 +161,11 @@ def from_fixture(body):
         if rec["reservation_id"] in ids:
             raise invalid("duplicate reservation id")
         ids.add(rec["reservation_id"])
+    # hash last, so a rejected fixture never pays for hashing (scrypt releases the GIL)
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        hashes = list(pool.map(lambda u: auth.hash_password(u[3]), users))
+    for (uid, email, name, _), hashed in zip(users, hashes):
+        _add_user(data, uid, email, name, hashed)
     return data
 
 

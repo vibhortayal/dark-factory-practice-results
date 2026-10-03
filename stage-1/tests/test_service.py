@@ -44,6 +44,15 @@ class Basics(ServiceCase):
             self.assertEqual(s, status, body)
             self.assertEqual(b["error"]["code"], "malformed_request" if status == 400 else "validation_failed")
 
+    def test_seeded_party_size_is_always_422(self):
+        seed = {"id": "x1", "reference": "ABCDEF", "user_id": "u_a", "restaurant_id": "r1",
+                "table_id": "t1", "starts_at_local": "2030-05-01T19:00"}
+        for party in ("4", True, 0, 1.5, None):
+            s, b, _ = self.call("POST", "/_test/reset", {"users": USERS, "restaurants": [restaurant()],
+                                                         "reservations": [dict(seed, party_size=party)]})
+            self.assertEqual((s, b["error"]["code"]), (422, "validation_failed"), party)
+        self.reset(reservations=[dict(seed, party_size=2)])
+
     def test_auth_rules(self):
         self.reset()
         c = self.call
