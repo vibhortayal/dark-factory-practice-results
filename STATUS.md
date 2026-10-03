@@ -6,7 +6,7 @@ Run started: 2026-10-03 (architect dispatch).
 |---|---|---|---|---|
 | stage-1 | DONE | a8301bb9379977851db1c64ff468cbddc30011ff | 2 | Verifier PASS round 3 (verdict commit 9b3c5b8). Harness stage 1: 120 passed host + isolated; stage-2 suite fails on stage-1 (required); 392/392 verifier probes. Started 10:24 UTC, accepted 10:54 UTC (~30 min) |
 | stage-2 | DONE | 0d321ce2763bcfb4f0732d0131fea33c3c4814a6 | 1 | Verifier PASS round 2 (verdict commit cbd829e). Suite 1 120 + suite 2 25 passed host + isolated; stage-3 suite fails on stage-2 (required); 392 + 98 API probes, 97 browser probes. Started 10:57 UTC, accepted 11:18 UTC (~21 min) |
-| stage-3 | BUILDING | — | 0 | Map: acceptance/stage-3.md. Started 11:24 UTC |
+| stage-3 | VERIFYING | — | 0 | Candidate fcdb0a2b3d4257c041607cdad6e77c91e2187e76. Map: acceptance/stage-3.md. Started 11:24 UTC |
 | stage-4 | PLANNED | — | 0 | |
 
 ## Verifier notes
