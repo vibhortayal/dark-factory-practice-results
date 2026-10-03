@@ -65,6 +65,6 @@ One branch per run. Each branch starts its `README.md` and `FACTORY.md` with a n
 | Run 7 | `nightshift-run-7-2026-10-02` | Four-stage run, Claude Code seats | 2026-10-02, 21:11 to 23:38 UTC | Clean. All four stages accepted in 2 h 27 min, 4 rejections | **Submitted run** |
 | Tablekeeper four-stage run | `nightshift-tablekeeper-run-2026-10-03` | Four-stage run on the other track, in a scratch room | 2026-10-03, 10:23 to 12:00 UTC | All four Tablekeeper stages accepted in about 96 minutes, 3 rejections. Supplied checks 120, 25, 7 and 6, all passing | Not submitted |
 
-Not archived, on purpose: "Run 4c" was staged on 2026-10-02 but never dispatched, so it contains no run. A stage-1 test started on 2026-10-03 at 19:42 UTC is added when it finishes.
+Not archived, on purpose: "Run 4c" was staged on 2026-10-02 but never dispatched, so it contains no run. A four-stage Pocketful run started on 2026-10-03 at 19:42 UTC, testing whether removing the background-task restriction gains speed, is added when it finishes.
 
 Other branches here: `nightshift-run-5-verifier-checks` (Run 5's Verifier check scripts, used for the app comparison) and `nightshift-demo-compare-script` (the demo-VM comparison script). The `docs/` branches are the pull requests that built this index.
