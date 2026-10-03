@@ -39,7 +39,7 @@ Apart from that draft folder, only the result histories listed above and this in
 
 ## Every run, as of 2026-10-03
 
-One branch per run. Each branch starts its `README.md` and `FACTORY.md` with a note that gives the run, date, room, mandate version, result, human input, and why it was not submitted. The run's own history and files are unchanged below that note. **Only Run 7 is the submitted run**; its public repository is `vibhortayal/nightshift-pocketful`.
+One branch per run. Each branch starts its `README.md` and `FACTORY.md` with a note that says what the run tested compared with the run before, and gives its date, room, mandate version, result, human input, and why it was not submitted. The run's own history and files are unchanged below that note. **Only Run 7 is the submitted run**; its public repository is `vibhortayal/nightshift-pocketful`.
 
 | Run | Branch | Kind | When | Result | Status |
 |---|---|---|---|---|---|
@@ -64,7 +64,8 @@ One branch per run. Each branch starts its `README.md` and `FACTORY.md` with a n
 | Stage-1 test of PR #54 on Tablekeeper | `nightshift-stage1-test-pr54-tablekeeper-2026-10-02` | Stage-1 test on the other track, in a scratch room | 2026-10-02, 20:27 to 21:00 UTC | Stage 1 of the Tablekeeper track accepted in 33 minutes, 0 rejections. Supplied checks 120 of 120 | Not submitted |
 | Run 7 | `nightshift-run-7-2026-10-02` | Four-stage run, Claude Code seats | 2026-10-02, 21:11 to 23:38 UTC | Clean. All four stages accepted in 2 h 27 min, 4 rejections | **Submitted run** |
 | Tablekeeper four-stage run | `nightshift-tablekeeper-run-2026-10-03` | Four-stage run on the other track, in a scratch room | 2026-10-03, 10:23 to 12:00 UTC | All four Tablekeeper stages accepted in about 96 minutes, 3 rejections. Supplied checks 120, 25, 7 and 6, all passing | Not submitted |
+| Background-task test | `nightshift-bgtasks-test-2026-10-03` | Four-stage test run in a scratch room | 2026-10-03, 19:43 to 21:38 UTC | All four stages accepted in about 2 hours, 1 rejection. One background task ended in an error after its message had gone out; nothing was lost. A speed gain from background tasks is not shown | Not submitted |
 
-Not archived, on purpose: "Run 4c" was staged on 2026-10-02 but never dispatched, so it contains no run. A four-stage Pocketful run started on 2026-10-03 at 19:42 UTC, testing whether removing the background-task restriction gains speed, is added when it finishes.
+Not archived, on purpose: "Run 4c" was staged on 2026-10-02 but never dispatched, so it contains no run.
 
 Other branches here: `nightshift-run-5-verifier-checks` (Run 5's Verifier check scripts, used for the app comparison) and `nightshift-demo-compare-script` (the demo-VM comparison script). The `docs/` branches are the pull requests that built this index.
