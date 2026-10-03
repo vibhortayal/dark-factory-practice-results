@@ -7,7 +7,11 @@ Run started: 2026-10-03T19:42Z. Track: pocketful.
 | stage-1 | DONE | 172a3180c731a310e00e403ea1c4990a4a78b5d4 | 0 | 19:43Z–20:02Z (19 min) | Verifier PASS, verdict commit 7a52d057; map `acceptance/stage-1.md` |
 | stage-2 | DONE | c59be33b9aaed102d1728cf7f6d9df7a2e0f571f | 1 | 20:05Z–20:47Z (42 min) | BLOCK #1 on 60a459ae (verdict commit 0c88a232, collapsed Requests/Holds layout, rows Q1/Q3/Q4); PASS on c59be33b (verdict commit 65ec9d11); map `acceptance/stage-2.md` |
 | stage-3 | DONE | 9dcc200f61001f800d2aa8248df03da636f36c0f | 0 | 20:50Z–21:37Z (47 min) | PASS on 3a39ddfe (verdict commit f17eadc9) superseded after the Architect amended map rows AA4/AB4 (snapshots must survive export/import); PASS on 9dcc200f (verdict commit 3d12cdd2); map `acceptance/stage-3.md` |
-| stage-4 | BUILDING | — | 0 | started 21:38Z | map `acceptance/stage-4.md` |
+| stage-4 | DONE | 2c6b40aa628740f4762aedf73b2a820eccc6f5c1 | 0 | 21:38Z–21:43Z handoff to PASS (see commit times) | PASS on 2c6b40aa (verdict commit c5bfb0ad); map `acceptance/stage-4.md` |
+
+Run finished 2026-10-03T21:43Z (about 2 h 1 min after the 19:42Z dispatch). Nothing blocked. Final check by the
+Architect: `harness run --track pocketful --repo ../band-work/result --all --mode isolated --out
+../band-work/checks/architect-final-all-isolated` → every folder claims its stage, highest contiguous stage 4.
 
 ## Stage 1 — Verifier verdict (PASS, revision 172a3180)
 
@@ -81,3 +85,28 @@ Notes (non-blocking), copied from the verdict:
    import as having held nothing; stage-1/2 carry-overs; historical reads cost O(user's payments + all authorizations).
 
 Remaining risk: hidden judging tests; large histories, many snapshots and long runs not measured; host timing only.
+
+## Stage 4 — Verifier verdict (PASS, revision 2c6b40aa)
+
+Evidence: `verification/stage-4/` (CHECKS.md, checks1-4.py, ui.py, deliver4.py, refund_ui.py, VERDICT.md, run-1/),
+harness output in `../checks/verifier-s4-r1` and `../checks/verifier-s4-r1-isolated`.
+
+- Delivery checks 14/14 (stage-1/2/3 folders identical to their accepted revisions); API list 98/98
+  (6226 requests, 0 responses ≥ 500) with real stage-1/2/3 exports imported; browser list 30/30 at 375 and 1280 px;
+  feed with a refund renders cleanly at both widths.
+- Supplied checks: stages 1–4 pass, host mode and `--mode isolated`.
+- Implementer's tests: API 146 OK (1 skipped), browser 24 OK. RUN.md command verified verbatim.
+
+Notes (non-blocking), copied from the verdict:
+
+1. The feed shows a small "Refund" badge on refund payments (the only UI change from stage 3); the spec asks for
+   no UI change and forbids none; required testids and texts unchanged.
+2. Fixtures may carry `refund_of` on seeded payments — an extension the spec does not describe.
+3. Carried from stage 3: snapshot memory bound 50 000 / 600 000 rows; export grows with statement reads; unencoded
+   `+` in an instant accepted; statement `from` after `to` is 422; legacy voided authorizations import as held nothing.
+4. Carried from stages 1–2: settlement entry with a non-string handle 422; import with a non-object body 422;
+   zero-amount split request pays as a 0 payment; capture past `expires_at` answers `authorization_expired`.
+5. Historical work is O(user's payments + all authorizations) per affected wallet; state is in memory.
+
+Remaining risk: hidden judging tests; large histories, many snapshots and long runs not measured; host timing only;
+Chromium only for the UI.
