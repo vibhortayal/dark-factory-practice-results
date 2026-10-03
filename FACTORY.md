@@ -1,9 +1,10 @@
 <!-- archive-note: added 2026-10-03 by Claude for Team Nightshift's archive -->
-> **Archive copy: not a submission run.** This branch keeps Team Nightshift's record of Run 6, for reference only. The submitted run is Run 7 (branch `nightshift-run-7-2026-10-02` here; public submission repository `vibhortayal/nightshift-pocketful`).
+> **Archive copy: not a submission run.** This branch keeps Team Nightshift's record of this run (Run 6), for reference only. The submitted run is Run 7 (branch `nightshift-run-7-2026-10-02` here; public submission repository `vibhortayal/nightshift-pocketful`).
 >
 > | | |
 > |---|---|
 > | Run | Run 6. Four-stage run, Claude Code seats |
+> | What this run tested | Compared with the `643e2307` test: one added sentence asking the Implementer to split code into small modules with one job each, and the Verifier to note maintainability without blocking. The first four-stage run on the simpler set |
 > | When | 2026-10-02, 16:47 to 19:20 UTC |
 > | Band room | `Nightshift \| Pocketful \| Stages 1-4 \| Run 6 \| 2026-10-02` (`45f01f4e`) |
 > | Mandates | PR #53 head `674112d0` (the simpler set plus a maintainability sentence) |
