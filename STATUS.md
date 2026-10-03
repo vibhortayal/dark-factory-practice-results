@@ -5,7 +5,7 @@ Run started: 2026-10-03 (architect dispatch).
 | Unit | State | Accepted revision | Fix rounds (BLOCK count) | Notes |
 |---|---|---|---|---|
 | stage-1 | DONE | a8301bb9379977851db1c64ff468cbddc30011ff | 2 | Verifier PASS round 3 (verdict commit 9b3c5b8). Harness stage 1: 120 passed host + isolated; stage-2 suite fails on stage-1 (required); 392/392 verifier probes. Started 10:24 UTC, accepted 10:54 UTC (~30 min) |
-| stage-2 | VERIFYING | — | 0 | Candidate 21475bce83bbe00c825c5795a1764fbe46bed467. Map: acceptance/stage-2.md. Started 10:57 UTC |
+| stage-2 | BUILDING | — | 1 | Round 1 BLOCK on 21475bc (F1: UI cannot render stage-1 receipt without table_ids after upgrade, row X3). Map: acceptance/stage-2.md. Started 10:57 UTC |
 | stage-3 | PLANNED | — | 0 | |
 | stage-4 | PLANNED | — | 0 | |
 
