@@ -1,9 +1,10 @@
 <!-- archive-note: added 2026-10-03 by Claude for Team Nightshift's archive -->
-> **Archive copy: not a submission run.** This branch keeps Team Nightshift's record of Run 4, for reference only. The submitted run is Run 7 (branch `nightshift-run-7-2026-10-02` here; public submission repository `vibhortayal/nightshift-pocketful`).
+> **Archive copy: not a submission run.** This branch keeps Team Nightshift's record of this run (Run 4), for reference only. The submitted run is Run 7 (branch `nightshift-run-7-2026-10-02` here; public submission repository `vibhortayal/nightshift-pocketful`).
 >
 > | | |
 > |---|---|
 > | Run | Run 4. Four-stage run, Claude Code seats |
+> | What this run tested | Compared with Run 3: the same mandate text, with background tasks switched off in the seats' Claude settings, so that a failed background task could no longer drop a message. The question was whether the factory could then run clean |
 > | When | 2026-10-01, 19:05 to 20:42 UTC |
 > | Band room | `Nightshift \| Pocketful \| Stages 1-4 \| Run 4 \| 2026-10-01` (`61e1adc5`) |
 > | Mandates | the Run 3 set (team repo `nightshift-factory`, commit `f3cbc34`), with background tasks switched off in the seats' settings |
