@@ -1,10 +1,11 @@
 <!-- archive-note: added 2026-10-03 by Claude for Team Nightshift's archive -->
-> **Archive copy: not a submission run.** This branch keeps Team Nightshift's record of this run (Background-task test), for reference only. The submitted run is Run 7 (branch `nightshift-run-7-2026-10-02` here; public submission repository `vibhortayal/nightshift-pocketful`).
+> **Archive copy: not a submission run.** This branch keeps Team Nightshift's record of this run (Background-task test), for reference only. The submitted run is Run 7 (branch `runs/20-2026-10-02-run-7-submitted` here; public submission repository `vibhortayal/nightshift-pocketful`).
 >
 > | | |
 > |---|---|
 > | Run | Background-task test. Four-stage test run in a scratch room |
 > | What this run tested | Compared with Run 7: the mandates' paragraph against background tasks removed from all three seats, and the setting that switches background tasks off removed from the seats. Nothing else changed. It tested whether allowing background tasks makes the factory faster |
+> | Seats | Three Band seats on Claude Code: Architect `claude-opus-5-5`, Implementer `claude-sonnet-5-5`, Verifier `claude-opus-5-5`, running on the team's Chicago VM (from `mandates/`) |
 > | When | 2026-10-03, 19:43 to 21:38 UTC |
 > | Band room | scratch room `2d54a4fe`, opened by Claude's Team session |
 > | Mandates | Run 7's set minus its paragraph against background tasks, with background tasks allowed in the seats' settings. Used for this test only |
