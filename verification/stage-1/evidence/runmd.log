@@ -1,0 +1,30 @@
+DEPRECATED: The legacy builder is deprecated and will be removed in a future release.
+            Install the buildx component to build images with BuildKit:
+            https://docs.docker.com/go/buildx/
+
+Sending build context to Docker daemon     64kB
+Step 1/8 : FROM python:3.12-slim
+ ---> f77ac9e44ae9
+Step 2/8 : ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 PORT=8080
+ ---> Using cache
+ ---> 6c759361d023
+Step 3/8 : WORKDIR /srv
+ ---> Using cache
+ ---> 37b649fdcc0f
+Step 4/8 : COPY requirements.txt .
+ ---> Using cache
+ ---> 462cf111d344
+Step 5/8 : RUN pip install --no-cache-dir -r requirements.txt
+ ---> Using cache
+ ---> 80f6d2aeafd5
+Step 6/8 : COPY app ./app
+ ---> Using cache
+ ---> fd0252b63beb
+Step 7/8 : EXPOSE 8080
+ ---> Using cache
+ ---> c312c7c33d4f
+Step 8/8 : CMD ["python", "-m", "app"]
+ ---> Using cache
+ ---> dfb3cc82b814
+Successfully built dfb3cc82b814
+Successfully tagged tablekeeper-stage-1:latest

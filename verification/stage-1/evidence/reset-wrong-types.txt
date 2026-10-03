@@ -1,0 +1,16 @@
+FAIL C3.4b [C3 §5] reset with users of wrong JSON type -> 400 malformed_request :: POST /_test/reset -> 422 {"error": {"code": "validation_failed", "message": "users must be an array"}}
+NOTE A4.3n1 signup without display_name :: POST /auth/signup -> 422 {"error": {"code": "validation_failed", "message": "display_name is required"}}
+NOTE A4.3n2 signup with dot-less domain x@localhost :: POST /auth/signup -> 201 {"user_id": "u_3", "display_name": "X", "token": "m8Y-PKthAZQjxYKDIfVGV89m3sPmm-KHPKOPZGpoOFQ"}
+NOTE A3.n1 signup with upper-cased duplicate email :: POST /auth/signup -> 409 {"error": {"code": "email_taken", "message": "email already registered"}}
+NOTE P1.n1 PATCH with empty object :: PATCH /reservations/490XMHYL -> 200 {"reservation_id": "res_1", "reference": "490XMHYL", "restaurant_id": "r_anker", "table_id": "t_2", "party_size": 4, "status": "confirmed", "starts_at_local": "2027-09-24T20:00", "starts_at": "2027-09-24T20:00:00+02:00", "ends_at": "2027-09
+users string => {"error": {"code": "validation_failed", "message": "users must be an array"}} [422]
+restaurants object => {"error": {"code": "validation_failed", "message": "restaurants must be an array"}} [422]
+reservations number => {"error": {"code": "validation_failed", "message": "reservations must be an array"}} [422]
+slot_minutes string => {"error": {"code": "validation_failed", "message": "slot_minutes must be an integer >= 1"}} [422]
+restaurant id number => {"error": {"code": "validation_failed", "message": "restaurant id must be a non-empty string of at most 64 characters"}} [422]
+capacity string => {"error": {"code": "validation_failed", "message": "capacity must be an integer >= 1"}} [422]
+user email number => {"error": {"code": "validation_failed", "message": "email must be a string"}} [422]
+user entry is string => {"error": {"code": "validation_failed", "message": "user must be an object"}} [422]
+array body => {"error": {"code": "malformed_request", "message": "body must be a JSON object"}} [400]
+unparseable => {"error": {"code": "malformed_request", "message": "body is not valid JSON"}} [400]
+valid =>  [204]

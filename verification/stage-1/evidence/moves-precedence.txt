@@ -1,0 +1,7 @@
+same booking: past + party_size 0 => POST /reservation-moves -> 422 {"error": {"code": "validation_failed", "message": "party_size must be an integer >= 1"}}
+same booking: past + starts_at_local with seconds => POST /reservation-moves -> 422 {"error": {"code": "validation_failed", "message": "starts_at_local must be a bare local YYYY-MM-DDTHH:MM"}}
+order: [past booking, H party_size 0] => POST /reservation-moves -> 422 {"error": {"code": "validation_failed", "message": "party_size must be an integer >= 1"}}
+order: [past booking, H off-grid] => POST /reservation-moves -> 409 {"error": {"code": "cutoff_passed", "message": "too close to the start to change this booking"}}
+same booking: past + unknown table => POST /reservation-moves -> 409 {"error": {"code": "cutoff_passed", "message": "too close to the start to change this booking"}}
+same booking: past + table_id number => POST /reservation-moves -> 400 {"error": {"code": "malformed_request", "message": "table_id must be a string"}}
+PATCH past + party 0 => PATCH /reservations/CE5XGO04 -> 422 {"error": {"code": "validation_failed", "message": "party_size must be an integer >= 1"}}

@@ -1,0 +1,2 @@
+GET / => {"error": {"code": "not_found", "message": "no such route"}} [404]
+GET /lookup => {"error": {"code": "not_found", "message": "no such route"}} [404]

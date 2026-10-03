@@ -1,0 +1,2 @@
+cannot build the service:
+  - ../band-work/result/stage-2 does not exist. A submission repository holds one folder per stage, named stage-1 through stage-4
