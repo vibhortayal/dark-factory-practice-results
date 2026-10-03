@@ -36,3 +36,35 @@ Archived on 2026-10-01 (UTC) on Vibhor's go in BAND Bridge f12d772d-d1c3-4b6f-b4
 Left out because they were never committed: an untracked `room.json` in the Rehearsal 1 workspace, and uncommitted edits to `stage-1/server.py` and its tests in the Run 4 workspace. Room exports are not in this repository.
 
 Apart from that draft folder, only the result histories listed above and this index are meant to be here. VM credentials, room exports, private team records and other runtime evidence are not included. When R2 and R3 were archived on September 29, their source workspaces were recorded as having no remotes; that has not been re-checked since. R1's source is the GitHub repository `nightshift-practice-r1`, now archived read-only.
+
+## Every run, as of 2026-10-03
+
+One branch per run. Each branch starts its `README.md` and `FACTORY.md` with a note that gives the run, date, room, mandate version, result, human input, and why it was not submitted. The run's own history and files are unchanged below that note. **Only Run 7 is the submitted run**; its public repository is `vibhortayal/nightshift-pocketful`.
+
+| Run | Branch | Kind | When | Result | Status |
+|---|---|---|---|---|---|
+| Practice run R1 | `practice-r1-2026-09-28` | Practice run, stage 1 only, before the Claude Code seats | 2026-09-28 to 09-29 | Stage 1 built. Classified in the archive index as intervened development evidence | Not submitted |
+| Practice run R2 | `practice-r2-2026-09-29` | Practice run, stage 1 only, before the Claude Code seats | 2026-09-29 | Stage 1 built, with fixes after harness failures. Classified as intervened development evidence | Not submitted |
+| Practice run R3 | `practice-r3-2026-09-29` | Practice preflight, stage 1, before the Claude Code seats | 2026-09-29 | One commit with a stage-1 implementation. Classified as blocked preflight evidence | Not submitted |
+| Rehearsal 1 | `nightshift-rehearsal-1-2026-09-30` | Rehearsal, stage 1 only, Claude Code seats | 2026-10-01, 00:55 to 01:51 UTC | Stage 1 accepted in 49 minutes. Supplied checks 147 of 147 | Not submitted |
+| Run 2 | `nightshift-run-2-2026-09-30` | Four-stage run, Claude Code seats | 2026-10-01, 02:08 to 06:17 UTC | All four stages accepted in 4 h 08 min. 4 rejections | Not submitted |
+| Run 3 | `nightshift-run-3-2026-09-30` | Four-stage run, Claude Code seats | 2026-10-01, 06:35 to 15:40 UTC | All four stages accepted. About 4.5 hours of work plus a 4 h 37 min stall. 4 rejections | Not submitted |
+| Stage-1 test on the Run 3 set | `nightshift-stage1-test-run3-set-2026-10-01` | Stage-1 test in a scratch room | 2026-10-01, 16:26 to 16:56 UTC | Stopped by the team after the first rejection, with stage 1 in fix round 1. Nothing accepted | Not submitted |
+| Stage-1 test of mandate candidate A | `nightshift-stage1-test-candidate-a-2026-10-01` | Stage-1 test in a scratch room | 2026-10-01, 17:32 to 17:57 UTC | Stopped after the first rejection. The Implementer read the new sentence as leave to drop the spec from its handoff, so the candidate was withdrawn | Not submitted |
+| Stage-1 test: fewer parts, full text kept | `nightshift-stage1-test-full-text-parts-2026-10-01` | Stage-1 test in a scratch room | 2026-10-01, 18:10 to 18:35 UTC | Stopped before a verdict. Run 4 went ahead on the Run 3 text instead | Not submitted |
+| Run 4 | `nightshift-run-4-2026-10-01` | Four-stage run, Claude Code seats | 2026-10-01, 19:05 to 20:42 UTC | Clean, but stage 1 was recorded BLOCKED after 6 rejections (five fix rounds used). Nothing accepted. 1 h 37 min | Not submitted |
+| Run 4b | `nightshift-run-4b-2026-10-01` | Four-stage run, Claude Code seats | 2026-10-01 21:14 to 2026-10-02 00:25 UTC | Clean, but stage 1 was recorded BLOCKED after 10 rejections. Nothing accepted. 3 h 11 min. The Verifier's findings moved from real faults to extreme inputs, which led to the bounded mandates | Not submitted |
+| Stage-1 test of PR #52 head 28df31b9 | `nightshift-stage1-test-pr52-28df31b9-2026-10-02` | Stage-1 test in a scratch room | 2026-10-02, 01:36 to 02:07 UTC | Stage 1 accepted in 30 minutes, 1 rejection | Not submitted |
+| Stage-1 test of PR #52 head 590afd18 | `nightshift-stage1-test-pr52-590afd18-2026-10-02` | Stage-1 test in a scratch room | 2026-10-02, 02:13 to 02:41 UTC | Stage 1 accepted in 28 minutes, 0 rejections. Real spec faults were graded as notes and passed, so the grading was hardened afterwards | Not submitted |
+| Stage-1 test of PR #52 head f6fc48a3 | `nightshift-stage1-test-pr52-f6fc48a3-2026-10-02` | Stage-1 test in a scratch room | 2026-10-02, 03:21 to 04:04 UTC | Stage 1 accepted in 43 minutes, 1 rejection | Not submitted |
+| Run 5 | `nightshift-run-5-2026-10-02` | Four-stage run, Claude Code seats | 2026-10-02, 04:11 to 15:31 UTC | Clean. All four stages accepted in 11 h 20 min, 6 rejections. The Verifier ran 900 to 1,900 checks of its own per stage | Not submitted |
+| Stage-1 test of PR #53 head 643e2307 | `nightshift-stage1-test-pr53-643e2307-2026-10-02` | Stage-1 test in a scratch room | 2026-10-02, 15:46 to 16:40 UTC | Stage 1 accepted in 53 minutes, 2 rejections | Not submitted |
+| Run 6 | `nightshift-run-6-2026-10-02` | Four-stage run, Claude Code seats | 2026-10-02, 16:47 to 19:20 UTC | Clean. All four stages accepted in 2 h 33 min, 2 rejections | Not submitted |
+| Stage-1 test of PR #54 on Pocketful | `nightshift-stage1-test-pr54-pocketful-2026-10-02` | Stage-1 test in a scratch room | 2026-10-02, 19:45 to 20:27 UTC | Stage 1 accepted in 42 minutes, 1 rejection. The Verifier's commits touched only `verification/` | Not submitted |
+| Stage-1 test of PR #54 on Tablekeeper | `nightshift-stage1-test-pr54-tablekeeper-2026-10-02` | Stage-1 test on the other track, in a scratch room | 2026-10-02, 20:27 to 21:00 UTC | Stage 1 of the Tablekeeper track accepted in 33 minutes, 0 rejections. Supplied checks 120 of 120 | Not submitted |
+| Run 7 | `nightshift-run-7-2026-10-02` | Four-stage run, Claude Code seats | 2026-10-02, 21:11 to 23:38 UTC | Clean. All four stages accepted in 2 h 27 min, 4 rejections | **Submitted run** |
+| Tablekeeper four-stage run | `nightshift-tablekeeper-run-2026-10-03` | Four-stage run on the other track, in a scratch room | 2026-10-03, 10:23 to 12:00 UTC | All four Tablekeeper stages accepted in about 96 minutes, 3 rejections. Supplied checks 120, 25, 7 and 6, all passing | Not submitted |
+
+Not archived, on purpose: "Run 4c" was staged on 2026-10-02 but never dispatched, so it contains no run. A stage-1 test started on 2026-10-03 at 19:42 UTC is added when it finishes.
+
+Other branches here: `nightshift-run-5-verifier-checks` (Run 5's Verifier check scripts, used for the app comparison) and `nightshift-demo-compare-script` (the demo-VM comparison script). The `docs/` branches are the pull requests that built this index.
