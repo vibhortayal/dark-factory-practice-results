@@ -1227,6 +1227,86 @@ def s_load():
     check("LOAD.3", "D3", "§2", "service healthy after load", h.status_code == 200, show(h))
 
 
+
+def s_round2():
+    """Checks added in round 2 for the code changed in 0487a51 and the map amendment."""
+    seed = lambda **kw: fixture(reservations=[dict({"id": "x1", "reference": "ABCDEF", "user_id": "u_ada", "restaurant_id": "r_anker",
+                                                    "table_id": "t_1", "starts_at_local": f"{THU}T19:00", "party_size": 2}, **kw)])
+    expect("C3.5a", "C3/E4", "§5/§4", "reset: seeded reservation party_size of string type (party_size exemption)", reset(seed(party_size="4")), 422, "validation_failed")
+    expect("C3.5b", "C3/E4", "§5/§4", "reset: seeded reservation party_size true", reset(seed(party_size=True)), 422, "validation_failed")
+    expect("C3.5c", "C3/E4", "§5/§4", "reset: seeded reservation party_size 0", reset(seed(party_size=0)), 422, "validation_failed")
+    expect("C3.5d", "C3/E5", "§5/§4", "reset: seeded starts_at_local with seconds", reset(seed(starts_at_local=f"{THU}T19:00:00")), 422, "validation_failed")
+    expect("C3.5e", "C3/E2", "§5", "reset: seeded restaurant_id of wrong JSON type", reset(seed(restaurant_id=7)), 400, "malformed_request")
+    expect("C3.5f", "C3/E2", "§5", "reset: seeded table_id of wrong JSON type (array)", reset(seed(table_id=["t_1"])), 400, "malformed_request")
+    expect("C3.5g", "C3/E2", "§5", "reset: seeded starts_at_local of wrong JSON type (number)", reset(seed(starts_at_local=5)), 400, "malformed_request")
+    expect("C3.5h", "C3", "§3.3", "reset: valid seeded fixture", reset(seed()), 204)
+    # a rejected reset leaves the previous state in place? not stated by the spec -> observation only
+    ta = ada()
+    note("C3.n1", "state after a rejected reset", f"old token valid={listing(ta) is not None}")
+    # PATCH order (map amendment P2)
+    reset()
+    ta = ada()
+    P = book(ta, "r_anker", "t_1", f"{PAST_THU}T19:00", 2)
+    C = book(ta, "r_anker", "t_2", f"{THU}T19:00", 2)
+    cancel(ta, ref(C))
+    expect("P2.3a", "P2", "§8/§11 (map amendment 1)", "PATCH past-cutoff booking with party_size 0: cutoff first", patch(ta, ref(P), {"party_size": 0}), 409, "cutoff_passed")
+    expect("P2.3b", "P2", "§8/§11 (map amendment 1)", "PATCH past-cutoff booking with table_id of wrong type: cutoff first", patch(ta, ref(P), {"table_id": 5}), 409, "cutoff_passed")
+    expect("P2.3c", "P2", "§8/§11 (map amendment 1)", "PATCH cancelled booking with invalid starts_at_local: cancelled first", patch(ta, ref(C), {"starts_at_local": "nope"}), 409, "reservation_cancelled")
+    expect("P2.3d", "P2", "§5", "PATCH past-cutoff booking with unparseable body", req("PATCH", f"/reservations/{ref(P)}", token=ta, raw="{x"), 400, "malformed_request")
+    expect("P2.3e", "P4", "§8", "PATCH unknown reference with unparseable body: 404 first (map amendment 1)", req("PATCH", "/reservations/ZZZZZZ99", token=ta, raw="{x"), 404, "not_found")
+    # reset atomicity under concurrency: readers during resets only ever see one complete fixture
+    fa = {"users": [{"id": "ua", "email": "a@example.com", "password": "password a", "display_name": "A"}],
+          "restaurants": [dict(SPEC_FIXTURE["restaurants"][0], id="ra1"), dict(SPEC_FIXTURE["restaurants"][0], id="ra2")], "reservations": []}
+    fb = {"users": [{"id": "ub", "email": "b@example.com", "password": "password b", "display_name": "B"}],
+          "restaurants": [dict(SPEC_FIXTURE["restaurants"][0], id="rb1"), dict(SPEC_FIXTURE["restaurants"][0], id="rb2"), dict(SPEC_FIXTURE["restaurants"][0], id="rb3")], "reservations": []}
+    reset(fa)
+    seen, sts = [], []
+
+    def reader():
+        for _ in range(15):
+            r = req("GET", "/restaurants")
+            seen.append(tuple(sorted(x.get("id") for x in (J(r) or {}).get("restaurants", []))))
+
+    def resetter(f):
+        for _ in range(5):
+            sts.append(reset(f).status_code)
+    parallel([reader] * 10 + [lambda: resetter(fa), lambda: resetter(fb), lambda: resetter(fa), lambda: resetter(fb)])
+    okset = {("ra1", "ra2"), ("rb1", "rb2", "rb3")}
+    check("C3.6a", "C3", "§3.3", "concurrent resets all 204; concurrent readers only ever see one complete fixture", all(x == 204 for x in sts) and set(seen) <= okset, f"{set(sts)} {set(seen) - okset}")
+    r = reset(fb)
+    la, lb = login("a@example.com", "password a"), login("b@example.com", "password b")
+    ids = [x.get("id") for x in (J(req("GET", "/restaurants")) or {}).get("restaurants", [])]
+    check("C3.6b", "C3", "§3.3", "after the last reset returns 204 only that fixture is visible (users and restaurants)", r.status_code == 204 and la is None and lb and ids == ["rb1", "rb2", "rb3"], f"{la} {lb} {ids}")
+    # a reset racing with writes: after reset returns, no reservation from before survives
+    reset()
+    ta = ada()
+    stop = []
+
+    def writer(i):
+        out = []
+        for n in range(12):
+            out.append(book(ta, "r_all", "a_1", f"2027-12-{10 + i:02d}T{8 + n // 4:02d}:{(n % 4) * 15:02d}", 1).status_code)
+        return out
+    res = parallel([(lambda i=i: writer(i)) for i in range(8)] + [lambda: [reset().status_code]])
+    t2 = ada()
+    flat = [x for o in res for x in o]
+    check("C3.6c", "C3/E8", "§3.3/§5", "reset racing with 96 bookings: only 201/401/204 seen, no 5xx", set(flat) <= {201, 401, 204}, set(flat))
+    r1 = reset()
+    t3 = ada()
+    check("C3.6d", "C3", "§3.3", "after reset returned, state is exactly the fixture (no reservation survives, table free)", r1.status_code == 204 and listing(t3) == [] and listing(ta) is None
+          and tables_at("r_all", "2027-12-10", "08:00", 1) == ["a_1", "a_2"], listing(t3))
+    # signup racing with reset must not leak an account into the new state with a stale id clash
+    rs = parallel([(lambda i=i: req("POST", "/auth/signup", body={"email": f"race{i}@example.com", "password": "race password", "display_name": "R"})) for i in range(20)] + [lambda: reset()])
+    check("C3.6e", "C3/E8", "§3.3/§5", "20 signups racing a reset: only 201/204", all(x.status_code in (201, 204) for x in rs), [x.status_code for x in rs])
+    big = fixture(extra_users=[{"id": f"u_big_{i}", "email": f"big{i}@example.com", "password": f"big password {i}", "display_name": "B"} for i in range(500)])
+    t = time.monotonic()
+    r = reset(big)
+    dt = time.monotonic() - t
+    tk = login("big499@example.com", "big password 499")
+    note("C3.n2", "reset with 502 users (no size stated by spec)", f"status={r.status_code} took {dt:.2f}s login_last_user={'ok' if tk else 'FAILED'}")
+    check("C3.6f", "C3/M2", "§3.3/§4", "after a 502-user reset the last seeded user logs in immediately", r.status_code == 204 and tk, show(r))
+
+
 def final_audits():
     print("\n=== final audits ===", flush=True)
     check("E8.1", "E8", "§5", "no 5xx response in any probe request", not FIVEXX, f"{len(FIVEXX)}: {FIVEXX[:3]}")
@@ -1239,7 +1319,7 @@ def final_audits():
 def main():
     only = set(sys.argv[1:])
     secs = [s_health_reset, s_auth, s_restaurants_availability, s_create, s_idempotency, s_list_get_cancel, s_patch,
-            s_cutoff_dynamic, s_dst, s_moves, s_seeded, s_ids, s_export_import, s_load]
+            s_cutoff_dynamic, s_dst, s_moves, s_seeded, s_ids, s_export_import, s_load, s_round2]
     for s in secs:
         if not only or s.__name__ in only:
             section(s)

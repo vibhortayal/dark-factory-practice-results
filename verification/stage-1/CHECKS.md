@@ -149,3 +149,10 @@ Scripts: `run.sh` (build, containers, harness) and `probe.py` (HTTP checks, ids 
 - H1 [S2] harness `--stage 1` host mode and `--mode isolated`: all pass, none skipped.
 - S1.1 [S1] harness `--stage 2` against stage-1 does not pass; stage-2 only features absent (`/` UI, `/lookup`, `table_ids` combined tables).
 - R.1 code read once for maintainability (note only).
+
+## Round 2 additions (code changed in 0487a51 + Architect's map amendment of round 2)
+- C3.5a–d [C3/E4/E5 §5/§4] reset: seeded reservation `party_size` "4" / true / 0 and `starts_at_local` with seconds → 422 `validation_failed` (§5 exemption applies to the seeded POST-body fields).
+- C3.5e–g [C3/E2 §5] reset: seeded `restaurant_id`, `table_id`, `starts_at_local` of wrong JSON type → 400 `malformed_request`.
+- P2.3a–e [P2 §8, map amendment 1] PATCH order: 404 → unparseable body 400 → cancelled → cutoff → field validation.
+- C3.6a–e [C3 §3.3] reset now hashes outside the lock: concurrent resets, readers during resets, reset racing bookings and signups — only complete fixtures visible, no 5xx.
+- C3.6f / note C3.n2 [C3 §3.3] reset with 502 users: last user can log in; duration recorded as a note (spec states no fixture size).
