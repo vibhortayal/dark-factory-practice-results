@@ -83,7 +83,7 @@ with `recorded_at` ≤ K (none ⇒ the payment contributes nothing).
 | AA1 | Every first (non-snapshot) `GET /statement` response carries an opaque `snapshot` token freezing the caller's selected revisions, window, balances, entries and default `to` | Own |
 | AA2 | `GET /statement?snapshot=<token>&limit&offset` pages exactly that result, unchanged after later payments, corrections or hold lifecycle actions, including under concurrency | Own: snapshot, mutate, page; compare to pre-mutation one-shot |
 | AA3 | Only `limit` and `offset` may accompany `snapshot`: `from`, `to` or `known_at` with it ⇒ 422; unrecognised parameters still ignored | Own |
-| AA4 | Unknown token, another user's token, or a token from before a reset (or import) ⇒ 404 `not_found`; tokens last until reset; need not survive a restart | Own |
+| AA4 | Unknown token, another user's token, or a token from before a reset ⇒ 404 `not_found`; tokens last until reset; need not survive a restart. (Amended 21:15Z: import is not reset — see AB4.) | Own |
 | AA5 | Snapshot paging: `has_more` correct on final partial page and beyond the end; `limit`/`offset` validation still applies | Own |
 
 ## AB. Export / import across stages
@@ -92,6 +92,7 @@ with `recorded_at` ≤ K (none ⇒ the payment contributes nothing).
 |---|---|---|
 | AB1 | Stage-3 accepts exports from this repo's stage-1 and stage-2 services (204); the ledger accounts for imported payments, settlements, authorizations and captures: revision 1 for every imported payment, opening balances derived, statements and `as_of` consistent with imported balances | Export from real stage-1 and stage-2 containers → import into stage-3 |
 | AB2 | Stage-3 export/import round-trips revisions, correction idempotency records, hold event history (`created_at`, `closed_at`), opening balances | Own |
+| AB4 | (Added 21:15Z.) Statement snapshots are part of the exported state: `GET /_test/export` carries every live snapshot (token, owner, frozen window, balances, entries), and `POST /_test/import` restores them, so a token issued before the export pages the identical frozen result after import into the same or another stage-3 container; a token that is not in the imported state (issued on the destination before the import, or after the export was taken) ⇒ 404. Export size/time stays within the 10 s control-call limit. Importing a stage-1/2 export (no snapshots) still works | Own: snapshot, mutate, export, import into a fresh container, page with the old token and compare |
 | AB3 | Stage-2 upgrade rows R2–R4 still hold on stage-3 (signed-in browser, pending request payable, lost payment retry) | Browser |
 
 ## AC. Historical holds
@@ -114,6 +115,14 @@ From `/home/ubuntu/nightshift-claude-bg-test/dark-factory-wearedevs`:
 Final run adds `--mode isolated`. Every run needs a new `--out` directory.
 
 ## Recorded choices
+
+- Amendment 21:15Z (Architect's own error, found when reading stage 4): the first map said a
+  snapshot token is invalid after import. The stage-3 spec only says "a token from before reset
+  gives 404" and "Tokens last until reset"; §10 says import "atomically replaces the service's
+  state" with the exported state and that "existing receipts, tokens and retries must remain valid
+  after import"; and stage 4 requires that a later service accept this stage's exports "retaining
+  settlement membership, corrections and snapshots". So snapshots belong in the export and must
+  survive import. Rows AA4 and AB4 now say so.
 
 - No new UI is specified for stage 3; the stage-2 UI must keep working unchanged. No statement or
   correction screen is required, and none should be added beyond what the spec asks.

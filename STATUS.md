@@ -6,8 +6,8 @@ Run started: 2026-10-03T19:42Z. Track: pocketful.
 |---|---|---|---|---|---|
 | stage-1 | DONE | 172a3180c731a310e00e403ea1c4990a4a78b5d4 | 0 | 19:43Z–20:02Z (19 min) | Verifier PASS, verdict commit 7a52d057; map `acceptance/stage-1.md` |
 | stage-2 | DONE | c59be33b9aaed102d1728cf7f6d9df7a2e0f571f | 1 | 20:05Z–20:47Z (42 min) | BLOCK #1 on 60a459ae (verdict commit 0c88a232, collapsed Requests/Holds layout, rows Q1/Q3/Q4); PASS on c59be33b (verdict commit 65ec9d11); map `acceptance/stage-2.md` |
-| stage-3 | BUILDING | — | 0 | started 20:50Z | map `acceptance/stage-3.md` |
-| stage-4 | PLANNED | — | 0 | — | |
+| stage-3 | BUILDING (reopened by Architect) | — (3a39ddfe had Verifier PASS, verdict commit f17eadc9; superseded) | 0 | started 20:50Z | First PASS at 21:09Z. Reopened 21:15Z: the Architect's map wrongly said snapshot tokens die on import; stage 4 needs stage-3 exports to carry snapshots. Map rows AA4/AB4 amended; a new stage-3 revision needs a new verdict |
+| stage-4 | PLANNED | — | 0 | — | starts after stage-3 is accepted again |
 
 ## Stage 1 — Verifier verdict (PASS, revision 172a3180)
 
