@@ -1,0 +1,7 @@
+reset 1000 users: 204 7.37s
+sample hash: scrypt$4096$8$1$a178434bcaf3da6a4f14fbe3...
+distinct hashes for the same password: 1000 of 1000
+plaintext in export: False
+login: 200 0.088s
+wrong pw: 401
+import: 204 login after import: 200

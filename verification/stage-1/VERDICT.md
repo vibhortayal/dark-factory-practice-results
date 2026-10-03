@@ -1,54 +1,48 @@
-# Stage 1 — Verifier verdict, round 2: BLOCK
+# Stage 1 — Verifier verdict, round 3: PASS
 
-Rows: C3/E4 (F3); F1 (C3/E2) and F2 (MV5) fixed; all other rows pass · Revision: 0487a51e7158739a7bb4e4a0c593528b6bc1fdd0 · Files: stage-1/app/snapshot.py (`_posint`, `_seed_reservation`) · Command: `bash verification/stage-1/run.sh 0487a51e7158739a7bb4e4a0c593528b6bc1fdd0 <evidence-dir>` then `probe.py` · Expected / actual: 392 own checks pass / 390 pass, 2 fail (one finding) · Repro: F3 below · Next: Implementer
+Rows: all stage-1 rows D1–S2 · Revision: a8301bb9379977851db1c64ff468cbddc30011ff · Files: stage-1/ (whole folder; diff since 0487a51: app/snapshot.py, app/auth.py, tests/test_service.py) · Command: `bash verification/stage-1/run.sh a8301bb9379977851db1c64ff468cbddc30011ff <evidence-dir>` plus harness host and isolated · Expected / actual: all checks pass / all checks pass · Repro: n/a · Next: Architect
 
-Tree clean; HEAD = 0487a51. Image built `--no-cache` from `git archive` of the revision.
+Tree clean, HEAD = a8301bb. Image built `--no-cache` from `git archive` of the revision.
 
-## Round-1 findings
-- F1 fixed: reset with wrong-typed `users`, `restaurants`, `slot_minutes`, restaurant `id`, user `email` → 400 `malformed_request` (C3.4b–f pass); right-type invalid values still 422 (C7.2a–d, harness).
-- F2 fixed: moves `[{P, party_size:0}]` and `[{P},{H, party_size:0}]` → 409 `cutoff_passed` (MV5.2e–f pass).
-
-## Blocking finding
-
-### F3 — reset: seeded reservation `party_size` of a wrong type gives 400 (rows C3, E4; spec §5, §4; map amendment 2)
-Spec §5: "Endpoint-specific field rules take precedence: invalid `party_size` values (including
-strings and booleans) … are 422 `validation_failed`." §4: seeded reservations have "the same fields
-as a `POST /reservations` body plus `id`, `reference` and `user_id`."
-
-Repro: `POST /_test/reset` with a valid fixture whose `reservations` is
-`[{"id":"x1","reference":"ABCDEF","user_id":"u_ada","restaurant_id":"r_anker","table_id":"t_1","starts_at_local":"2027-09-23T19:00","party_size":"4"}]`
-Actual: `400 {"error":{"code":"malformed_request","message":"party_size must be an integer"}}`
-Expected: `422 validation_failed`. Same with `"party_size": true` (checks C3.5a, C3.5b).
-`party_size: 0` and `starts_at_local` with seconds are correctly 422 (C3.5c–d); wrong-typed
-`restaurant_id` / `table_id` / `starts_at_local` are correctly 400 (C3.5e–g). The Implementer
-reported this deviation itself for this revision.
+## Findings from earlier rounds
+- F1 (reset wrong JSON type → 400): fixed, C3.4b–f pass.
+- F2 (moves: cutoff before field errors): fixed, MV5.2e–f pass.
+- F3 (seeded `party_size` "4" / true → 422): fixed, C3.5a–b pass.
 
 ## What was run
 | What | Result |
 |---|---|
-| Clean build, start under `--cpus 2 --memory 2g` on an internal network, default port, port mapping | OK; healthy after 0.34 s; no outbound |
-| Harness `--stage 1 --mode host` (`checks/verifier-s1-r2-host`) | stage 1: 120 passed; stage-2 suite: fail (as required) |
-| Harness `--stage 1 --mode isolated` (`checks/verifier-s1-r2-isolated`) | stage 1: 120 passed; stage-2 suite: fail (as required) |
-| Implementer's tests | 23 OK |
-| Own probes, whole saved list + 19 round-2 checks for the changed code and the map amendment | 392 checks: 390 pass, 2 fail (F3) |
+| Clean `docker build --no-cache` of the exported `stage-1/` | OK |
+| Start on an internal (no outbound) network, `--cpus 2 --memory 2g`, `-e PORT=9000` | healthy after 0.34 s; outbound unreachable |
+| Start without `PORT` | healthy on 8080 |
+| `-e PORT=9123 -p 127.0.0.1:19123:9123` | 200 `{"status": "ok"}` |
+| RUN.md command as written (run in round 1; RUN.md command unchanged since) | `/health` 200 |
+| Harness `--stage 1 --mode host --out ../band-work/checks/verifier-s1-r3-host` | stage 1: 120 passed, 0 skipped |
+| Harness `--stage 1 --mode isolated --out ../band-work/checks/verifier-s1-r3-isolated` | stage 1: 120 passed, 0 skipped |
+| Stage-2 suite on stage-1 (inside both harness runs) | fails (1 failed, UI route `/`), as row S1 requires; `/` and `/lookup` are 404 |
+| Implementer's tests `python -m unittest discover -s tests` | 24 OK |
+| Own probes: whole saved list (`CHECKS.md`, `probe.py`) | 392 checks, 392 pass, 0 fail |
+| scrypt change | hashes are `scrypt$4096$8$1$<salt>$<digest>`; 1000 users with one password → 1000 distinct hashes; no plaintext in export; login 200, wrong password 401, login after import 200 |
 
-Round-2 checks that pass: PATCH order per the amended map (404 → unparseable 400 → cancelled →
-cutoff → field validation: P2.3a–e); reset hashing outside the lock — 20 concurrent resets with
-150 concurrent reads only ever show one complete fixture, reset racing 96 bookings and 20 signups
-gives no 5xx and leaves exactly the fixture after it returns (C3.6a–e); last of 502 seeded users
-can log in at once (C3.6f). Container not OOM-killed, nothing on stderr.
+No 5xx in any probe response, every request under 5 s (reset/export/import under 10 s), no
+overlapping confirmed bookings after load, container not OOM-killed (194 MiB), empty stderr.
 
 ## Notes (not blocking)
-1. Reset with 502 users took 7.56 s under `--cpus 2` (limit 10 s; spec states no fixture size). At
-   about 15 ms per user the limit would be passed near 650 users.
-2. `from_fixture` hashes all users before it validates restaurants and reservations, so a rejected
-   large fixture still pays the full hashing time.
+1. Reset time grows with fixture users: 502 users 3.67 s, 1000 users 7.37 s under `--cpus 2`
+   (limit 10 s); it would pass the limit near 1350 users. The spec states no fixture size.
+2. scrypt cost is n=2^12, r=8, p=1 — a real password-hashing function as §6 requires, at a low
+   work factor chosen for reset speed.
 3. After a rejected reset the previous state stays in place (spec does not say).
-4. Unchanged from round 1: signup without `display_name` → 422; `x@localhost` accepted; emails
-   case-insensitive; `PATCH {}` → 200 unchanged; 405 `method_not_allowed`; body over 8 MiB → 400;
-   unparseable body without a token → 401.
-5. Maintainability: `_posint` now decides both type and range; the party_size exemption needs its
-   own path (the request-side `validate.party_size` already encodes the rule).
+4. Spec is silent on, and the service does: signup without `display_name` → 422; `x@localhost`
+   accepted; emails case-insensitive; `PATCH {}` → 200 unchanged; wrong method → 405
+   `method_not_allowed`; body over 8 MiB → 400; unparseable body without a token → 401.
+5. PATCH error order follows the Architect's amended map (404 → body 400 → cancelled → cutoff →
+   field validation); §8 itself states no order.
+6. Maintainability: small modules with one job each, one global lock, shared validators,
+   precedence documented in RUN.md and `bookings.py`. Nothing to change.
 
 ## Remaining risk not tested
-Exact cutoff equality; the hidden part of the judging suite; a real 2-vCPU host.
+- Exact cutoff equality (`now == starts_at − cutoff`) cannot be hit with real time; tested about
+  1 h either side.
+- The harness says its shipped suite is only part of the judging suite.
+- Load ran on a 4-CPU host with the container limited to 2 CPUs, not on a 2-vCPU machine.
