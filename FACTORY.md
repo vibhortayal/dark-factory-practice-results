@@ -1,9 +1,10 @@
 <!-- archive-note: added 2026-10-03 by Claude for Team Nightshift's archive -->
-> **Archive copy: not a submission run.** This branch keeps Team Nightshift's record of Run 5, for reference only. The submitted run is Run 7 (branch `nightshift-run-7-2026-10-02` here; public submission repository `vibhortayal/nightshift-pocketful`).
+> **Archive copy: not a submission run.** This branch keeps Team Nightshift's record of this run (Run 5), for reference only. The submitted run is Run 7 (branch `nightshift-run-7-2026-10-02` here; public submission repository `vibhortayal/nightshift-pocketful`).
 >
 > | | |
 > |---|---|
 > | Run | Run 5. Four-stage run, Claude Code seats |
+> | What this run tested | Compared with the `f6fc48a3` test: one more rule, that a value beyond a limit the spec states always blocks. The first four-stage run on the bounded, graded text |
 > | When | 2026-10-02, 04:11 to 15:31 UTC |
 > | Band room | `Nightshift \| Pocketful \| Stages 1-4 \| Run 5 \| 2026-10-02` (`f83420d7`) |
 > | Mandates | PR #52 head `7fc01726` (bounded Verifier, severity grading, 15 minutes of timed hardening) |
