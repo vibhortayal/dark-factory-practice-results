@@ -1,20 +1,18 @@
-<!-- archive-note: added 2026-10-03 by Claude for Team Nightshift's archive -->
-> **Archive copy: not a submission run.** This branch keeps Team Nightshift's record of this run (Practice run R1), for reference only. The submitted run is Run 7 (branch `runs/20-2026-10-02-run-7-submitted` here; public submission repository `vibhortayal/nightshift-pocketful`).
->
-> | | |
-> |---|---|
-> | Run | Practice run R1. Practice run, stage 1 only, before the Claude Code seats |
-> | What this run tested | The first practice run: could a band of agent seats build Pocketful stage 1 at all, from early practice mandates. There was no run before it |
-> | Seats | Not recorded in this branch. These practice seats predate the Claude Code seats |
-> | When | 2026-09-28 to 09-29 |
-> | Band room | not a Band run room on the Claude Code seats; see `PRACTICE-LEARNINGS.md` |
-> | Mandates | early practice mandates, before the Claude Code seat mandates |
-> | Result | Stage 1 built. Classified in the archive index as intervened development evidence |
-> | Human input after dispatch | Development interventions, catalogued in `PRACTICE-LEARNINGS.md` |
-> | Why it was not submitted | A development practice run with interventions. It predates the factory that was submitted |
-> | Room record | the room downloads and whole-room captures are kept by the team outside this repository |
->
-> The text below this note is unchanged from the run, unless it is marked as added for the archive.
+<!-- archive-note -->
+> **Not a submission run.** This is one of Team Nightshift's practice runs, rehearsals or tests. The submitted run is Run 7, branch `runs/20-2026-10-02-run-7-submitted`.
+
+## 01. Practice run R1 (Sep 28, stage 1 only, practice)
+
+- **What changed from the previous run:** First attempt. A small band of agent seats was given Pocketful stage 1 with early practice instructions.
+- **Why:** To find out whether agent seats could build anything useful at all.
+- **Result:** Stage 1 was built, but only with several human corrections along the way. They are listed in `PRACTICE-LEARNINGS.md` in this run.
+- **Conclusion:** Seats can build the service, but this set-up needed a person to keep it on track.
+- **What we did next:** Started again on a fresh repository with stricter validation rules (R2).
+- **Seats:** Early practice seats (not recorded in the branch).
+
+The whole sequence of runs is on the `main` branch of this repository.
+
+Below this line: the run's own text, unchanged.
 
 ---
 
