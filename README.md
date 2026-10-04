@@ -1,20 +1,18 @@
-<!-- archive-note: added 2026-10-03 by Claude for Team Nightshift's archive -->
-> **Archive copy: not a submission run.** This branch keeps Team Nightshift's record of this run (Stage-1 test of PR #52 head f6fc48a3), for reference only. The submitted run is Run 7 (branch `runs/20-2026-10-02-run-7-submitted` here; public submission repository `vibhortayal/nightshift-pocketful`).
->
-> | | |
-> |---|---|
-> | Run | Stage-1 test of PR #52 head f6fc48a3. Stage-1 test in a scratch room |
-> | What this run tested | Compared with `590afd18`, which let real spec faults pass as notes: hardened grading (any server error or named case blocks; a note must state the size it exceeded), notes fixed during fix rounds, and the Verifier preparing its checks while the Implementer builds |
-> | Seats | Three Band seats on Claude Code: Architect `claude-opus-5-5`, Implementer `claude-sonnet-5-5`, Verifier `claude-opus-5-5`, running on the team's Chicago VM (from `mandates/`) |
-> | When | 2026-10-02, 03:21 to 04:04 UTC |
-> | Band room | scratch room `590851bd`, opened by Claude's Team session |
-> | Mandates | PR #52 head `f6fc48a3` (hardened grading, Verifier prepares in parallel) |
-> | Result | Stage 1 accepted in 43 minutes, 1 rejection |
-> | Human input after dispatch | Dispatched by Claude's Team session, not by the owner |
-> | Why it was not submitted | A test of mandate wording, not a four-stage run |
-> | Room record | the room downloads and whole-room captures are kept by the team outside this repository |
->
-> The text below this note is unchanged from the run, unless it is marked as added for the archive.
+<!-- archive-note -->
+> **Not a submission run.** This is one of Team Nightshift's practice runs, rehearsals or tests. The submitted run is Run 7, branch `runs/20-2026-10-02-run-7-submitted`.
+
+## 14. Stage-1 test: tightened grading (Oct 2, stage 1 test)
+
+- **What changed from the previous run:** Any server error or any case the spec names blocks; a minor finding must state the size it exceeded. The Verifier prepares its checks while the Implementer builds.
+- **Why:** Run 13 passed real faults.
+- **Result:** Stage 1 accepted in 43 minutes, one BLOCK, and real faults got a BLOCK.
+- **Conclusion:** Ready for a full run.
+- **What we did next:** Added one rule (a value over a stated limit always blocks) and ran all four stages (Run 5).
+- **Seats:** Three Claude Code seats: Architect and Verifier on Claude Opus, Implementer on Claude Sonnet.
+
+The whole sequence of runs is on the `main` branch of this repository.
+
+Below this line: the run's own text, unchanged.
 
 ---
 
