@@ -1,20 +1,18 @@
-<!-- archive-note: added 2026-10-03 by Claude for Team Nightshift's archive -->
-> **Archive copy: not a submission run.** This branch keeps Team Nightshift's record of this run (Stage-1 test of PR #52 head 28df31b9), for reference only. The submitted run is Run 7 (branch `runs/20-2026-10-02-run-7-submitted` here; public submission repository `vibhortayal/nightshift-pocketful`).
->
-> | | |
-> |---|---|
-> | Run | Stage-1 test of PR #52 head 28df31b9. Stage-1 test in a scratch room |
-> | What this run tested | Compared with the Run 3 text that blocked Runs 4 and 4b: the Verifier tests at the sizes the spec states and not beyond, writes its check list first, and puts every finding in one verdict. A fix round is one rejection, and a build under review cannot be withdrawn. The Implementer fixes the kind of fault, not only the reported case |
-> | Seats | Three Band seats on Claude Code: Architect `claude-opus-5-5`, Implementer `claude-sonnet-5-5`, Verifier `claude-opus-5-5`, running on the team's Chicago VM (from `mandates/`) |
-> | When | 2026-10-02, 01:36 to 02:07 UTC |
-> | Band room | scratch room `9e69221f`, opened by Claude's Team session |
-> | Mandates | PR #52 head `28df31b9` (bounded Verifier, defined fix round) |
-> | Result | Stage 1 accepted in 30 minutes, 1 rejection |
-> | Human input after dispatch | Dispatched by Claude's Team session, not by the owner |
-> | Why it was not submitted | A test of mandate wording, not a four-stage run |
-> | Room record | the room downloads and whole-room captures are kept by the team outside this repository |
->
-> The text below this note is unchanged from the run, unless it is marked as added for the archive.
+<!-- archive-note -->
+> **Not a submission run.** This is one of Team Nightshift's practice runs, rehearsals or tests. The submitted run is Run 7, branch `runs/20-2026-10-02-run-7-submitted`.
+
+## 12. Stage-1 test: bounded Verifier (Oct 2, stage 1 test)
+
+- **What changed from the previous run:** The Verifier tests at the sizes and loads the spec states and not beyond, writes its check list first, and reports every finding in one verdict. A fix round is one BLOCK verdict, and a build under review cannot be withdrawn.
+- **Why:** Runs 4 and 4b never converged.
+- **Result:** Stage 1 accepted in 30 minutes, with one BLOCK that listed all four findings at once.
+- **Conclusion:** Bounding the Verifier works.
+- **What we did next:** Tried a more lenient check: graded findings plus a short window of free testing (run 13).
+- **Seats:** Three Claude Code seats: Architect and Verifier on Claude Opus, Implementer on Claude Sonnet.
+
+The whole sequence of runs is on the `main` branch of this repository.
+
+Below this line: the run's own text, unchanged.
 
 ---
 
