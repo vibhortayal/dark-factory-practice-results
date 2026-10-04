@@ -1,20 +1,18 @@
-<!-- archive-note: added 2026-10-03 by Claude for Team Nightshift's archive -->
-> **Archive copy: not a submission run.** This branch keeps Team Nightshift's record of this run (Run 4b), for reference only. The submitted run is Run 7 (branch `runs/20-2026-10-02-run-7-submitted` here; public submission repository `vibhortayal/nightshift-pocketful`).
->
-> | | |
-> |---|---|
-> | Run | Run 4b. Four-stage run, Claude Code seats |
-> | What this run tested | Compared with Run 4: nothing changed. Same text, same settings. It repeated Run 4 to see whether Run 4's block at stage 1 was chance |
-> | Seats | Three Band seats on Claude Code: Architect `claude-opus-5-5`, Implementer `claude-sonnet-5-5`, Verifier `claude-opus-5-5`, running on the team's Chicago VM (from `mandates/`) |
-> | When | 2026-10-01 21:14 to 2026-10-02 00:25 UTC |
-> | Band room | `Nightshift \| Pocketful \| Stages 1-4 \| Run 4b \| 2026-10-01` (`afb80351`) |
-> | Mandates | the Run 3 set (team repo `nightshift-factory`, commit `f3cbc34`), unchanged from Run 4 |
-> | Result | Clean, but stage 1 was recorded BLOCKED after 10 rejections. Nothing accepted. 3 h 11 min. The Verifier's findings moved from real faults to extreme inputs, which led to the bounded mandates |
-> | Human input after dispatch | One dispatch, no intervention |
-> | Why it was not submitted | Stopped at stage 1 |
-> | Room record | the room downloads and whole-room captures are kept by the team outside this repository |
->
-> The text below this note is unchanged from the run, unless it is marked as added for the archive.
+<!-- archive-note -->
+> **Not a submission run.** This is one of Team Nightshift's practice runs, rehearsals or tests. The submitted run is Run 7, branch `runs/20-2026-10-02-run-7-submitted`.
+
+## 11. Run 4b (Oct 1, all four stages)
+
+- **What changed from the previous run:** Nothing. Same mandates, same settings as Run 4.
+- **Why:** To see whether Run 4's result was bad luck.
+- **Result:** Clean, but stage 1 was never accepted: 10 BLOCK verdicts in 3 h 11 min. The findings moved to extreme inputs, such as a 60-million-digit number.
+- **Conclusion:** Not luck. The mandates had to say how far the Verifier tests.
+- **What we did next:** Bounded the Verifier and tried it on stage 1 (run 12).
+- **Seats:** Three Claude Code seats: Architect and Verifier on Claude Opus, Implementer on Claude Sonnet.
+
+The whole sequence of runs is on the `main` branch of this repository.
+
+Below this line: the run's own text, unchanged.
 
 ---
 
