@@ -1,20 +1,18 @@
-<!-- archive-note: added 2026-10-03 by Claude for Team Nightshift's archive -->
-> **Archive copy: not a submission run.** This branch keeps Team Nightshift's record of this run (Rehearsal 1), for reference only. The submitted run is Run 7 (branch `runs/20-2026-10-02-run-7-submitted` here; public submission repository `vibhortayal/nightshift-pocketful`).
->
-> | | |
-> |---|---|
-> | Run | Rehearsal 1. Rehearsal, stage 1 only, Claude Code seats |
-> | What this run tested | Compared with the practice runs: the first run on three Claude Code seats in Band (Architect, Implementer, Verifier) on the Chicago VM, with new seat mandates. It tested whether those seats could take stage 1 from one dispatch to an accepted build |
-> | Seats | Three Band seats on Claude Code: Architect `claude-opus-5-5`, Implementer `claude-sonnet-5-5`, Verifier `claude-opus-5-5`, running on the team's Chicago VM (from `mandates/`) |
-> | When | 2026-10-01, 00:55 to 01:51 UTC |
-> | Band room | `Nightshift \| Pocketful \| Stage-1 \| Rehearsal 1 \| 2026-09-30` (`7699b589`) |
-> | Mandates | the first Claude Code seat mandates (in `mandates/` of this branch) |
-> | Result | Stage 1 accepted in 49 minutes. Supplied checks 147 of 147 |
-> | Human input after dispatch | One intervention: the Verifier seat was restarted |
-> | Why it was not submitted | A rehearsal of stage 1 only, with one intervention |
-> | Room record | the room downloads and whole-room captures are kept by the team outside this repository |
->
-> The text below this note is unchanged from the run, unless it is marked as added for the archive.
+<!-- archive-note -->
+> **Not a submission run.** This is one of Team Nightshift's practice runs, rehearsals or tests. The submitted run is Run 7, branch `runs/20-2026-10-02-run-7-submitted`.
+
+## 04. Rehearsal 1 (Oct 1, stage 1 only)
+
+- **What changed from the previous run:** New platform: three Claude Code seats (Architect, Implementer, Verifier) talking in a Band room, with new seat instructions (mandates).
+- **Why:** Stronger models and a set-up we could control and repeat.
+- **Result:** Stage 1 accepted in 49 minutes, all 147 supplied checks passing. One restart: a background task failed and took the Verifier's verdict with it.
+- **Conclusion:** The three seats can deliver a stage on their own. Background tasks can silently lose a message.
+- **What we did next:** Added a written rule against background tasks, and told the Architect to wait for replies inside its turn (Run 2).
+- **Seats:** Three Claude Code seats: Architect and Verifier on Claude Opus, Implementer on Claude Sonnet.
+
+The whole sequence of runs is on the `main` branch of this repository.
+
+Below this line: the run's own text, unchanged.
 
 ---
 
