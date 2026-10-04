@@ -8,32 +8,32 @@ Each run changed one thing in the factory (its seat instructions, a setting, or 
 
 | # | Date | Run | Scope | Outcome |
 |---|---|---|---|---|
-| 01 | Sep 28 | Practice run R1 | Stage 1 only, practice | Stage 1 built, with human corrections |
-| 02 | Sep 29 | Practice run R2 | Stage 1 only, practice | Stage 1 built, with outside help |
-| 03 | Sep 29 | Practice run R3 | Preflight, practice | Blocked early |
-| 04 | Oct 1 | Rehearsal 1 | Stage 1 only | Stage 1 accepted in 49 min; one restart |
-| 05 | Oct 1 | Run 2 | All four stages | 4 stages in 4 h 08; one restart |
-| 06 | Oct 1 | Run 3 | All four stages | 4 stages; 4 h 37 stall, one restart |
-| 07 | Oct 1 | Stage-1 test on the Run 3 text | Stage 1 test | Stopped after first BLOCK |
-| 08 | Oct 1 | Stage-1 test: fewer, larger messages | Stage 1 test | Spec left out of handoff; withdrawn |
-| 09 | Oct 1 | Stage-1 test: fewer parts, full text kept | Stage 1 test | Stopped before a verdict |
-| 10 | Oct 1 | Run 4 | All four stages | Clean; stage 1 never accepted (6 BLOCK verdicts) |
-| 11 | Oct 1 | Run 4b | All four stages | Clean; stage 1 never accepted (10 BLOCK verdicts) |
-| 12 | Oct 2 | Stage-1 test: bounded Verifier | Stage 1 test | Stage 1 in 30 min, 1 BLOCK |
-| 13 | Oct 2 | Stage-1 test: graded findings | Stage 1 test | Stage 1 in 28 min; real faults let through |
-| 14 | Oct 2 | Stage-1 test: tightened grading | Stage 1 test | Stage 1 in 43 min, 1 BLOCK |
-| 15 | Oct 2 | Run 5 | All four stages | Clean; 4 stages in 11 h 20, 6 BLOCK verdicts |
-| 16 | Oct 2 | Stage-1 test: simpler set | Stage 1 test | Stage 1 in 53 min, 2 BLOCK verdicts |
-| 17 | Oct 2 | Run 6 | All four stages | Clean; 4 stages in 2 h 33, 2 BLOCK verdicts |
-| 18 | Oct 2 | Stage-1 test: final text on Pocketful | Stage 1 test | Stage 1 in 42 min, 1 BLOCK |
-| 19 | Oct 2 | Stage-1 test: final text on Tablekeeper | Stage 1 test, other track | Stage 1 in 33 min, 0 BLOCK verdicts |
-| 20 | Oct 2 | Run 7: the submitted run | All four stages | **Submitted.** Clean; 4 stages in 2 h 27, 4 BLOCK verdicts |
-| 21 | Oct 3 | Tablekeeper, all four stages | All four stages, other track | 4 stages in about 1 h 37, 3 BLOCK verdicts |
-| 22 | Oct 3 | Background-task test | All four stages | 4 stages in about 2 h, 1 BLOCK |
+| [01](https://github.com/vibhortayal/dark-factory-practice-results/tree/runs/01-2026-09-28-practice-r1) | Sep 28 | [Practice run R1](https://github.com/vibhortayal/dark-factory-practice-results/tree/runs/01-2026-09-28-practice-r1) | Stage 1 only, practice | Stage 1 built, with human corrections |
+| [02](https://github.com/vibhortayal/dark-factory-practice-results/tree/runs/02-2026-09-29-practice-r2) | Sep 29 | [Practice run R2](https://github.com/vibhortayal/dark-factory-practice-results/tree/runs/02-2026-09-29-practice-r2) | Stage 1 only, practice | Stage 1 built, with outside help |
+| [03](https://github.com/vibhortayal/dark-factory-practice-results/tree/runs/03-2026-09-29-practice-r3) | Sep 29 | [Practice run R3](https://github.com/vibhortayal/dark-factory-practice-results/tree/runs/03-2026-09-29-practice-r3) | Preflight, practice | Blocked early |
+| [04](https://github.com/vibhortayal/dark-factory-practice-results/tree/runs/04-2026-10-01-rehearsal-1) | Oct 1 | [Rehearsal 1](https://github.com/vibhortayal/dark-factory-practice-results/tree/runs/04-2026-10-01-rehearsal-1) | Stage 1 only | Stage 1 accepted in 49 min; one restart |
+| [05](https://github.com/vibhortayal/dark-factory-practice-results/tree/runs/05-2026-10-01-run-2) | Oct 1 | [Run 2](https://github.com/vibhortayal/dark-factory-practice-results/tree/runs/05-2026-10-01-run-2) | All four stages | 4 stages in 4 h 08; one restart |
+| [06](https://github.com/vibhortayal/dark-factory-practice-results/tree/runs/06-2026-10-01-run-3) | Oct 1 | [Run 3](https://github.com/vibhortayal/dark-factory-practice-results/tree/runs/06-2026-10-01-run-3) | All four stages | 4 stages; 4 h 37 stall, one restart |
+| [07](https://github.com/vibhortayal/dark-factory-practice-results/tree/runs/07-2026-10-01-stage1-test-run3-text) | Oct 1 | [Stage-1 test on the Run 3 text](https://github.com/vibhortayal/dark-factory-practice-results/tree/runs/07-2026-10-01-stage1-test-run3-text) | Stage 1 test | Stopped after first BLOCK |
+| [08](https://github.com/vibhortayal/dark-factory-practice-results/tree/runs/08-2026-10-01-stage1-test-candidate-a) | Oct 1 | [Stage-1 test: fewer, larger messages](https://github.com/vibhortayal/dark-factory-practice-results/tree/runs/08-2026-10-01-stage1-test-candidate-a) | Stage 1 test | Spec left out of handoff; withdrawn |
+| [09](https://github.com/vibhortayal/dark-factory-practice-results/tree/runs/09-2026-10-01-stage1-test-full-text-parts) | Oct 1 | [Stage-1 test: fewer parts, full text kept](https://github.com/vibhortayal/dark-factory-practice-results/tree/runs/09-2026-10-01-stage1-test-full-text-parts) | Stage 1 test | Stopped before a verdict |
+| [10](https://github.com/vibhortayal/dark-factory-practice-results/tree/runs/10-2026-10-01-run-4) | Oct 1 | [Run 4](https://github.com/vibhortayal/dark-factory-practice-results/tree/runs/10-2026-10-01-run-4) | All four stages | Clean; stage 1 never accepted (6 BLOCK verdicts) |
+| [11](https://github.com/vibhortayal/dark-factory-practice-results/tree/runs/11-2026-10-01-run-4b) | Oct 1 | [Run 4b](https://github.com/vibhortayal/dark-factory-practice-results/tree/runs/11-2026-10-01-run-4b) | All four stages | Clean; stage 1 never accepted (10 BLOCK verdicts) |
+| [12](https://github.com/vibhortayal/dark-factory-practice-results/tree/runs/12-2026-10-02-stage1-test-pr52-28df31b9) | Oct 2 | [Stage-1 test: bounded Verifier](https://github.com/vibhortayal/dark-factory-practice-results/tree/runs/12-2026-10-02-stage1-test-pr52-28df31b9) | Stage 1 test | Stage 1 in 30 min, 1 BLOCK |
+| [13](https://github.com/vibhortayal/dark-factory-practice-results/tree/runs/13-2026-10-02-stage1-test-pr52-590afd18) | Oct 2 | [Stage-1 test: graded findings](https://github.com/vibhortayal/dark-factory-practice-results/tree/runs/13-2026-10-02-stage1-test-pr52-590afd18) | Stage 1 test | Stage 1 in 28 min; real faults let through |
+| [14](https://github.com/vibhortayal/dark-factory-practice-results/tree/runs/14-2026-10-02-stage1-test-pr52-f6fc48a3) | Oct 2 | [Stage-1 test: tightened grading](https://github.com/vibhortayal/dark-factory-practice-results/tree/runs/14-2026-10-02-stage1-test-pr52-f6fc48a3) | Stage 1 test | Stage 1 in 43 min, 1 BLOCK |
+| [15](https://github.com/vibhortayal/dark-factory-practice-results/tree/runs/15-2026-10-02-run-5) | Oct 2 | [Run 5](https://github.com/vibhortayal/dark-factory-practice-results/tree/runs/15-2026-10-02-run-5) | All four stages | Clean; 4 stages in 11 h 20, 6 BLOCK verdicts |
+| [16](https://github.com/vibhortayal/dark-factory-practice-results/tree/runs/16-2026-10-02-stage1-test-pr53-643e2307) | Oct 2 | [Stage-1 test: simpler set](https://github.com/vibhortayal/dark-factory-practice-results/tree/runs/16-2026-10-02-stage1-test-pr53-643e2307) | Stage 1 test | Stage 1 in 53 min, 2 BLOCK verdicts |
+| [17](https://github.com/vibhortayal/dark-factory-practice-results/tree/runs/17-2026-10-02-run-6) | Oct 2 | [Run 6](https://github.com/vibhortayal/dark-factory-practice-results/tree/runs/17-2026-10-02-run-6) | All four stages | Clean; 4 stages in 2 h 33, 2 BLOCK verdicts |
+| [18](https://github.com/vibhortayal/dark-factory-practice-results/tree/runs/18-2026-10-02-stage1-test-pr54-pocketful) | Oct 2 | [Stage-1 test: final text on Pocketful](https://github.com/vibhortayal/dark-factory-practice-results/tree/runs/18-2026-10-02-stage1-test-pr54-pocketful) | Stage 1 test | Stage 1 in 42 min, 1 BLOCK |
+| [19](https://github.com/vibhortayal/dark-factory-practice-results/tree/runs/19-2026-10-02-stage1-test-pr54-tablekeeper) | Oct 2 | [Stage-1 test: final text on Tablekeeper](https://github.com/vibhortayal/dark-factory-practice-results/tree/runs/19-2026-10-02-stage1-test-pr54-tablekeeper) | Stage 1 test, other track | Stage 1 in 33 min, 0 BLOCK verdicts |
+| [20](https://github.com/vibhortayal/dark-factory-practice-results/tree/runs/20-2026-10-02-run-7-submitted) | Oct 2 | [Run 7: the submitted run](https://github.com/vibhortayal/dark-factory-practice-results/tree/runs/20-2026-10-02-run-7-submitted) | All four stages | **Submitted.** Clean; 4 stages in 2 h 27, 4 BLOCK verdicts |
+| [21](https://github.com/vibhortayal/dark-factory-practice-results/tree/runs/21-2026-10-03-tablekeeper-four-stages) | Oct 3 | [Tablekeeper, all four stages](https://github.com/vibhortayal/dark-factory-practice-results/tree/runs/21-2026-10-03-tablekeeper-four-stages) | All four stages, other track | 4 stages in about 1 h 37, 3 BLOCK verdicts |
+| [22](https://github.com/vibhortayal/dark-factory-practice-results/tree/runs/22-2026-10-03-bgtasks-test) | Oct 3 | [Background-task test](https://github.com/vibhortayal/dark-factory-practice-results/tree/runs/22-2026-10-03-bgtasks-test) | All four stages | 4 stages in about 2 h, 1 BLOCK |
 
 ## How the factory changed, run by run
 
-### 01. Practice run R1 (Sep 28, stage 1 only, practice)
+### [01. Practice run R1](https://github.com/vibhortayal/dark-factory-practice-results/tree/runs/01-2026-09-28-practice-r1) (Sep 28, stage 1 only, practice)
 
 - **What changed from the previous run:** First attempt. A small band of agent seats was given Pocketful stage 1 with early practice instructions.
 - **Why:** To find out whether agent seats could build anything useful at all.
@@ -42,7 +42,7 @@ Each run changed one thing in the factory (its seat instructions, a setting, or 
 - **What we did next:** Started again on a fresh repository with stricter validation rules (R2).
 - **Seats:** Early practice seats (not recorded in the branch).
 
-### 02. Practice run R2 (Sep 29, stage 1 only, practice)
+### [02. Practice run R2](https://github.com/vibhortayal/dark-factory-practice-results/tree/runs/02-2026-09-29-practice-r2) (Sep 29, stage 1 only, practice)
 
 - **What changed from the previous run:** A fresh repository, three seats on OpenCode, and stricter rules for money values and imported data.
 - **Why:** R1 showed the band could build, but let invalid data through and needed help.
@@ -51,7 +51,7 @@ Each run changed one thing in the factory (its seat instructions, a setting, or 
 - **What we did next:** A short preflight of the next set-up (R3).
 - **Seats:** Three seats on OpenCode, each on Claude Haiku.
 
-### 03. Practice run R3 (Sep 29, preflight, practice)
+### [03. Practice run R3](https://github.com/vibhortayal/dark-factory-practice-results/tree/runs/03-2026-09-29-practice-r3) (Sep 29, preflight, practice)
 
 - **What changed from the previous run:** A preflight of the next practice set-up.
 - **Why:** To check the set-up before committing to a longer run.
@@ -60,7 +60,7 @@ Each run changed one thing in the factory (its seat instructions, a setting, or 
 - **What we did next:** Moved to three Claude Code seats in Band, on a dedicated cloud server (Rehearsal 1).
 - **Seats:** Early practice seats (not recorded in the branch).
 
-### 04. Rehearsal 1 (Oct 1, stage 1 only)
+### [04. Rehearsal 1](https://github.com/vibhortayal/dark-factory-practice-results/tree/runs/04-2026-10-01-rehearsal-1) (Oct 1, stage 1 only)
 
 - **What changed from the previous run:** New platform: three Claude Code seats (Architect, Implementer, Verifier) talking in a Band room, with new seat instructions (mandates).
 - **Why:** Stronger models and a set-up we could control and repeat.
@@ -69,7 +69,7 @@ Each run changed one thing in the factory (its seat instructions, a setting, or 
 - **What we did next:** Added a written rule against background tasks, and told the Architect to wait for replies inside its turn (Run 2).
 - **Seats:** Three Claude Code seats: Architect and Verifier on Claude Opus, Implementer on Claude Sonnet.
 
-### 05. Run 2 (Oct 1, all four stages)
+### [05. Run 2](https://github.com/vibhortayal/dark-factory-practice-results/tree/runs/05-2026-10-01-run-2) (Oct 1, all four stages)
 
 - **What changed from the previous run:** All four stages for the first time. The mandates gained a rule against background tasks and an instruction for the Architect to wait for replies inside its turn.
 - **Why:** To fix Rehearsal 1's lost verdict and attempt the whole task.
@@ -78,7 +78,7 @@ Each run changed one thing in the factory (its seat instructions, a setting, or 
 - **What we did next:** Seats end their turn after every handoff; no waivers, any contradiction of the spec blocks; at most five fix rounds per stage; a self-check by the Implementer; an evidence header on every message (Run 3).
 - **Seats:** Three Claude Code seats: Architect and Verifier on Claude Opus, Implementer on Claude Sonnet.
 
-### 06. Run 3 (Oct 1, all four stages)
+### [06. Run 3](https://github.com/vibhortayal/dark-factory-practice-results/tree/runs/06-2026-10-01-run-3) (Oct 1, all four stages)
 
 - **What changed from the previous run:** The Run 2 lessons above, all in the mandates.
 - **Why:** To get a clean four-stage run with a stricter check.
@@ -87,7 +87,7 @@ Each run changed one thing in the factory (its seat instructions, a setting, or 
 - **What we did next:** Switched background tasks off in the seats' settings, and tried shorter handoff messages on stage 1 first (runs 07 to 09).
 - **Seats:** Three Claude Code seats: Architect and Verifier on Claude Opus, Implementer on Claude Sonnet.
 
-### 07. Stage-1 test on the Run 3 text (Oct 1, stage 1 test)
+### [07. Stage-1 test on the Run 3 text](https://github.com/vibhortayal/dark-factory-practice-results/tree/runs/07-2026-10-01-stage1-test-run3-text) (Oct 1, stage 1 test)
 
 - **What changed from the previous run:** Nothing in the mandates. A short check on stage 1 after Run 3.
 - **Why:** To see the unchanged text on stage 1 before trying changes.
@@ -96,7 +96,7 @@ Each run changed one thing in the factory (its seat instructions, a setting, or 
 - **What we did next:** Tested a change to handoff size (run 08).
 - **Seats:** Three Claude Code seats: Architect and Verifier on Claude Opus, Implementer on Claude Sonnet.
 
-### 08. Stage-1 test: fewer, larger messages (Oct 1, stage 1 test)
+### [08. Stage-1 test: fewer, larger messages](https://github.com/vibhortayal/dark-factory-practice-results/tree/runs/08-2026-10-01-stage1-test-candidate-a) (Oct 1, stage 1 test)
 
 - **What changed from the previous run:** One added sentence asking seats to send fewer, larger handoff messages.
 - **Why:** In Run 3 each handoff went out in 12 to 31 parts, and every part woke the other seat.
@@ -105,7 +105,7 @@ Each run changed one thing in the factory (its seat instructions, a setting, or 
 - **What we did next:** Tried the same idea with the full text still required (run 09).
 - **Seats:** Three Claude Code seats: Architect and Verifier on Claude Opus, Implementer on Claude Sonnet.
 
-### 09. Stage-1 test: fewer parts, full text kept (Oct 1, stage 1 test)
+### [09. Stage-1 test: fewer parts, full text kept](https://github.com/vibhortayal/dark-factory-practice-results/tree/runs/09-2026-10-01-stage1-test-full-text-parts) (Oct 1, stage 1 test)
 
 - **What changed from the previous run:** Fewer handoff parts, but each must still carry the full task and specification.
 - **Why:** To keep the benefit of run 08 without its failure.
@@ -114,7 +114,7 @@ Each run changed one thing in the factory (its seat instructions, a setting, or 
 - **What we did next:** Ran the clean attempt on the unchanged Run 3 text, with background tasks off (Run 4).
 - **Seats:** Three Claude Code seats: Architect and Verifier on Claude Opus, Implementer on Claude Sonnet.
 
-### 10. Run 4 (Oct 1, all four stages)
+### [10. Run 4](https://github.com/vibhortayal/dark-factory-practice-results/tree/runs/10-2026-10-01-run-4) (Oct 1, all four stages)
 
 - **What changed from the previous run:** Same mandates as Run 3. Background tasks switched off in the seats' settings.
 - **Why:** To remove the failure that had cost Rehearsal 1 and Run 3 a message, and get a clean run.
@@ -123,7 +123,7 @@ Each run changed one thing in the factory (its seat instructions, a setting, or 
 - **What we did next:** Repeated the run unchanged to rule out chance (Run 4b).
 - **Seats:** Three Claude Code seats: Architect and Verifier on Claude Opus, Implementer on Claude Sonnet.
 
-### 11. Run 4b (Oct 1, all four stages)
+### [11. Run 4b](https://github.com/vibhortayal/dark-factory-practice-results/tree/runs/11-2026-10-01-run-4b) (Oct 1, all four stages)
 
 - **What changed from the previous run:** Nothing. Same mandates, same settings as Run 4.
 - **Why:** To see whether Run 4's result was bad luck.
@@ -132,7 +132,7 @@ Each run changed one thing in the factory (its seat instructions, a setting, or 
 - **What we did next:** Bounded the Verifier and tried it on stage 1 (run 12).
 - **Seats:** Three Claude Code seats: Architect and Verifier on Claude Opus, Implementer on Claude Sonnet.
 
-### 12. Stage-1 test: bounded Verifier (Oct 2, stage 1 test)
+### [12. Stage-1 test: bounded Verifier](https://github.com/vibhortayal/dark-factory-practice-results/tree/runs/12-2026-10-02-stage1-test-pr52-28df31b9) (Oct 2, stage 1 test)
 
 - **What changed from the previous run:** The Verifier tests at the sizes and loads the spec states and not beyond, writes its check list first, and reports every finding in one verdict. A fix round is one BLOCK verdict, and a build under review cannot be withdrawn.
 - **Why:** Runs 4 and 4b never converged.
@@ -141,7 +141,7 @@ Each run changed one thing in the factory (its seat instructions, a setting, or 
 - **What we did next:** Tried a more lenient check: graded findings plus a short window of free testing (run 13).
 - **Seats:** Three Claude Code seats: Architect and Verifier on Claude Opus, Implementer on Claude Sonnet.
 
-### 13. Stage-1 test: graded findings (Oct 2, stage 1 test)
+### [13. Stage-1 test: graded findings](https://github.com/vibhortayal/dark-factory-practice-results/tree/runs/13-2026-10-02-stage1-test-pr52-590afd18) (Oct 2, stage 1 test)
 
 - **What changed from the previous run:** Findings graded on five levels, with only the top three blocking; 15 minutes of free testing on a stage's first build; later builds get a shorter fix check.
 - **Why:** To keep the factory moving on minor issues and still catch real ones.
@@ -150,7 +150,7 @@ Each run changed one thing in the factory (its seat instructions, a setting, or 
 - **What we did next:** Tightened the grading (run 14).
 - **Seats:** Three Claude Code seats: Architect and Verifier on Claude Opus, Implementer on Claude Sonnet.
 
-### 14. Stage-1 test: tightened grading (Oct 2, stage 1 test)
+### [14. Stage-1 test: tightened grading](https://github.com/vibhortayal/dark-factory-practice-results/tree/runs/14-2026-10-02-stage1-test-pr52-f6fc48a3) (Oct 2, stage 1 test)
 
 - **What changed from the previous run:** Any server error or any case the spec names blocks; a minor finding must state the size it exceeded. The Verifier prepares its checks while the Implementer builds.
 - **Why:** Run 13 passed real faults.
@@ -159,7 +159,7 @@ Each run changed one thing in the factory (its seat instructions, a setting, or 
 - **What we did next:** Added one rule (a value over a stated limit always blocks) and ran all four stages (Run 5).
 - **Seats:** Three Claude Code seats: Architect and Verifier on Claude Opus, Implementer on Claude Sonnet.
 
-### 15. Run 5 (Oct 2, all four stages)
+### [15. Run 5](https://github.com/vibhortayal/dark-factory-practice-results/tree/runs/15-2026-10-02-run-5) (Oct 2, all four stages)
 
 - **What changed from the previous run:** The bounded, graded mandates from runs 12 to 14.
 - **Why:** First full run since the Verifier was bounded.
@@ -170,7 +170,7 @@ Each run changed one thing in the factory (its seat instructions, a setting, or 
 
 This branch also keeps the Verifier's own check scripts (`verifier-check-scripts/`), later used to compare the apps of several runs.
 
-### 16. Stage-1 test: simpler set (Oct 2, stage 1 test)
+### [16. Stage-1 test: simpler set](https://github.com/vibhortayal/dark-factory-practice-results/tree/runs/16-2026-10-02-stage1-test-pr53-643e2307) (Oct 2, stage 1 test)
 
 - **What changed from the previous run:** Grading and free testing removed. A finding either blocks or is a note. Every check names the spec sentence it tests. Limits are tested at the last allowed and first refused value. A fix that did not fix the fault gets a BLOCK at once.
 - **Why:** Run 5 was too slow.
@@ -179,7 +179,7 @@ This branch also keeps the Verifier's own check scripts (`verifier-check-scripts
 - **What we did next:** Added a request for maintainable code and ran all four stages (Run 6).
 - **Seats:** Three Claude Code seats: Architect and Verifier on Claude Opus, Implementer on Claude Sonnet.
 
-### 17. Run 6 (Oct 2, all four stages)
+### [17. Run 6](https://github.com/vibhortayal/dark-factory-practice-results/tree/runs/17-2026-10-02-run-6) (Oct 2, all four stages)
 
 - **What changed from the previous run:** The simpler set, plus one sentence asking the Implementer to split code into small modules.
 - **Why:** Speed, and code another developer could maintain.
@@ -188,7 +188,7 @@ This branch also keeps the Verifier's own check scripts (`verifier-check-scripts
 - **What we did next:** Neutral wording, the Verifier committing its evidence, and lighter fix handoffs, tried on stage 1 (run 18).
 - **Seats:** Three Claude Code seats: Architect and Verifier on Claude Opus, Implementer on Claude Sonnet.
 
-### 18. Stage-1 test: final text on Pocketful (Oct 2, stage 1 test)
+### [18. Stage-1 test: final text on Pocketful](https://github.com/vibhortayal/dark-factory-practice-results/tree/runs/18-2026-10-02-stage1-test-pr54-pocketful) (Oct 2, stage 1 test)
 
 - **What changed from the previous run:** Neutral wording; the Verifier commits its check list and verdicts to the repository; commits that only touch records need no new verdict; fix handoffs do not repeat the whole spec.
 - **Why:** To put the evidence where judges can see it, and to make the factory clearly generic.
@@ -197,7 +197,7 @@ This branch also keeps the Verifier's own check scripts (`verifier-check-scripts
 - **What we did next:** Ran the same text, unchanged, on the other track (run 19).
 - **Seats:** Three Claude Code seats: Architect and Verifier on Claude Opus, Implementer on Claude Sonnet.
 
-### 19. Stage-1 test: final text on Tablekeeper (Oct 2, stage 1 test, other track)
+### [19. Stage-1 test: final text on Tablekeeper](https://github.com/vibhortayal/dark-factory-practice-results/tree/runs/19-2026-10-02-stage1-test-pr54-tablekeeper) (Oct 2, stage 1 test, other track)
 
 - **What changed from the previous run:** Nothing in the mandates. Only the track changed, to Tablekeeper.
 - **Why:** To show the factory is generic, not tuned to Pocketful.
@@ -206,7 +206,7 @@ This branch also keeps the Verifier's own check scripts (`verifier-check-scripts
 - **What we did next:** Ran all four Pocketful stages as the entry (Run 7).
 - **Seats:** Three Claude Code seats: Architect and Verifier on Claude Opus, Implementer on Claude Sonnet.
 
-### 20. Run 7: the submitted run (Oct 2, all four stages)
+### [20. Run 7: the submitted run](https://github.com/vibhortayal/dark-factory-practice-results/tree/runs/20-2026-10-02-run-7-submitted) (Oct 2, all four stages)
 
 - **What changed from the previous run:** Nothing. The text tested in runs 18 and 19.
 - **Why:** The entry: one dispatch, no human help.
@@ -215,7 +215,7 @@ This branch also keeps the Verifier's own check scripts (`verifier-check-scripts
 - **What we did next:** Confirmed the factory on the other track at full length (run 21), and tested background tasks once more (run 22).
 - **Seats:** Three Claude Code seats: Architect and Verifier on Claude Opus, Implementer on Claude Sonnet.
 
-### 21. Tablekeeper, all four stages (Oct 3, all four stages, other track)
+### [21. Tablekeeper, all four stages](https://github.com/vibhortayal/dark-factory-practice-results/tree/runs/21-2026-10-03-tablekeeper-four-stages) (Oct 3, all four stages, other track)
 
 - **What changed from the previous run:** Nothing in the mandates. All four stages of Tablekeeper.
 - **Why:** Run 19 covered stage 1 only.
@@ -224,7 +224,7 @@ This branch also keeps the Verifier's own check scripts (`verifier-check-scripts
 - **What we did next:** Tested whether background tasks would make it faster (run 22).
 - **Seats:** Three Claude Code seats: Architect and Verifier on Claude Opus, Implementer on Claude Sonnet.
 
-### 22. Background-task test (Oct 3, all four stages)
+### [22. Background-task test](https://github.com/vibhortayal/dark-factory-practice-results/tree/runs/22-2026-10-03-bgtasks-test) (Oct 3, all four stages)
 
 - **What changed from the previous run:** The rule against background tasks removed from the mandates, and background tasks allowed in the settings.
 - **Why:** To see whether background tasks make the factory faster.
