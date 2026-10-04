@@ -1,20 +1,20 @@
-<!-- archive-note: added 2026-10-03 by Claude for Team Nightshift's archive -->
-> **Archive copy: not a submission run.** This branch keeps Team Nightshift's record of this run (Run 5), for reference only. The submitted run is Run 7 (branch `runs/20-2026-10-02-run-7-submitted` here; public submission repository `vibhortayal/nightshift-pocketful`).
->
-> | | |
-> |---|---|
-> | Run | Run 5. Four-stage run, Claude Code seats |
-> | What this run tested | Compared with the `f6fc48a3` test: one more rule, that a value beyond a limit the spec states always blocks. The first four-stage run on the bounded, graded text |
-> | Seats | Three Band seats on Claude Code: Architect `claude-opus-5-5`, Implementer `claude-sonnet-5-5`, Verifier `claude-opus-5-5`, running on the team's Chicago VM (from `mandates/`) |
-> | When | 2026-10-02, 04:11 to 15:31 UTC |
-> | Band room | `Nightshift \| Pocketful \| Stages 1-4 \| Run 5 \| 2026-10-02` (`f83420d7`) |
-> | Mandates | PR #52 head `7fc01726` (bounded Verifier, severity grading, 15 minutes of timed hardening) |
-> | Result | Clean. All four stages accepted in 11 h 20 min, 6 rejections. The Verifier ran 900 to 1,900 checks of its own per stage |
-> | Human input after dispatch | One dispatch, no intervention |
-> | Why it was not submitted | Not chosen: Runs 6 and 7 used a simpler mandate set that was four times faster and produced more maintainable code. Run 5 kept its whole service in one file per stage |
-> | Room record | the room downloads and whole-room captures are kept by the team outside this repository |
->
-> The text below this note is unchanged from the run, unless it is marked as added for the archive.
+<!-- archive-note -->
+> **Not a submission run.** This is one of Team Nightshift's practice runs, rehearsals or tests. The submitted run is Run 7, branch `runs/20-2026-10-02-run-7-submitted`.
+
+## 15. Run 5 (Oct 2, all four stages)
+
+- **What changed from the previous run:** The bounded, graded mandates from runs 12 to 14.
+- **Why:** First full run since the Verifier was bounded.
+- **Result:** Clean. All four stages accepted in 11 h 20 min, 6 BLOCK verdicts, about $116 at list price. The app was the most thoroughly tested, but each stage was one large file, and the free testing and growing check lists made it slow.
+- **Conclusion:** Bounded verification finishes, but this version was far too slow and over-engineered.
+- **What we did next:** Simplified the mandates: no grading, no free testing, every check tied to a sentence of the spec (run 16).
+- **Seats:** Three Claude Code seats: Architect and Verifier on Claude Opus, Implementer on Claude Sonnet.
+
+This branch also keeps the Verifier's own check scripts (`verifier-check-scripts/`), later used to compare the apps of several runs.
+
+The whole sequence of runs is on the `main` branch of this repository.
+
+Below this line: the run's own text, unchanged.
 
 ---
 
