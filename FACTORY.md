@@ -1,20 +1,18 @@
-<!-- archive-note: added 2026-10-03 by Claude for Team Nightshift's archive -->
-> **Archive copy: not a submission run.** This branch keeps Team Nightshift's record of this run (Run 3), for reference only. The submitted run is Run 7 (branch `runs/20-2026-10-02-run-7-submitted` here; public submission repository `vibhortayal/nightshift-pocketful`).
->
-> | | |
-> |---|---|
-> | Run | Run 3. Four-stage run, Claude Code seats |
-> | What this run tested | Compared with Run 2: the Run 3 set. No waivers (any contradiction of the spec blocks), at most five fix rounds per stage, an Implementer self-check against every requirement, an evidence header on every message, and seats ending their turn after each handoff instead of waiting inside it |
-> | Seats | Three Band seats on Claude Code: Architect `claude-opus-5-5`, Implementer `claude-sonnet-5-5`, Verifier `claude-opus-5-5`, running on the team's Chicago VM (from `mandates/`) |
-> | When | 2026-10-01, 06:35 to 15:40 UTC |
-> | Band room | `Nightshift \| Pocketful \| Stages 1-4 \| Run 3 \| 2026-09-30` (`b352896e`) |
-> | Mandates | the Run 3 set (team repo `nightshift-factory`, commit `f3cbc34`) |
-> | Result | All four stages accepted. About 4.5 hours of work plus a 4 h 37 min stall. 4 rejections |
-> | Human input after dispatch | One intervention: the Verifier was restarted at 14:29 UTC on the owner's word. Its stage-3 PASS, decided at 09:52, was never posted (a failed background task dropped the message) |
-> | Why it was not submitted | Not clean: one intervention |
-> | Room record | the room downloads and whole-room captures are kept by the team outside this repository |
->
-> The text below this note is unchanged from the run, unless it is marked as added for the archive.
+<!-- archive-note -->
+> **Not a submission run.** This is one of Team Nightshift's practice runs, rehearsals or tests. The submitted run is Run 7, branch `runs/20-2026-10-02-run-7-submitted`.
+
+## 06. Run 3 (Oct 1, all four stages)
+
+- **What changed from the previous run:** The Run 2 lessons above, all in the mandates.
+- **Why:** To get a clean four-stage run with a stricter check.
+- **Result:** All four stages accepted, but the Verifier's stage-3 pass was never posted: a background task failed, despite the written rule. The factory waited 4 h 37 min until the Verifier was restarted.
+- **Conclusion:** A written rule is not enforcement. The background-task failure had to be removed at the source.
+- **What we did next:** Switched background tasks off in the seats' settings, and tried shorter handoff messages on stage 1 first (runs 07 to 09).
+- **Seats:** Three Claude Code seats: Architect and Verifier on Claude Opus, Implementer on Claude Sonnet.
+
+The whole sequence of runs is on the `main` branch of this repository.
+
+Below this line: the run's own text, unchanged.
 
 ---
 
