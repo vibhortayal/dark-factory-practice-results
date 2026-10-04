@@ -1,19 +1,18 @@
-<!-- archive-note: added 2026-10-03 by Claude for Team Nightshift's archive -->
-> **This is the submitted run.** Team Nightshift entered Run 7 in the Band Dark Factory hackathon. The public submission repository is `vibhortayal/nightshift-pocketful`; this branch is the private archive copy of the run's result repository, with its history unchanged.
->
-> | | |
-> |---|---|
-> | Run | Run 7. Four-stage run, Claude Code seats |
-> | What this run tested | Compared with the two stage-1 tests of the same text: all four Pocketful stages, dispatched by the owner, in the room the judges read |
-> | Seats | Three Band seats on Claude Code: Architect `claude-opus-5-5`, Implementer `claude-sonnet-5-5`, Verifier `claude-opus-5-5`, running on the team's Chicago VM (from `mandates/`) |
-> | When | 2026-10-02, 21:11 to 23:38 UTC |
-> | Band room | `Nightshift \| Pocketful \| Stages 1-4 \| Run 7 \| 2026-10-02` (`a951641e`) |
-> | Mandates | PR #54 head `91b753b3`, merged to `main` of `nightshift-factory` as `ee236a1` (the submitted set) |
-> | Result | Clean. All four stages accepted in 2 h 27 min, 4 rejections |
-> | Human input after dispatch | One dispatch, no intervention |
-> | Room record | the room downloads and whole-room captures are kept by the team outside this repository |
->
-> The text below this note is unchanged from the run, unless it is marked as added for the archive.
+<!-- archive-note -->
+> **This is the run Team Nightshift submitted.** Its public repository is `vibhortayal/nightshift-pocketful`.
+
+## 20. Run 7: the submitted run (Oct 2, all four stages)
+
+- **What changed from the previous run:** Nothing. The text tested in runs 18 and 19.
+- **Why:** The entry: one dispatch, no human help.
+- **Result:** Clean. All four stages accepted in 2 h 27 min, 4 BLOCK verdicts, about $59.
+- **Conclusion:** This is the submitted run.
+- **What we did next:** Confirmed the factory on the other track at full length (run 21), and tested background tasks once more (run 22).
+- **Seats:** Three Claude Code seats: Architect and Verifier on Claude Opus, Implementer on Claude Sonnet.
+
+The whole sequence of runs is on the `main` branch of this repository.
+
+Below this line: the run's own text, unchanged.
 
 ---
 
