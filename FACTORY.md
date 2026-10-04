@@ -1,20 +1,18 @@
-<!-- archive-note: added 2026-10-03 by Claude for Team Nightshift's archive -->
-> **Archive copy: not a submission run.** This branch keeps Team Nightshift's record of this run (Stage-1 test of PR #53 head 643e2307), for reference only. The submitted run is Run 7 (branch `runs/20-2026-10-02-run-7-submitted` here; public submission repository `vibhortayal/nightshift-pocketful`).
->
-> | | |
-> |---|---|
-> | Run | Stage-1 test of PR #53 head 643e2307. Stage-1 test in a scratch room |
-> | What this run tested | Compared with Run 5's text: the simpler set. Severity scale, timed free testing and note routing removed; two kinds of finding (blocking or note); every check names the spec sentence it tests; value limits tested at the last allowed and first refused value; a fix that did not fix the fault is rejected at once |
-> | Seats | Three Band seats on Claude Code: Architect `claude-opus-5-5`, Implementer `claude-sonnet-5-5`, Verifier `claude-opus-5-5`, running on the team's Chicago VM (from `mandates/`) |
-> | When | 2026-10-02, 15:46 to 16:40 UTC |
-> | Band room | scratch room `8c1d7878`, opened by Claude's Team session |
-> | Mandates | PR #53 head `643e2307` (simpler set: no severity scale, no free testing, fail fast) |
-> | Result | Stage 1 accepted in 53 minutes, 2 rejections |
-> | Human input after dispatch | Dispatched by Claude's Team session, not by the owner |
-> | Why it was not submitted | A test of mandate wording, not a four-stage run |
-> | Room record | the room downloads and whole-room captures are kept by the team outside this repository |
->
-> The text below this note is unchanged from the run, unless it is marked as added for the archive.
+<!-- archive-note -->
+> **Not a submission run.** This is one of Team Nightshift's practice runs, rehearsals or tests. The submitted run is Run 7, branch `runs/20-2026-10-02-run-7-submitted`.
+
+## 16. Stage-1 test: simpler set (Oct 2, stage 1 test)
+
+- **What changed from the previous run:** Grading and free testing removed. A finding either blocks or is a note. Every check names the spec sentence it tests. Limits are tested at the last allowed and first refused value. A fix that did not fix the fault gets a BLOCK at once.
+- **Why:** Run 5 was too slow.
+- **Result:** Stage 1 accepted in 53 minutes, two BLOCK verdicts.
+- **Conclusion:** Works, with far less machinery.
+- **What we did next:** Added a request for maintainable code and ran all four stages (Run 6).
+- **Seats:** Three Claude Code seats: Architect and Verifier on Claude Opus, Implementer on Claude Sonnet.
+
+The whole sequence of runs is on the `main` branch of this repository.
+
+Below this line: the run's own text, unchanged.
 
 ---
 
