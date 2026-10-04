@@ -1,20 +1,18 @@
-<!-- archive-note: added 2026-10-03 by Claude for Team Nightshift's archive -->
-> **Archive copy: not a submission run.** This branch keeps Team Nightshift's record of this run (Practice run R3), for reference only. The submitted run is Run 7 (branch `runs/20-2026-10-02-run-7-submitted` here; public submission repository `vibhortayal/nightshift-pocketful`).
->
-> | | |
-> |---|---|
-> | Run | Practice run R3. Practice preflight, stage 1, before the Claude Code seats |
-> | What this run tested | A preflight of the next practice set-up, after R2. It was blocked, and the team moved to Claude Code seats in Band |
-> | Seats | Not recorded in this branch. These practice seats predate the Claude Code seats |
-> | When | 2026-09-29 |
-> | Band room | not a Band run room on the Claude Code seats |
-> | Mandates | practice mandates (not kept in this branch) |
-> | Result | One commit with a stage-1 implementation. Classified as blocked preflight evidence |
-> | Human input after dispatch | Not a clean autonomous run |
-> | Why it was not submitted | A blocked preflight from practice. It predates the factory that was submitted |
-> | Room record | the room downloads and whole-room captures are kept by the team outside this repository |
->
-> The text below this note is unchanged from the run, unless it is marked as added for the archive.
+<!-- archive-note -->
+> **Not a submission run.** This is one of Team Nightshift's practice runs, rehearsals or tests. The submitted run is Run 7, branch `runs/20-2026-10-02-run-7-submitted`.
+
+## 03. Practice run R3 (Sep 29, preflight, practice)
+
+- **What changed from the previous run:** A preflight of the next practice set-up.
+- **Why:** To check the set-up before committing to a longer run.
+- **Result:** Blocked early. One commit.
+- **Conclusion:** The practice set-up was not going to give a clean, unattended run.
+- **What we did next:** Moved to three Claude Code seats in Band, on a dedicated cloud server (Rehearsal 1).
+- **Seats:** Early practice seats (not recorded in the branch).
+
+The whole sequence of runs is on the `main` branch of this repository.
+
+Below this line: the run's own text, unchanged.
 
 ---
 
