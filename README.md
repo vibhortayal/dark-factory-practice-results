@@ -1,20 +1,18 @@
-<!-- archive-note: added 2026-10-03 by Claude for Team Nightshift's archive -->
-> **Archive copy: not a submission run.** This branch keeps Team Nightshift's record of this run (Stage-1 test of PR #54 on Pocketful), for reference only. The submitted run is Run 7 (branch `runs/20-2026-10-02-run-7-submitted` here; public submission repository `vibhortayal/nightshift-pocketful`).
->
-> | | |
-> |---|---|
-> | Run | Stage-1 test of PR #54 on Pocketful. Stage-1 test in a scratch room |
-> | What this run tested | Compared with Run 6's text: neutral wording (no web-service terms), the Verifier committing its check list and verdicts under `verification/`, commits that only touch records needing no new verdict, and fix handoffs that do not repeat the whole spec |
-> | Seats | Three Band seats on Claude Code: Architect `claude-opus-5-5`, Implementer `claude-sonnet-5-5`, Verifier `claude-opus-5-5`, running on the team's Chicago VM (from `mandates/`) |
-> | When | 2026-10-02, 19:45 to 20:27 UTC |
-> | Band room | scratch room `127d2fcc`, opened by Claude's Team session |
-> | Mandates | PR #54 head `91b753b3`, merged to `main` of `nightshift-factory` as `ee236a1` (the submitted set) |
-> | Result | Stage 1 accepted in 42 minutes, 1 rejection. The Verifier's commits touched only `verification/` |
-> | Human input after dispatch | Dispatched by Claude's Team session, not by the owner |
-> | Why it was not submitted | The stage-1 test of the text Run 7 then ran |
-> | Room record | the room downloads and whole-room captures are kept by the team outside this repository |
->
-> The text below this note is unchanged from the run, unless it is marked as added for the archive.
+<!-- archive-note -->
+> **Not a submission run.** This is one of Team Nightshift's practice runs, rehearsals or tests. The submitted run is Run 7, branch `runs/20-2026-10-02-run-7-submitted`.
+
+## 18. Stage-1 test: final text on Pocketful (Oct 2, stage 1 test)
+
+- **What changed from the previous run:** Neutral wording; the Verifier commits its check list and verdicts to the repository; commits that only touch records need no new verdict; fix handoffs do not repeat the whole spec.
+- **Why:** To put the evidence where judges can see it, and to make the factory clearly generic.
+- **Result:** Stage 1 accepted in 42 minutes, one BLOCK, with the Verifier's evidence in the repository.
+- **Conclusion:** Works.
+- **What we did next:** Ran the same text, unchanged, on the other track (run 19).
+- **Seats:** Three Claude Code seats: Architect and Verifier on Claude Opus, Implementer on Claude Sonnet.
+
+The whole sequence of runs is on the `main` branch of this repository.
+
+Below this line: the run's own text, unchanged.
 
 ---
 
